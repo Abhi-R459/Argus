@@ -83,7 +83,7 @@ Both developers, together, before branching:
 **Branch structure (satisfies the course's explicit `main` + `dev` requirement, while keeping personal isolation intact):**
 - `main` — protected, production-stable; updated only from `dev` at integration checkpoints, never directly
 - `dev` — the shared integration branch the course rubric explicitly asks for; this is where both personal branches merge via PR before anything reaches `main`
-- `dev/abhinav-core` and `dev/nidhurshek-app` — long-lived personal branches, each merging into `dev` (never directly into `main`) at the end of every week
+- `feature/abhinav-core` and `feature/nidhurshek-app` — long-lived personal branches, each merging into `dev` (never directly into `main`) at the end of every week. Git cannot use `dev/...` feature branches while a required branch named `dev` already exists
 - The repository is private; both students are GitHub collaborators. Keep at least 10 meaningful commits, use descriptive imperative messages, and merge weekly work to `dev` through pull requests
 - `.gitignore` is committed before any source or secrets. `.env`, keys, database dumps containing data, node modules, virtual environments, and generated reports are never committed
 - Directory ownership mirrors the task split exactly, so file-level merge conflicts are structurally rare:
