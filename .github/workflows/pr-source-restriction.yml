@@ -1,4 +1,4 @@
-name: Restrict PR Source to Main
+name: Restrict main PRs to source branch dev
 
 on:
   pull_request:
