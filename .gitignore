@@ -1,0 +1,33 @@
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+keys/
+anchor/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+
+# Node / frontend
+node_modules/
+dist/
+.vite/
+
+# Database backups and local data
+backups/
+*.dump
+*.sql.gz
+*.sqlite*
+
+# Generated reports and operating-system files
+reports/
+coverage/
+.DS_Store
+Thumbs.db
