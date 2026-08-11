@@ -3,7 +3,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .database import init_engines, dispose_engines
-from .routers import health, auth, employees
+from .routers import health, auth, employees, audits
 
 
 @asynccontextmanager
@@ -17,7 +17,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Argus API",
     description="Tamper-evident, self-verifying audit trail engine for PostgreSQL",
-    version="0.1.0",
+    version="0.2.0",
     lifespan=lifespan,
 )
 
@@ -37,3 +37,4 @@ app.add_middleware(
 app.include_router(health.router, prefix="/api")
 app.include_router(auth.router, prefix="/api")
 app.include_router(employees.router, prefix="/api")
+app.include_router(audits.router, prefix="/api")
