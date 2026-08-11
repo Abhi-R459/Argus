@@ -8,6 +8,8 @@ import Dashboard from './pages/hr/Dashboard';
 import EmployeeList from './pages/hr/EmployeeList';
 import AuditorOverview from './pages/auditor/AuditorOverview';
 import AuditLogPage from './pages/auditor/AuditLogPage';
+import ActivityPage from './pages/auditor/ActivityPage';
+import AnalyticsPage from './pages/auditor/AnalyticsPage';
 
 function App() {
   return (
@@ -58,11 +60,8 @@ function App() {
               </div>
             } />
             <Route path="log" element={<AuditLogPage />} />
-            <Route path="activity" element={
-              <div className="p-6 text-slate-500 text-sm animate-in fade-in">
-                Activity &amp; Risk Panel — coming in Week 7 (DASH-013)
-              </div>
-            } />
+            <Route path="activity" element={<ActivityPage />} />
+            <Route path="analytics" element={<AnalyticsPage />} />
           </Route>
         </Routes>
       </BrowserRouter>

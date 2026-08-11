@@ -10,6 +10,7 @@ export default function AuditorLayout() {
     { name: 'Audit Chain', path: '/auditor/chain', icon: GitBranch },
     { name: 'Audit Log', path: '/auditor/log', icon: FileSearch },
     { name: 'Activity & Risk', path: '/auditor/activity', icon: AlertTriangle },
+    { name: 'System Analytics', path: '/auditor/analytics', icon: Activity },
   ];
 
   return (
