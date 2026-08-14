@@ -3,6 +3,7 @@
 
 VERIFY-001: CLI skeleton with argparse subcommands.
 VERIFY-004: Checkpoint creation with configurable interval.
+VERIFY-006: Parallel checkpoint verification engine.
 
 This standalone tool walks the audit_log hash chain, recomputes every hash,
 detects tampering/gaps/orphans, creates and stores signed checkpoints, and
@@ -21,6 +22,7 @@ Usage::
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import hashlib
 import json
 import logging
@@ -88,8 +90,88 @@ def get_connection(db_url: str | None = None) -> Any:
 # Subcommand handlers
 # ===================================================================
 
+def _build_segments(
+    checkpoints: list[dict], start_seq: int
+) -> list[tuple[int, int | None]]:
+    """Builds (start_seq, end_seq) segment tuples from checkpoint boundaries.
+
+    Each tuple is an exclusive-lower / inclusive-upper pair that maps directly
+    onto ``verify_chain(start_seq=…, end_seq=…)``.
+
+    Args:
+        checkpoints: Ordered list of checkpoint dicts (each has 'sequence_id').
+        start_seq: The global start sequence (usually 0).
+
+    Returns:
+        List of (start_seq, end_seq) tuples covering the full chain.  The
+        last tuple always has ``end_seq=None`` so that any rows appended after
+        the last checkpoint are still verified.
+    """
+    segments: list[tuple[int, int | None]] = []
+    prev = start_seq
+    for cp in checkpoints:
+        cp_seq = cp['sequence_id']
+        if cp_seq > prev:
+            segments.append((prev, cp_seq))
+            prev = cp_seq
+    # Final open-ended segment covers rows beyond the last checkpoint.
+    segments.append((prev, None))
+    return segments
+
+
+def _print_verification_report(
+    result: Any,
+    mode: str = "sequential",
+    num_segments: int = 1,
+    workers_used: int = 1,
+) -> None:
+    """Prints the standard chain verification report to stdout."""
+    print(f"\n{'='*60}")
+    print("ARGUS CHAIN VERIFICATION REPORT")
+    print(f"{'='*60}")
+    print(f"Mode                   : {mode}")
+    if mode == "parallel":
+        print(f"Segments               : {num_segments}")
+        print(f"Workers                : {workers_used}")
+    print(f"Total entries verified : {result.total_entries}")
+    print(f"Hash mismatches        : {len(result.mismatches)}")
+    print(f"Sequence gaps          : {len(result.gaps)}")
+    print(f"Orphaned entries       : {len(result.orphans)}")
+    print(f"Chain status           : {'✅ VALID' if result.is_valid else '❌ TAMPERED'}")
+    print(f"{'='*60}\n")
+
+    if result.mismatches:
+        print("HASH MISMATCHES:")
+        for m in result.mismatches:
+            print(f"  seq={m['sequence_id']}: expected={m['expected'][:16]}… actual={m['actual'][:16]}…")
+
+    if result.gaps:
+        print("SEQUENCE GAPS:")
+        for g in result.gaps:
+            print(f"  expected seq={g['expected_seq']}, found seq={g['actual_seq']}")
+
+    if result.orphans:
+        print("ORPHANED ENTRIES:")
+        for o in result.orphans:
+            print(f"  seq={o['sequence_id']}: expected_prev={o['expected_prev'][:16]}… actual_prev={o['actual_prev'][:16]}…")
+
+
 def _cmd_verify_chain(args: argparse.Namespace) -> int:
-    """Handle the ``verify-chain`` subcommand.
+    """Handle the ``verify-chain`` subcommand (VERIFY-001 / VERIFY-006).
+
+    Supports both sequential (default) and parallel modes.
+
+    In **sequential** mode the chain is walked in a single process exactly as
+    before (backward-compatible).
+
+    In **parallel** mode (``--parallel``):
+    1. Checkpoint boundaries are fetched from ``chain_checkpoints``.
+    2. The audit_log is split into segments by those boundaries.
+    3. ``verify_segment()`` is dispatched per segment via
+       ``ProcessPoolExecutor``.
+    4. Results are merged with ``merge_results()``.
+    5. Cross-segment boundary orphan checks are run sequentially after all
+       workers finish to catch hash-link breaks at segment joins.
 
     Args:
         args: Parsed CLI arguments.
@@ -99,13 +181,27 @@ def _cmd_verify_chain(args: argparse.Namespace) -> int:
     """
     # Lazy imports so the CLI skeleton loads quickly and --help is instant.
     try:
-        from db.cli.hash_verifier import verify_chain, VerificationResult
+        from db.cli.hash_verifier import (
+            verify_chain,
+            verify_segment,
+            merge_results,
+            VerificationResult,
+        )
+        from db.cli.checkpoint_store import get_all_checkpoints
     except ImportError:
-        from hash_verifier import verify_chain, VerificationResult  # type: ignore[no-redef]
+        from hash_verifier import (  # type: ignore[no-redef]
+            verify_chain,
+            verify_segment,
+            merge_results,
+            VerificationResult,
+        )
+        from checkpoint_store import get_all_checkpoints  # type: ignore[no-redef]
 
     conn = get_connection(args.db_url)
     try:
-        # Dry-run: just check if there are any entries
+        # ------------------------------------------------------------------
+        # Dry-run: just count entries and exit.
+        # ------------------------------------------------------------------
         if args.dry_run:
             with conn.cursor() as cur:
                 cur.execute("SELECT COUNT(*) FROM audit_log")
@@ -117,39 +213,147 @@ def _cmd_verify_chain(args: argparse.Namespace) -> int:
                 print(f"Found {count} audit log entries (dry-run, skipping verification)")
                 return 0
 
-        logger.info("Starting chain verification …")
-        result: VerificationResult = verify_chain(
-            conn,
-            start_seq=args.start_seq,
-            page_size=args.page_size,
+        # ------------------------------------------------------------------
+        # Determine mode: parallel when --parallel is set AND checkpoints exist.
+        # ------------------------------------------------------------------
+        use_parallel = getattr(args, 'parallel', False) and not getattr(args, 'sequential', False)
+
+        if use_parallel:
+            checkpoints = get_all_checkpoints(conn)
+            if not checkpoints:
+                logger.warning(
+                    "No checkpoints found — parallel mode requires checkpoints. "
+                    "Falling back to sequential verification."
+                )
+                use_parallel = False
+
+        # ------------------------------------------------------------------
+        # Sequential path (default / fallback).
+        # ------------------------------------------------------------------
+        if not use_parallel:
+            logger.info("Starting sequential chain verification …")
+            result: VerificationResult = verify_chain(
+                conn,
+                start_seq=args.start_seq,
+                page_size=args.page_size,
+            )
+            _print_verification_report(result, mode="sequential")
+            return 0 if result.is_valid else 1
+
+        # ------------------------------------------------------------------
+        # Parallel path.
+        # ------------------------------------------------------------------
+        db_url: str = args.db_url or os.environ.get("DATABASE_URL", "")
+        max_workers: int = args.workers if args.workers > 0 else None  # type: ignore[assignment]
+        page_size: int = args.page_size
+
+        segments = _build_segments(checkpoints, start_seq=args.start_seq)
+        num_segments = len(segments)
+        actual_workers = min(
+            num_segments,
+            max_workers if max_workers is not None else os.cpu_count() or 1,
         )
 
-        # Print summary
-        print(f"\n{'='*60}")
-        print("ARGUS CHAIN VERIFICATION REPORT")
-        print(f"{'='*60}")
-        print(f"Total entries verified : {result.total_entries}")
-        print(f"Hash mismatches        : {len(result.mismatches)}")
-        print(f"Sequence gaps          : {len(result.gaps)}")
-        print(f"Orphaned entries       : {len(result.orphans)}")
-        print(f"Chain status           : {'✅ VALID' if result.is_valid else '❌ TAMPERED'}")
-        print(f"{'='*60}\n")
+        logger.info(
+            "Starting parallel chain verification: %d segment(s) across up to %d worker(s) …",
+            num_segments,
+            actual_workers,
+        )
 
-        if result.mismatches:
-            print("HASH MISMATCHES:")
-            for m in result.mismatches:
-                print(f"  seq={m['sequence_id']}: expected={m['expected'][:16]}… actual={m['actual'][:16]}…")
+        # Submit all segments concurrently.  Each worker opens its own
+        # DB connection (psycopg2 connections are not process-safe).
+        # We intentionally do NOT pass the seed hash at dispatch time — each
+        # segment is verified internally first; cross-segment continuity is
+        # checked sequentially after all workers finish (see below).
+        segment_results: list[VerificationResult] = [None] * num_segments  # type: ignore[list-item]
 
-        if result.gaps:
-            print("SEQUENCE GAPS:")
-            for g in result.gaps:
-                print(f"  expected seq={g['expected_seq']}, found seq={g['actual_seq']}")
+        with concurrent.futures.ProcessPoolExecutor(max_workers=actual_workers) as executor:
+            future_to_idx = {
+                executor.submit(
+                    verify_segment,
+                    db_url,
+                    seg_start,
+                    seg_end,
+                    '0' * 64 if seg_start == args.start_seq else '',  # seed bootstrapped internally
+                    page_size,
+                ): idx
+                for idx, (seg_start, seg_end) in enumerate(segments)
+            }
 
-        if result.orphans:
-            print("ORPHANED ENTRIES:")
-            for o in result.orphans:
-                print(f"  seq={o['sequence_id']}: expected_prev={o['expected_prev'][:16]}… actual_prev={o['actual_prev'][:16]}…")
+            for future in concurrent.futures.as_completed(future_to_idx):
+                idx = future_to_idx[future]
+                try:
+                    segment_results[idx] = future.result()
+                    logger.debug(
+                        "Segment %d/%d complete: %d entries, valid=%s",
+                        idx + 1,
+                        num_segments,
+                        segment_results[idx].total_entries,
+                        segment_results[idx].is_valid,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    logger.error("Segment %d worker raised: %s", idx + 1, exc)
+                    # Return a synthetic failed result so merging still works.
+                    seg_start, seg_end = segments[idx]
+                    segment_results[idx] = VerificationResult(
+                        is_valid=False,
+                        total_entries=0,
+                        orphans=[{
+                            'sequence_id': seg_start,
+                            'expected_prev': '(unknown)',
+                            'actual_prev': f'worker_error: {exc}',
+                        }],
+                    )
 
+        # ------------------------------------------------------------------
+        # Cross-segment continuity check.
+        # After all workers finish, verify that each segment's last hash
+        # matches the next segment's first row's previous_hash.
+        # This is done sequentially in the parent process using the
+        # last_computed_hash carried back from each worker.
+        # ------------------------------------------------------------------
+        cross_segment_orphans: list[dict] = []
+        for i in range(1, len(segment_results)):
+            prev_result = segment_results[i - 1]
+            curr_result = segment_results[i]
+            if (
+                prev_result.last_sequence_id >= 0
+                and curr_result.last_sequence_id >= 0
+                and curr_result.total_entries > 0
+            ):
+                # Fetch the first row of the current segment to get its previous_hash.
+                seg_start_seq, _ = segments[i]
+                with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                    cur.execute(
+                        "SELECT sequence_id, previous_hash FROM audit_log "
+                        "WHERE sequence_id > %s ORDER BY sequence_id LIMIT 1",
+                        (seg_start_seq,),
+                    )
+                    first_row = cur.fetchone()
+
+                if first_row and first_row['previous_hash'] != prev_result.last_computed_hash:
+                    cross_segment_orphans.append({
+                        'sequence_id': first_row['sequence_id'],
+                        'expected_prev': prev_result.last_computed_hash,
+                        'actual_prev': first_row['previous_hash'],
+                        'note': 'cross-segment boundary break',
+                    })
+
+        # Merge all segment results into a unified report.
+        result = merge_results(segment_results)
+
+        # Fold in any cross-segment boundary orphans.
+        if cross_segment_orphans:
+            result.orphans.extend(cross_segment_orphans)
+            result.orphans.sort(key=lambda x: x.get('sequence_id', 0))
+            result.is_valid = False
+
+        _print_verification_report(
+            result,
+            mode="parallel",
+            num_segments=num_segments,
+            workers_used=actual_workers,
+        )
         return 0 if result.is_valid else 1
 
     finally:
@@ -478,6 +682,34 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=500,
         help="Batch size for keyset pagination (default: 500)",
+    )
+
+    # VERIFY-006: parallel / sequential mode flags
+    mode_group = p_verify.add_mutually_exclusive_group()
+    mode_group.add_argument(
+        "--parallel",
+        action="store_true",
+        default=False,
+        help=(
+            "Verify segments in parallel using ProcessPoolExecutor, "
+            "bounded by checkpoint boundaries (requires checkpoints to exist)."
+        ),
+    )
+    mode_group.add_argument(
+        "--sequential",
+        action="store_true",
+        default=False,
+        help="Force sequential verification even when checkpoints exist (default).",
+    )
+    p_verify.add_argument(
+        "--workers",
+        type=int,
+        default=0,
+        metavar="N",
+        help=(
+            "Maximum number of worker processes for --parallel mode. "
+            "0 (default) uses os.cpu_count()."
+        ),
     )
 
     # ---- create-checkpoint ----

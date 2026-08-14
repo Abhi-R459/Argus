@@ -121,3 +121,30 @@ def compute_checkpoint_hash(entry_hashes: list[str]) -> str:
     """
     concatenated = "".join(entry_hashes)
     return hashlib.sha256(concatenated.encode("utf-8")).hexdigest()
+
+
+def get_all_checkpoints(conn: Any) -> list[dict]:
+    """Retrieves all checkpoint rows ordered by sequence_id.
+
+    Used by the parallel verification engine to derive segment boundaries.
+    Each checkpoint's ``sequence_id`` marks the end (inclusive) of a segment.
+
+    Args:
+        conn: A psycopg2 database connection object.
+
+    Returns:
+        list[dict]: All checkpoint rows as dicts, ordered by sequence_id
+            ascending.  Empty list if no checkpoints exist.
+
+    Raises:
+        psycopg2.Error: If a database error occurs.
+    """
+    query = (
+        "SELECT checkpoint_id, sequence_id, checkpoint_hash, signature, created_at "
+        "FROM chain_checkpoints "
+        "ORDER BY sequence_id"
+    )
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(query)
+        rows = cur.fetchall()
+        return [dict(row) for row in rows]
