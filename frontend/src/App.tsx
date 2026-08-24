@@ -10,6 +10,7 @@ import AuditorOverview from './pages/auditor/AuditorOverview';
 import AuditLogPage from './pages/auditor/AuditLogPage';
 import ActivityPage from './pages/auditor/ActivityPage';
 import AnalyticsPage from './pages/auditor/AnalyticsPage';
+import TimeTravelPage from './pages/auditor/TimeTravelPage';
 
 function App() {
   return (
@@ -60,6 +61,7 @@ function App() {
               </div>
             } />
             <Route path="log" element={<AuditLogPage />} />
+            <Route path="time-travel" element={<TimeTravelPage />} />
             <Route path="activity" element={<ActivityPage />} />
             <Route path="analytics" element={<AnalyticsPage />} />
           </Route>

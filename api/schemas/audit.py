@@ -70,3 +70,19 @@ class SuspiciousReviewResponse(BaseModel):
     flag_id: int
     reviewed_by_user_id: int
     reviewed_at: datetime
+
+
+# ─── Time-Travel ───────────────────────────────────────────────────────────────
+
+class TimeTravelResponse(BaseModel):
+    """Response from GET /api/employees/{id}/time-travel."""
+
+    employee_id: int
+    full_name: str
+    email: str
+    role_title: str
+    department_name: str
+    salary: float
+    date_hired: datetime
+    is_active: bool
+    as_of: datetime

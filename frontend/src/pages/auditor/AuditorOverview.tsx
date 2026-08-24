@@ -1,6 +1,7 @@
 import AnchorStatus from '../../components/auditor/AnchorStatus';
 import ChainVisualization from '../../components/auditor/ChainVisualization';
 import VerificationControl from '../../components/auditor/VerificationControl';
+import ExportControl from '../../components/auditor/ExportControl';
 import {
   getAuditChain,
   getAnchorStatus,
@@ -15,13 +16,11 @@ export default function AuditorOverview() {
   return (
     <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 space-y-6">
 
-      {/* Top row: VerificationControl (real API) + AnchorStatus (mocked) */}
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-        {/* VerificationControl calls POST /api/verify for real */}
+      {/* Top row: VerificationControl, AnchorStatus, and ExportControl */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <VerificationControl />
-
-        {/* AnchorStatus still mocked — real endpoint lands Week 7 */}
         <AnchorStatus data={anchorData} />
+        <ExportControl />
       </div>
 
       {/* Main content: Chain view + suspicious flags */}

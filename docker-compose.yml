@@ -19,5 +19,31 @@ services:
       timeout: 5s
       retries: 5
 
+  api:
+    build:
+      context: ./api
+    container_name: argus-api
+    ports:
+      - '8000:8000'
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:password@db:5432/argus
+      # Clerk secrets should be provided via .env file or environment variables
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - .env
+
+  frontend:
+    build:
+      context: ./frontend
+    container_name: argus-frontend
+    ports:
+      - '80:80'
+    depends_on:
+      - api
+    # Optionally map environment variables to Vite using --build-arg if needed
+    # For now relying on standard build
+
 volumes:
   pgdata:

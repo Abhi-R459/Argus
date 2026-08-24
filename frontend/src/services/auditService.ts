@@ -11,7 +11,7 @@
  * until those real endpoints land in Weeks 7–8.
  */
 
-import { fetchWithAuth } from '../lib/api';
+import { fetchWithAuth, API_BASE_URL } from '../lib/api';
 
 // ─── Types (mirror api_contract.md §4) ────────────────────────────────────────
 
@@ -108,4 +108,73 @@ export async function reviewSuspiciousFlag(
   getToken: () => Promise<string | null>,
 ): Promise<SuspiciousReviewResponse> {
   return fetchWithAuth(`/suspicious-activity/${flagId}/review`, { method: 'POST' }, getToken);
+}
+
+// ─── API-009: Time-Travel ─────────────────────────────────────────────────────
+
+export interface TimeTravelResult {
+  employee_id: number;
+  full_name: string;
+  email: string;
+  role_title: string;
+  department_name: string;
+  salary: number;
+  date_hired: string; // ISO timestamp
+  is_active: boolean;
+  as_of: string; // ISO timestamp
+}
+
+export async function fetchTimeTravelState(
+  employeeId: number,
+  timestamp: string,
+  getToken: () => Promise<string | null>,
+): Promise<TimeTravelResult> {
+  return fetchWithAuth(`/employees/${employeeId}/time-travel?timestamp=${encodeURIComponent(timestamp)}`, {}, getToken);
+}
+
+// ─── INT-006: Signed JSON Evidence Export ─────────────────────────────────────
+
+export async function downloadSignedEvidence(
+  getToken: () => Promise<string | null>,
+): Promise<void> {
+  const token = await getToken();
+  const headers = new Headers();
+  if (token) {
+    headers.set('Authorization', `Bearer ${token}`);
+  }
+
+  // Use raw fetch to get the blob directly
+  const response = await fetch(`${API_BASE_URL}/audit-logs/export`, { headers });
+  
+  if (!response.ok) {
+    let errorDetail = 'Failed to export evidence';
+    try {
+      const errorData = await response.json();
+      errorDetail = errorData.detail || errorDetail;
+    } catch {
+      // Ignore
+    }
+    throw new Error(errorDetail);
+  }
+
+  const blob = await response.blob();
+  
+  // Extract filename from Content-Disposition if possible
+  let filename = `argus_evidence_${new Date().toISOString()}.json`;
+  const disposition = response.headers.get('Content-Disposition');
+  if (disposition && disposition.indexOf('filename=') !== -1) {
+    const matches = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/.exec(disposition);
+    if (matches != null && matches[1]) {
+      filename = matches[1].replace(/['"]/g, '');
+    }
+  }
+
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.URL.revokeObjectURL(url);
 }

@@ -1,0 +1,35 @@
+services:
+  - type: web
+    name: argus-backend
+    env: docker
+    region: ohio
+    plan: starter
+    dockerfilePath: ./api/Dockerfile
+    envVars:
+      - key: DATABASE_URL_MIGRATIONS
+        sync: false
+      - key: DATABASE_URL_HR_ADMIN
+        sync: false
+      - key: DATABASE_URL_COMPLIANCE_AUDITOR
+        sync: false
+      - key: VITE_CLERK_PUBLISHABLE_KEY
+        sync: false
+      - key: CLERK_SECRET_KEY
+        sync: false
+      - key: CLERK_JWT_KEY
+        sync: false
+      - key: CLERK_WEBHOOK_SIGNING_SECRET
+        sync: false
+      - key: SIGNING_PRIVATE_KEY_PATH
+        value: "/etc/secrets/verifier_private_key.pem"
+      - key: ANCHOR_STORE
+        value: "local_file"
+      - key: ANCHOR_FILE_PATH
+        value: "/data/anchor/chain_anchor.log"
+    disk:
+      name: argus-anchor-data
+      mountPath: /data/anchor
+      sizeGB: 1
+    secretFiles:
+      - name: verifier_private_key.pem
+        path: /etc/secrets/verifier_private_key.pem

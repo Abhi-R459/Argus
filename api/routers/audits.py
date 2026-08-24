@@ -256,3 +256,87 @@ async def review_suspicious_flag(
         reviewed_by_user_id=current_user.user_id,
         reviewed_at=now,
     )
+
+
+# ─── GET /api/employees/{employee_id}/time-travel ────────────────────────────
+
+from ..schemas.audit import TimeTravelResponse
+
+@router.get(
+    "/employees/{employee_id}/time-travel",
+    response_model=TimeTravelResponse,
+    dependencies=_auditor_only,
+)
+async def reconstruct_employee_state(
+    employee_id: int,
+    timestamp: datetime = Query(..., description="Target ISO timestamp"),
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Reconstruct an employee's record state at a specific past timestamp.
+    
+    Accessible to compliance_auditor only.
+    
+    TODO (PENDING_ABHINAV): Once Abhinav pushes the DB function (Week 8),
+    replace this mock with a real query:
+    SELECT * FROM reconstruct_employee_state(:emp_id, :ts);
+    """
+    
+    # Check if the employee actually exists today just to validate the ID
+    from ..models.employee import Employee
+    result = await session.execute(select(Employee).where(Employee.employee_id == employee_id))
+    emp = result.scalar_one_or_none()
+    
+    if emp is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Employee {employee_id} not found."
+        )
+    
+    # MOCK RESPONSE
+    return TimeTravelResponse(
+        employee_id=employee_id,
+        full_name=emp.full_name,
+        email=emp.email,
+        role_title="Software Engineer",  # Mocked
+        department_name="Engineering",  # Mocked
+        salary=95000.00,  # Mocked
+        date_hired=emp.date_hired,
+        is_active=emp.is_active,
+        as_of=timestamp
+    )
+
+
+# ─── GET /api/audit-logs/export ───────────────────────────────────────────────
+
+from fastapi.responses import StreamingResponse
+import io
+import json
+from ..services.export import generate_signed_evidence_export
+
+@router.get(
+    "/audit-logs/export",
+    dependencies=_auditor_only,
+)
+async def export_signed_evidence(
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """
+    Export the full audit trail as a cryptographically signed JSON file.
+    
+    Accessible to compliance_auditor only.
+    """
+    export_data = await generate_signed_evidence_export(session)
+    
+    # Create an in-memory file for streaming
+    file_stream = io.BytesIO(json.dumps(export_data, indent=2).encode('utf-8'))
+    
+    # Return as an attachment
+    return StreamingResponse(
+        file_stream, 
+        media_type="application/json",
+        headers={
+            "Content-Disposition": f"attachment; filename=argus_evidence_{export_data['data']['generated_at']}.json"
+        }
+    )

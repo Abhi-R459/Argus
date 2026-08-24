@@ -1,6 +1,6 @@
 import { Outlet, Link, useLocation } from 'react-router-dom';
 import { UserButton } from '@clerk/clerk-react';
-import { ShieldCheck, Activity, FileSearch, LayoutDashboard, GitBranch, AlertTriangle } from 'lucide-react';
+import { ShieldCheck, Activity, FileSearch, LayoutDashboard, GitBranch, AlertTriangle, History } from 'lucide-react';
 
 export default function AuditorLayout() {
   const location = useLocation();
@@ -9,6 +9,7 @@ export default function AuditorLayout() {
     { name: 'Overview', path: '/auditor/overview', icon: LayoutDashboard },
     { name: 'Audit Chain', path: '/auditor/chain', icon: GitBranch },
     { name: 'Audit Log', path: '/auditor/log', icon: FileSearch },
+    { name: 'Time Travel', path: '/auditor/time-travel', icon: History },
     { name: 'Activity & Risk', path: '/auditor/activity', icon: AlertTriangle },
     { name: 'System Analytics', path: '/auditor/analytics', icon: Activity },
   ];

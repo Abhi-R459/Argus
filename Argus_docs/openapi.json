@@ -1,0 +1,1418 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Argus API",
+    "description": "Tamper-evident, self-verifying audit trail engine for PostgreSQL",
+    "version": "0.2.0"
+  },
+  "paths": {
+    "/api/health": {
+      "get": {
+        "tags": [
+          "Health"
+        ],
+        "summary": "Health Check",
+        "description": "Health check endpoint. No authentication required.",
+        "operationId": "health_check_api_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/sync": {
+      "post": {
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "Sync User",
+        "description": "Synchronize the authenticated Clerk user with the local users table.\n\nLooks up the user by clerk_user_id. If found, returns the existing record.\nIf the user does not exist in the local users table, returns 401 \u2014 \nnew users must be provisioned by an admin (the users table has a \nrole column that must be set explicitly).",
+        "operationId": "sync_user_api_auth_sync_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserSyncResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/employees": {
+      "get": {
+        "tags": [
+          "Employees"
+        ],
+        "summary": "List Employees",
+        "description": "Retrieve the employee directory with search and pagination.\n\nJoins employees \u2192 roles \u2192 departments and picks the latest salary\nfrom salary_history via a correlated subquery.",
+        "operationId": "list_employees_api_employees_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "Filter by name or email",
+              "title": "Search"
+            },
+            "description": "Filter by name or email"
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Page number",
+              "default": 1,
+              "title": "Page"
+            },
+            "description": "Page number"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "description": "Items per page",
+              "default": 20,
+              "title": "Limit"
+            },
+            "description": "Items per page"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedResponse_EmployeeListItem_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Employees"
+        ],
+        "summary": "Create Employee",
+        "description": "Create a new employee record. HR Admin only.\n\nAlso creates the initial salary_history record.\nSensitive fields (national_id, contact_info) are encoded to bytes\nfor storage \u2014 actual pgcrypto encryption will be handled by DB\ntriggers once Abhinav's Week 4 work lands.",
+        "operationId": "create_employee_api_employees_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmployeeCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmployeeCreateResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/employees/{employee_id}": {
+      "patch": {
+        "tags": [
+          "Employees"
+        ],
+        "summary": "Update Employee",
+        "description": "Update an existing employee record. HR Admin only.\n\nOnly fields present in the request body are updated.",
+        "operationId": "update_employee_api_employees__employee_id__patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "employee_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Employee Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmployeeUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmployeeUpdateResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Employees"
+        ],
+        "summary": "Deactivate Employee",
+        "description": "Soft-delete an employee record. HR Admin only.\n\nSets is_active = false rather than removing the row, preserving\naudit_log foreign key integrity.",
+        "operationId": "deactivate_employee_api_employees__employee_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "employee_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Employee Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmployeeDeactivateResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/employees/{employee_id}/salary": {
+      "post": {
+        "tags": [
+          "Employees"
+        ],
+        "summary": "Add Salary Record",
+        "description": "Add a new salary record for an employee. HR Admin only.\n\nBusiness-rule enforcement (e.g., cannot decrease pay by >30%,\ncannot edit own salary) is handled by DB triggers once Abhinav's\nWeek 4 work lands.",
+        "operationId": "add_salary_record_api_employees__employee_id__salary_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "employee_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Employee Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SalaryCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SalaryCreateResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/audit-logs": {
+      "get": {
+        "tags": [
+          "Audits"
+        ],
+        "summary": "List Audit Logs",
+        "description": "Retrieve paginated audit log entries with optional filters.\n\nJoins audit_log \u2192 users to resolve actor_name.\nAccessible to compliance_auditor role only \u2014 enforced both by the\nrequire_role dependency and by the compliance_auditor Postgres pool\nwhich has SELECT-only access to audit_log.",
+        "operationId": "list_audit_logs_api_audit_logs_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "actor_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by actor user_id",
+              "title": "Actor Id"
+            },
+            "description": "Filter by actor user_id"
+          },
+          {
+            "name": "action",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "INSERT | UPDATE | DELETE",
+              "title": "Action"
+            },
+            "description": "INSERT | UPDATE | DELETE"
+          },
+          {
+            "name": "table_name",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by table name",
+              "title": "Table Name"
+            },
+            "description": "Filter by table name"
+          },
+          {
+            "name": "severity",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "INFO | WARNING | CRITICAL",
+              "title": "Severity"
+            },
+            "description": "INFO | WARNING | CRITICAL"
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1,
+              "title": "Page"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 20,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedResponse_AuditLogItem_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/verify": {
+      "post": {
+        "tags": [
+          "Audits"
+        ],
+        "summary": "Run Verification",
+        "description": "Trigger the standalone verifier to scan the hash chain.\n\nAccessible to compliance_auditor only.\n\nTODO Week 6-7: Replace this mock body with a real subprocess call:\n\n    import asyncio, json\n    proc = await asyncio.create_subprocess_exec(\n        \"python\", \"-m\", \"db.verifier.cli\", \"--json\",\n        stdout=asyncio.subprocess.PIPE,\n        stderr=asyncio.subprocess.PIPE,\n    )\n    stdout, _ = await proc.communicate()\n    raw = json.loads(stdout)\n    return VerificationResult(**raw)\n\nThe verifier CLI lives in db/verifier/ (Abhinav's track, Week 5-6).\nUntil then, return the structured mock below so the frontend contract\nis exercised end-to-end.",
+        "operationId": "run_verification_api_verify_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VerificationResult"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/suspicious-activity": {
+      "get": {
+        "tags": [
+          "Audits"
+        ],
+        "summary": "List Suspicious Flags",
+        "description": "List all suspicious activity flags, newest first.\n\nPopulated by Abhinav's Week 8 refresh_suspicious_activity_flags()\nprocedure. Returns empty list until then.",
+        "operationId": "list_suspicious_flags_api_suspicious_activity_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SuspiciousFlagItem"
+                  },
+                  "type": "array",
+                  "title": "Response List Suspicious Flags Api Suspicious Activity Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/suspicious-activity/{flag_id}/review": {
+      "post": {
+        "tags": [
+          "Audits"
+        ],
+        "summary": "Review Suspicious Flag",
+        "description": "Mark a suspicious activity flag as reviewed by the current auditor.",
+        "operationId": "review_suspicious_flag_api_suspicious_activity__flag_id__review_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "flag_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Flag Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuspiciousReviewResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/employees/{employee_id}/time-travel": {
+      "get": {
+        "tags": [
+          "Audits"
+        ],
+        "summary": "Reconstruct Employee State",
+        "description": "Reconstruct an employee's record state at a specific past timestamp.\n\nAccessible to compliance_auditor only.\n\nTODO (PENDING_ABHINAV): Once Abhinav pushes the DB function (Week 8),\nreplace this mock with a real query:\nSELECT * FROM reconstruct_employee_state(:emp_id, :ts);",
+        "operationId": "reconstruct_employee_state_api_employees__employee_id__time_travel_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "employee_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Employee Id"
+            }
+          },
+          {
+            "name": "timestamp",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date-time",
+              "description": "Target ISO timestamp",
+              "title": "Timestamp"
+            },
+            "description": "Target ISO timestamp"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TimeTravelResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/audit-logs/export": {
+      "get": {
+        "tags": [
+          "Audits"
+        ],
+        "summary": "Export Signed Evidence",
+        "description": "Export the full audit trail as a cryptographically signed JSON file.\n\nAccessible to compliance_auditor only.",
+        "operationId": "export_signed_evidence_api_audit_logs_export_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AuditLogItem": {
+        "properties": {
+          "sequence_id": {
+            "type": "integer",
+            "title": "Sequence Id"
+          },
+          "actor_name": {
+            "type": "string",
+            "title": "Actor Name"
+          },
+          "employee_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Employee Id"
+          },
+          "action": {
+            "type": "string",
+            "title": "Action"
+          },
+          "table_name": {
+            "type": "string",
+            "title": "Table Name"
+          },
+          "row_id": {
+            "type": "integer",
+            "title": "Row Id"
+          },
+          "old_value": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Old Value"
+          },
+          "new_value": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "New Value"
+          },
+          "severity": {
+            "type": "string",
+            "title": "Severity"
+          },
+          "entry_hash": {
+            "type": "string",
+            "title": "Entry Hash"
+          },
+          "previous_hash": {
+            "type": "string",
+            "title": "Previous Hash"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "sequence_id",
+          "actor_name",
+          "employee_id",
+          "action",
+          "table_name",
+          "row_id",
+          "old_value",
+          "new_value",
+          "severity",
+          "entry_hash",
+          "previous_hash",
+          "created_at"
+        ],
+        "title": "AuditLogItem",
+        "description": "One row from GET /api/audit-logs.\n\nactor_name is resolved by joining audit_log \u2192 users.\nold_value / new_value are nullable JSONB payloads."
+      },
+      "EmployeeCreate": {
+        "properties": {
+          "full_name": {
+            "type": "string",
+            "maxLength": 255,
+            "title": "Full Name"
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "title": "Email"
+          },
+          "role_id": {
+            "type": "integer",
+            "title": "Role Id"
+          },
+          "national_id": {
+            "type": "string",
+            "maxLength": 255,
+            "title": "National Id"
+          },
+          "contact_info": {
+            "type": "string",
+            "maxLength": 500,
+            "title": "Contact Info"
+          },
+          "date_hired": {
+            "type": "string",
+            "format": "date",
+            "title": "Date Hired"
+          },
+          "salary": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              }
+            ],
+            "title": "Salary"
+          }
+        },
+        "type": "object",
+        "required": [
+          "full_name",
+          "email",
+          "role_id",
+          "national_id",
+          "contact_info",
+          "date_hired",
+          "salary"
+        ],
+        "title": "EmployeeCreate"
+      },
+      "EmployeeCreateResponse": {
+        "properties": {
+          "employee_id": {
+            "type": "integer",
+            "title": "Employee Id"
+          },
+          "full_name": {
+            "type": "string",
+            "title": "Full Name"
+          },
+          "email": {
+            "type": "string",
+            "title": "Email"
+          },
+          "role_id": {
+            "type": "integer",
+            "title": "Role Id"
+          },
+          "date_hired": {
+            "type": "string",
+            "format": "date",
+            "title": "Date Hired"
+          },
+          "is_active": {
+            "type": "boolean",
+            "title": "Is Active"
+          }
+        },
+        "type": "object",
+        "required": [
+          "employee_id",
+          "full_name",
+          "email",
+          "role_id",
+          "date_hired",
+          "is_active"
+        ],
+        "title": "EmployeeCreateResponse"
+      },
+      "EmployeeDeactivateResponse": {
+        "properties": {
+          "employee_id": {
+            "type": "integer",
+            "title": "Employee Id"
+          },
+          "is_active": {
+            "type": "boolean",
+            "title": "Is Active"
+          }
+        },
+        "type": "object",
+        "required": [
+          "employee_id",
+          "is_active"
+        ],
+        "title": "EmployeeDeactivateResponse"
+      },
+      "EmployeeListItem": {
+        "properties": {
+          "employee_id": {
+            "type": "integer",
+            "title": "Employee Id"
+          },
+          "full_name": {
+            "type": "string",
+            "title": "Full Name"
+          },
+          "email": {
+            "type": "string",
+            "title": "Email"
+          },
+          "role_title": {
+            "type": "string",
+            "title": "Role Title"
+          },
+          "department_name": {
+            "type": "string",
+            "title": "Department Name"
+          },
+          "salary": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Salary"
+          },
+          "date_hired": {
+            "type": "string",
+            "format": "date",
+            "title": "Date Hired"
+          },
+          "is_active": {
+            "type": "boolean",
+            "title": "Is Active"
+          }
+        },
+        "type": "object",
+        "required": [
+          "employee_id",
+          "full_name",
+          "email",
+          "role_title",
+          "department_name",
+          "date_hired",
+          "is_active"
+        ],
+        "title": "EmployeeListItem"
+      },
+      "EmployeeUpdate": {
+        "properties": {
+          "full_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Full Name"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "email"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
+          "role_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Role Id"
+          },
+          "contact_info": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contact Info"
+          }
+        },
+        "type": "object",
+        "title": "EmployeeUpdate"
+      },
+      "EmployeeUpdateResponse": {
+        "properties": {
+          "employee_id": {
+            "type": "integer",
+            "title": "Employee Id"
+          },
+          "full_name": {
+            "type": "string",
+            "title": "Full Name"
+          },
+          "email": {
+            "type": "string",
+            "title": "Email"
+          },
+          "role_id": {
+            "type": "integer",
+            "title": "Role Id"
+          },
+          "is_active": {
+            "type": "boolean",
+            "title": "Is Active"
+          }
+        },
+        "type": "object",
+        "required": [
+          "employee_id",
+          "full_name",
+          "email",
+          "role_id",
+          "is_active"
+        ],
+        "title": "EmployeeUpdateResponse"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "PaginatedResponse_AuditLogItem_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AuditLogItem"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "page": {
+            "type": "integer",
+            "title": "Page"
+          },
+          "pages": {
+            "type": "integer",
+            "title": "Pages"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "page",
+          "pages"
+        ],
+        "title": "PaginatedResponse[AuditLogItem]"
+      },
+      "PaginatedResponse_EmployeeListItem_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/EmployeeListItem"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "page": {
+            "type": "integer",
+            "title": "Page"
+          },
+          "pages": {
+            "type": "integer",
+            "title": "Pages"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "page",
+          "pages"
+        ],
+        "title": "PaginatedResponse[EmployeeListItem]"
+      },
+      "SalaryCreate": {
+        "properties": {
+          "amount": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              }
+            ],
+            "title": "Amount"
+          },
+          "effective_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Effective Date"
+          }
+        },
+        "type": "object",
+        "required": [
+          "amount",
+          "effective_date"
+        ],
+        "title": "SalaryCreate"
+      },
+      "SalaryCreateResponse": {
+        "properties": {
+          "salary_history_id": {
+            "type": "integer",
+            "title": "Salary History Id"
+          },
+          "employee_id": {
+            "type": "integer",
+            "title": "Employee Id"
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Amount"
+          },
+          "effective_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Effective Date"
+          }
+        },
+        "type": "object",
+        "required": [
+          "salary_history_id",
+          "employee_id",
+          "amount",
+          "effective_date"
+        ],
+        "title": "SalaryCreateResponse"
+      },
+      "SuspiciousFlagItem": {
+        "properties": {
+          "flag_id": {
+            "type": "integer",
+            "title": "Flag Id"
+          },
+          "audit_log_sequence_id": {
+            "type": "integer",
+            "title": "Audit Log Sequence Id"
+          },
+          "flag_reason": {
+            "type": "string",
+            "title": "Flag Reason"
+          },
+          "reviewed_by": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reviewed By"
+          },
+          "reviewed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reviewed At"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "flag_id",
+          "audit_log_sequence_id",
+          "flag_reason",
+          "reviewed_by",
+          "reviewed_at",
+          "created_at"
+        ],
+        "title": "SuspiciousFlagItem",
+        "description": "One row from GET /api/suspicious-activity."
+      },
+      "SuspiciousReviewResponse": {
+        "properties": {
+          "flag_id": {
+            "type": "integer",
+            "title": "Flag Id"
+          },
+          "reviewed_by_user_id": {
+            "type": "integer",
+            "title": "Reviewed By User Id"
+          },
+          "reviewed_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Reviewed At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "flag_id",
+          "reviewed_by_user_id",
+          "reviewed_at"
+        ],
+        "title": "SuspiciousReviewResponse",
+        "description": "Response from POST /api/suspicious-activity/{id}/review."
+      },
+      "TimeTravelResponse": {
+        "properties": {
+          "employee_id": {
+            "type": "integer",
+            "title": "Employee Id"
+          },
+          "full_name": {
+            "type": "string",
+            "title": "Full Name"
+          },
+          "email": {
+            "type": "string",
+            "title": "Email"
+          },
+          "role_title": {
+            "type": "string",
+            "title": "Role Title"
+          },
+          "department_name": {
+            "type": "string",
+            "title": "Department Name"
+          },
+          "salary": {
+            "type": "number",
+            "title": "Salary"
+          },
+          "date_hired": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Date Hired"
+          },
+          "is_active": {
+            "type": "boolean",
+            "title": "Is Active"
+          },
+          "as_of": {
+            "type": "string",
+            "format": "date-time",
+            "title": "As Of"
+          }
+        },
+        "type": "object",
+        "required": [
+          "employee_id",
+          "full_name",
+          "email",
+          "role_title",
+          "department_name",
+          "salary",
+          "date_hired",
+          "is_active",
+          "as_of"
+        ],
+        "title": "TimeTravelResponse",
+        "description": "Response from GET /api/employees/{id}/time-travel."
+      },
+      "UserSyncResponse": {
+        "properties": {
+          "user_id": {
+            "type": "integer",
+            "title": "User Id"
+          },
+          "clerk_user_id": {
+            "type": "string",
+            "title": "Clerk User Id"
+          },
+          "full_name": {
+            "type": "string",
+            "title": "Full Name"
+          },
+          "email": {
+            "type": "string",
+            "title": "Email"
+          },
+          "role": {
+            "type": "string",
+            "title": "Role"
+          },
+          "is_active": {
+            "type": "boolean",
+            "title": "Is Active"
+          }
+        },
+        "type": "object",
+        "required": [
+          "user_id",
+          "clerk_user_id",
+          "full_name",
+          "email",
+          "role",
+          "is_active"
+        ],
+        "title": "UserSyncResponse"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      },
+      "VerificationResult": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "entries_scanned": {
+            "type": "integer",
+            "title": "Entries Scanned"
+          },
+          "anchor_match": {
+            "type": "boolean",
+            "title": "Anchor Match"
+          },
+          "last_verified_sequence_id": {
+            "type": "integer",
+            "title": "Last Verified Sequence Id"
+          },
+          "tampered_sequence_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tampered Sequence Id"
+          },
+          "details": {
+            "type": "string",
+            "title": "Details"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "entries_scanned",
+          "anchor_match",
+          "last_verified_sequence_id",
+          "tampered_sequence_id",
+          "details"
+        ],
+        "title": "VerificationResult",
+        "description": "Response from POST /api/verify.\n\nMirrors both the 'intact' and 'tampered' shapes from the contract."
+      }
+    },
+    "securitySchemes": {
+      "HTTPBearer": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    }
+  }
+}
