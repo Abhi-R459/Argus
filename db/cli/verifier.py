@@ -621,6 +621,101 @@ def _cmd_anchor(args: argparse.Namespace) -> int:
         conn.close()
 
 
+def _cmd_backup(args: argparse.Namespace) -> int:
+    """Handle the ``backup`` subcommand (VERIFY-007/008 + DB-017).
+
+    Supports two actions:
+    - ``dump``: Run pg_dump, compute SHA-256, and record in the backups table.
+    - ``verify``: Re-hash a stored backup and compare against the stored hash.
+
+    Args:
+        args: Parsed CLI arguments.
+
+    Returns:
+        Exit code — 0 on success, 1 on failure.
+    """
+    try:
+        from db.cli.backup import dump_and_hash, record_backup, verify_backup
+    except ImportError:
+        from backup import dump_and_hash, record_backup, verify_backup  # type: ignore[no-redef]
+
+    if args.backup_action == "dump":
+        db_url: str = args.db_url or os.environ.get("DATABASE_URL", "")
+        if not db_url:
+            logger.error(
+                "No database URL provided.  Use --db-url or set DATABASE_URL."
+            )
+            return 1
+
+        output_path: str = args.output
+        checkpoint_id = getattr(args, "checkpoint_id", None)
+
+        try:
+            logger.info("Starting backup dump to '%s' …", output_path)
+            backup_hash = dump_and_hash(db_url, output_path)
+            logger.info("Dump complete.  SHA-256: %s", backup_hash)
+
+            # Record in the backups table
+            conn = get_connection(db_url)
+            try:
+                backup_id = record_backup(
+                    conn,
+                    backup_hash=backup_hash,
+                    file_reference=os.path.abspath(output_path),
+                    chain_checkpoint_id=checkpoint_id,
+                )
+            finally:
+                conn.close()
+
+            print(json.dumps({
+                "event": "backup_created",
+                "backup_id": backup_id,
+                "backup_hash": backup_hash,
+                "file_reference": os.path.abspath(output_path),
+                "chain_checkpoint_id": checkpoint_id,
+            }))
+            return 0
+
+        except FileNotFoundError as exc:
+            logger.error("Backup failed: %s", exc)
+            return 1
+        except Exception as exc:
+            logger.error("Backup failed: %s", exc)
+            return 1
+
+    elif args.backup_action == "verify":
+        conn = get_connection(args.db_url)
+        try:
+            is_valid = verify_backup(conn, args.backup_id)
+            status = "VALID" if is_valid else "TAMPERED"
+            print(json.dumps({
+                "event": "backup_verified",
+                "backup_id": args.backup_id,
+                "status": status,
+            }))
+            if is_valid:
+                print(f"✅ Backup {args.backup_id} integrity verified.")
+            else:
+                print(f"❌ Backup {args.backup_id} integrity FAILED — file has been modified.")
+            return 0 if is_valid else 1
+
+        except ValueError as exc:
+            logger.error("Verification failed: %s", exc)
+            return 1
+        except FileNotFoundError as exc:
+            logger.error("Backup file missing: %s", exc)
+            return 1
+        except Exception as exc:
+            logger.error("Verification failed: %s", exc)
+            return 1
+        finally:
+            conn.close()
+
+    else:
+        logger.error("Unknown backup action: %s", args.backup_action)
+        return 1
+
+
 # ===================================================================
 # Argument parser
 # ===================================================================
@@ -800,6 +895,46 @@ def build_parser() -> argparse.ArgumentParser:
         help="Path to Ed25519 public key PEM for signature verification",
     )
 
+    # ---- backup ----
+    p_backup = subparsers.add_parser(
+        "backup",
+        help="Dump database and verify backup integrity",
+    )
+    backup_sub = p_backup.add_subparsers(
+        dest="backup_action",
+        title="backup actions",
+        description="Available backup actions",
+    )
+
+    # backup dump
+    p_backup_dump = backup_sub.add_parser(
+        "dump",
+        help="Run pg_dump, compute SHA-256, and record in backups table",
+    )
+    p_backup_dump.add_argument(
+        "--output",
+        required=True,
+        help="Output file path for the SQL dump",
+    )
+    p_backup_dump.add_argument(
+        "--checkpoint-id",
+        type=int,
+        default=None,
+        help="Optional checkpoint ID to associate with this backup",
+    )
+
+    # backup verify
+    p_backup_verify = backup_sub.add_parser(
+        "verify",
+        help="Re-hash a stored backup and compare against stored hash",
+    )
+    p_backup_verify.add_argument(
+        "--backup-id",
+        type=int,
+        required=True,
+        help="ID of the backup record to verify",
+    )
+
     return parser
 
 
@@ -827,6 +962,7 @@ def main() -> int:
         "create-checkpoint": _cmd_create_checkpoint,
         "sign-checkpoint": _cmd_sign_checkpoint,
         "anchor": _cmd_anchor,
+        "backup": _cmd_backup,
     }
 
     handler = dispatch.get(args.command)
