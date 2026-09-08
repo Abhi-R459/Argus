@@ -130,7 +130,7 @@ export default function EmployeeForm({ onClose }: EmployeeFormProps) {
                 <label className="block text-sm font-medium text-slate-700 mb-1">Starting Salary</label>
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                    <span className="text-slate-500 sm:text-sm">$</span>
+                    <span className="text-slate-500 sm:text-sm">₹</span>
                   </div>
                   <input
                     type="number"
@@ -145,7 +145,7 @@ export default function EmployeeForm({ onClose }: EmployeeFormProps) {
 
               {/* National ID (Encrypted payload) */}
               <div className="col-span-2 md:col-span-1">
-                <label className="block text-sm font-medium text-slate-700 mb-1">National ID (SSN/Passport)</label>
+                <label className="block text-sm font-medium text-slate-700 mb-1">National ID (Aadhar)</label>
                 <input
                   type="text"
                   {...register('national_id')}

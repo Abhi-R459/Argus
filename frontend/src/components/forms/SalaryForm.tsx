@@ -100,7 +100,7 @@ export default function SalaryForm({ employee, onClose }: SalaryFormProps) {
               <label className="block text-sm font-medium text-slate-700 mb-1">New Salary Amount</label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <span className="text-slate-500 sm:text-sm">$</span>
+                  <span className="text-slate-500 sm:text-sm">₹</span>
                 </div>
                 <input
                   type="number"

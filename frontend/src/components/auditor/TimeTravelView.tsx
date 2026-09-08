@@ -173,7 +173,7 @@ export default function TimeTravelView() {
                 <div>
                   <div className="text-xs font-medium text-slate-500 mb-1 uppercase tracking-wider">Compensation</div>
                   <div className="text-base font-mono text-slate-200">
-                    {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(record.salary)}
+                    {new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(record.salary)}
                   </div>
                 </div>
 
