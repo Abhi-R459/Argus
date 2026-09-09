@@ -12,10 +12,46 @@ Tamper-evident, self-verifying audit trails for PostgreSQL, demonstrated through
 
 ## Installation and Execution
 
-1. Copy `.env.example` to `api/.env` and supply local or deployment secrets.
-2. Start PostgreSQL locally through Docker Compose, then run `db/setup_roles.sql` and `alembic upgrade head`.
-3. Install backend dependencies from `api/requirements.txt` and frontend dependencies from `frontend/package.json`.
-4. Run `uvicorn main:app --reload` in `api/` and `npm run dev` in `frontend/`, or use `docker compose up --build`.
+### Using Docker Compose (Recommended)
+
+1. Copy `.env.example` to `.env` in the root and configure secrets (Clerk tokens, DB password).
+2. Run `docker-compose up --build` from the root directory.
+3. Access the frontend at `http://localhost:80` and the API at `http://localhost:8000`.
+
+### Local Development
+
+1. **Database:** Run `docker-compose up db -d` to start the PostgreSQL instance.
+2. **Backend:**
+   ```bash
+   cd api
+   pip install -r requirements.txt
+   uvicorn main:app --reload --port 8000
+   ```
+3. **Frontend:**
+   ```bash
+   cd frontend
+   npm install
+   npm run dev
+   ```
+
+### Testing
+
+**Backend (Pytest):**
+```bash
+cd api
+pytest
+```
+
+**Frontend (Playwright):**
+```bash
+cd frontend
+npx playwright test
+```
+
+**Load Testing (k6):**
+```bash
+k6 run benchmarks/load_test.js
+```
 
 The full setup, verifier, benchmark, native `pg_dump`/`pg_restore` recovery demonstration, Docker Hub, and submission-evidence instructions are in [Argus docs/README.md](<Argus docs/README.md>).
 
