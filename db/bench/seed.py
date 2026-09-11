@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
-"""BENCH-001: Synthetic data seeding for Argus pilot benchmark.
+"""BENCH-001 / BENCH-002: Synthetic data seeding for Argus benchmark suite.
 
 Generates synthetic employees and salary records to populate the database
-for benchmark testing.  Uses batch inserts for efficiency.
+for benchmark testing. Uses optimized batch inserts and commits for high-volume
+workloads (100K+ rows).
 
 Usage::
 
     python -m db.bench.seed --db-url postgresql://… --employees 1000 --salary-records 3000
-    python -m db.bench.seed --clear  # truncate and reseed
+    python -m db.bench.seed --employees 100000 --salary-records 300000 --batch-size 1000
+    python -m db.bench.seed --clear  # truncate and reset chain_state
 
 """
 
@@ -21,6 +23,9 @@ import string
 import sys
 import time
 from typing import Any
+
+import psycopg2
+import psycopg2.extras
 
 logger = logging.getLogger("argus.bench.seed")
 
@@ -63,7 +68,7 @@ def get_connection(db_url: str | None = None) -> Any:
     """Create a psycopg2 connection.
 
     Args:
-        db_url: PostgreSQL connection string.  Falls back to DATABASE_URL env var.
+        db_url: PostgreSQL connection string. Falls back to DATABASE_URL env var.
 
     Returns:
         A psycopg2 connection object.
@@ -71,11 +76,9 @@ def get_connection(db_url: str | None = None) -> Any:
     Raises:
         SystemExit: If no database URL is available.
     """
-    import psycopg2
-
     url = db_url or os.environ.get("DATABASE_URL")
     if not url:
-        logger.error("No database URL.  Use --db-url or set DATABASE_URL.")
+        logger.error("No database URL. Use --db-url or set DATABASE_URL.")
         sys.exit(1)
 
     try:
@@ -162,28 +165,30 @@ def seed_employees(
     num_employees: int,
     actor_user_id: int,
     role_ids: list[int],
-    batch_size: int = 500,
+    batch_size: int = 1000,
 ) -> list[int]:
-    """Insert synthetic employees in batches.
+    """Insert synthetic employees in batches using execute_values.
 
     Args:
         conn: psycopg2 connection.
         num_employees: Number of employees to create.
         actor_user_id: User ID to set as the session actor for triggers.
         role_ids: Available role IDs to assign randomly.
-        batch_size: Number of rows per INSERT batch.
+        batch_size: Number of rows per batch insert.
 
     Returns:
         List of created employee IDs.
     """
-    import psycopg2.extras
+    if num_employees <= 0:
+        return []
 
     employee_ids: list[int] = []
-    logger.info("Inserting %d employees …", num_employees)
+    logger.info("Inserting %d employees (batch_size=%d) …", num_employees, batch_size)
 
     with conn.cursor() as cur:
-        # Set session variable for self-salary-modification trigger
-        cur.execute("SET LOCAL argus.actor_employee_id = '0'")
+        # Set session variable for triggers across transactions
+        cur.execute("SET argus.actor_employee_id = '0'")
+        cur.execute("SET argus.actor_user_id = %s", (str(actor_user_id),))
 
         batch: list[tuple] = []
         for i in range(num_employees):
@@ -200,32 +205,30 @@ def seed_employees(
             ))
 
             if len(batch) >= batch_size or i == num_employees - 1:
-                # Use execute_values for efficient batch insert
                 query = (
                     "INSERT INTO employees "
                     "(full_name, role_id, national_id_encrypted, contact_info_encrypted) "
                     "VALUES %s RETURNING employee_id"
                 )
-                template = "(%s, %s, %s, %s)"
-                # execute_values doesn't support RETURNING well, so use individual inserts
-                for row in batch:
-                    cur.execute(
-                        "INSERT INTO employees "
-                        "(full_name, role_id, national_id_encrypted, contact_info_encrypted) "
-                        "VALUES (%s, %s, %s, %s) RETURNING employee_id",
-                        row,
-                    )
-                    employee_ids.append(cur.fetchone()[0])
-
-                conn.commit()
-                logger.debug(
-                    "  Inserted batch: %d/%d employees",
-                    len(employee_ids),
-                    num_employees,
+                returned_rows = psycopg2.extras.execute_values(
+                    cur,
+                    query,
+                    batch,
+                    fetch=True,
                 )
+                employee_ids.extend(r[0] for r in returned_rows)
+                conn.commit()
+
+                if len(employee_ids) % (batch_size * 5) == 0 or len(employee_ids) == num_employees:
+                    logger.info(
+                        "  Progress: %d / %d employees inserted (%.1f%%)",
+                        len(employee_ids),
+                        num_employees,
+                        (len(employee_ids) / num_employees) * 100,
+                    )
                 batch = []
 
-    logger.info("Inserted %d employees.", len(employee_ids))
+    logger.info("Successfully inserted %d employees.", len(employee_ids))
     return employee_ids
 
 
@@ -234,40 +237,40 @@ def seed_salary_records(
     employee_ids: list[int],
     num_records: int,
     actor_user_id: int,
+    batch_size: int = 1000,
 ) -> int:
-    """Insert synthetic salary history records.
+    """Insert synthetic salary history records in batches.
 
-    Distributes records across employees.  Each employee gets at least one
+    Distributes records across employees. Each employee gets at least one
     salary record, and the remaining records are distributed randomly.
     Salary values stay within a reasonable range to avoid triggering the
-    >30% decrease business rule.
+    >30% decrease business rule (DB-012).
 
     Args:
         conn: psycopg2 connection.
         employee_ids: List of employee IDs to attach salaries to.
         num_records: Total number of salary records to create.
         actor_user_id: User ID for the session actor variable.
+        batch_size: Number of records per batch insert.
 
     Returns:
         Number of salary records actually inserted.
     """
     from datetime import date, timedelta
 
-    logger.info("Inserting %d salary records …", num_records)
-    inserted = 0
+    if not employee_ids or num_records <= 0:
+        return 0
 
-    # Track last salary per employee to avoid >30% decrease trigger
-    last_salary: dict[int, float] = {}
+    logger.info("Inserting %d salary records (batch_size=%d) …", num_records, batch_size)
+    inserted = 0
     base_date = date(2024, 1, 1)
 
     with conn.cursor() as cur:
-        # Set session variable so self-modification trigger doesn't block
-        cur.execute(
-            "SET LOCAL argus.actor_employee_id = %s",
-            (str(actor_user_id),),
-        )
+        # Set session variables so business triggers don't block
+        cur.execute("SET argus.actor_employee_id = '0'")
+        cur.execute("SET argus.actor_user_id = %s", (str(actor_user_id),))
 
-        # Build assignment: each employee gets ceil(num_records / len(employee_ids)) records
+        # Assign records per employee
         assignments: list[int] = []
         per_employee = max(1, num_records // len(employee_ids))
         for emp_id in employee_ids:
@@ -276,7 +279,6 @@ def seed_salary_records(
             if len(assignments) >= num_records:
                 break
 
-        # Fill remaining slots randomly
         while len(assignments) < num_records:
             assignments.append(random.choice(employee_ids))
 
@@ -287,50 +289,59 @@ def seed_salary_records(
         for emp_id in assignments:
             emp_record_counts[emp_id] = emp_record_counts.get(emp_id, 0) + 1
 
+        batch: list[tuple] = []
         for emp_id, count in emp_record_counts.items():
             salary = random.uniform(40000, 150000)
             for j in range(count):
                 effective_date = base_date + timedelta(days=j * 30)
 
-                # Gentle random walk: ±15% max to stay within 30% rule
+                # Gentle random walk: -10% to +15% to strictly avoid >30% drop
                 change = random.uniform(-0.10, 0.15)
-                salary = max(30000, salary * (1 + change))
+                salary = max(30000.0, salary * (1 + change))
 
-                try:
-                    cur.execute(
+                batch.append((emp_id, round(salary, 2), effective_date))
+
+                if len(batch) >= batch_size:
+                    query = (
                         "INSERT INTO salary_history "
                         "(employee_id, amount, effective_date) "
-                        "VALUES (%s, %s, %s)",
-                        (emp_id, round(salary, 2), effective_date),
+                        "VALUES %s"
                     )
-                    inserted += 1
-                    last_salary[emp_id] = salary
-                except Exception as exc:
-                    # Some inserts may fail due to unique constraints or
-                    # business rules — log and continue
-                    conn.rollback()
-                    logger.debug(
-                        "Skipped salary record for emp %d: %s", emp_id, exc
-                    )
-                else:
+                    psycopg2.extras.execute_values(cur, query, batch)
                     conn.commit()
+                    inserted += len(batch)
+                    if inserted % (batch_size * 5) == 0 or inserted >= num_records:
+                        logger.info(
+                            "  Progress: %d / %d salary records inserted (%.1f%%)",
+                            inserted,
+                            num_records,
+                            (inserted / num_records) * 100,
+                        )
+                    batch = []
 
-                if inserted % 500 == 0 and inserted > 0:
-                    logger.debug("  Inserted %d/%d salary records", inserted, num_records)
+        if batch:
+            query = (
+                "INSERT INTO salary_history "
+                "(employee_id, amount, effective_date) "
+                "VALUES %s"
+            )
+            psycopg2.extras.execute_values(cur, query, batch)
+            conn.commit()
+            inserted += len(batch)
 
-    logger.info("Inserted %d salary records.", inserted)
+    logger.info("Successfully inserted %d salary records.", inserted)
     return inserted
 
 
 def clear_data(conn: Any) -> None:
-    """Truncate all seeded data tables in dependency order.
+    """Truncate all seeded data tables in dependency order and reset chain_state.
 
     Args:
         conn: psycopg2 connection.
     """
-    logger.warning("Clearing all data …")
+    logger.warning("Clearing all seeded data and resetting chain_state …")
     with conn.cursor() as cur:
-        # Disable triggers temporarily for clean truncation
+        # Disable foreign keys / triggers temporarily for clean truncation
         cur.execute("SET session_replication_role = 'replica'")
         cur.execute("TRUNCATE salary_history CASCADE")
         cur.execute("TRUNCATE employees CASCADE")
@@ -338,7 +349,7 @@ def clear_data(conn: Any) -> None:
         cur.execute("TRUNCATE chain_checkpoints CASCADE")
         cur.execute("TRUNCATE suspicious_activity_flags CASCADE")
         cur.execute("TRUNCATE backups CASCADE")
-        # Reset chain_state
+        # Reset chain_state singleton to genesis
         cur.execute(
             "UPDATE chain_state SET tail_hash = %s, tail_sequence_id = 0, "
             "last_checkpoint_sequence_id = 0 WHERE id = 1",
@@ -346,18 +357,18 @@ def clear_data(conn: Any) -> None:
         )
         cur.execute("SET session_replication_role = 'origin'")
     conn.commit()
-    logger.info("All data cleared.")
+    logger.info("All tables truncated and chain_state reset to genesis.")
 
 
 def main() -> int:
-    """CLI entry point for the seed script.
+    """CLI entry point for the synthetic benchmark data seeding script.
 
     Returns:
         Exit code — 0 on success, 1 on failure.
     """
     parser = argparse.ArgumentParser(
         prog="argus-seed",
-        description="Seed the Argus database with synthetic benchmark data.",
+        description="Seed the Argus database with synthetic benchmark data (BENCH-002).",
     )
     parser.add_argument(
         "--db-url",
@@ -377,9 +388,26 @@ def main() -> int:
         help="Number of salary records to create (default: 3000)",
     )
     parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=1000,
+        help="Batch size for INSERT operations and commits (default: 1000)",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="Random seed for reproducible generation",
+    )
+    parser.add_argument(
         "--clear",
         action="store_true",
-        help="Truncate all data before seeding",
+        help="Truncate all tables and reset chain_state before seeding",
+    )
+    parser.add_argument(
+        "--clear-only",
+        action="store_true",
+        help="Only truncate all tables and reset chain_state without inserting new rows",
     )
     parser.add_argument(
         "--log-level",
@@ -396,29 +424,48 @@ def main() -> int:
         datefmt="%Y-%m-%dT%H:%M:%S%z",
     )
 
+    if args.seed is not None:
+        random.seed(args.seed)
+        logger.info("Random seed initialized to: %d", args.seed)
+
     conn = get_connection(args.db_url)
     try:
-        if args.clear:
+        if args.clear or args.clear_only:
             clear_data(conn)
+            if args.clear_only:
+                return 0
 
         t0 = time.time()
 
         dept_ids, role_ids, actor_user_id = _ensure_prerequisites(conn)
         employee_ids = seed_employees(
-            conn, args.employees, actor_user_id, role_ids,
+            conn,
+            args.employees,
+            actor_user_id,
+            role_ids,
+            batch_size=args.batch_size,
         )
         num_salary = seed_salary_records(
-            conn, employee_ids, args.salary_records, actor_user_id,
+            conn,
+            employee_ids,
+            args.salary_records,
+            actor_user_id,
+            batch_size=args.batch_size,
         )
 
         elapsed = time.time() - t0
-        print(f"\n{'='*50}")
-        print(f"SEED COMPLETE")
-        print(f"{'='*50}")
-        print(f"Employees created  : {len(employee_ids)}")
-        print(f"Salary records     : {num_salary}")
-        print(f"Elapsed time       : {elapsed:.1f}s")
-        print(f"{'='*50}\n")
+        total_rows = len(employee_ids) + num_salary
+        throughput = (total_rows / elapsed) if elapsed > 0 else 0
+
+        print(f"\n{'='*55}")
+        print("ARGUS BENCHMARK SEED COMPLETE")
+        print(f"{'='*55}")
+        print(f"Employees created    : {len(employee_ids):,}")
+        print(f"Salary records       : {num_salary:,}")
+        print(f"Total rows inserted  : {total_rows:,}")
+        print(f"Elapsed time         : {elapsed:.2f}s")
+        print(f"Throughput           : {throughput:.1f} rows/s")
+        print(f"{'='*55}\n")
 
         return 0
 
