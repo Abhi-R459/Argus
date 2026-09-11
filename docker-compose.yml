@@ -4,6 +4,7 @@ services:
   db:
     image: postgres:15-alpine
     container_name: argus-postgres
+    restart: unless-stopped
     environment:
       POSTGRES_DB: argus
       POSTGRES_USER: postgres
@@ -23,11 +24,18 @@ services:
     build:
       context: ./api
     container_name: argus-api
+    restart: unless-stopped
     ports:
       - '8000:8000'
     environment:
       - DATABASE_URL=postgresql+asyncpg://postgres:password@db:5432/argus
-      # Clerk secrets should be provided via .env file or environment variables
+      - DATABASE_URL_MIGRATIONS=postgresql://postgres:password@db:5432/argus
+      - DATABASE_URL_HR_ADMIN=postgresql://hr_admin:password@db:5432/argus
+      - DATABASE_URL_COMPLIANCE_AUDITOR=postgresql://compliance_auditor:password@db:5432/argus
+      - SIGNING_PRIVATE_KEY_PATH=/app/keys/verifier_private_key.pem
+      - ANCHOR_STORE=local_file
+      - ANCHOR_FILE_PATH=/app/anchor/chain_anchor.log
+      - CHECKPOINT_INTERVAL=25
     depends_on:
       db:
         condition: service_healthy
@@ -38,12 +46,11 @@ services:
     build:
       context: ./frontend
     container_name: argus-frontend
+    restart: unless-stopped
     ports:
       - '80:80'
     depends_on:
       - api
-    # Optionally map environment variables to Vite using --build-arg if needed
-    # For now relying on standard build
 
 volumes:
   pgdata:

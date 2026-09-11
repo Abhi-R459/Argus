@@ -1,0 +1,5 @@
+data_size,wall_clock_seconds,entries_per_second,is_valid,anomalies_detected
+100,0.012,8333.3,True,0
+1000,0.115,8695.7,True,0
+10000,1.14,8771.9,True,0
+100000,11.45,8733.6,True,0

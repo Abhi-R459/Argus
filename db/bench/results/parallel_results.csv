@@ -1,0 +1,6 @@
+mode,workers,scale,elapsed_sec,throughput_eps,speedup
+sequential,1,100000,11.45,8733.6,1.0
+parallel,1,100000,11.72,8532.4,0.98
+parallel,2,100000,6.12,16339.9,1.87
+parallel,4,100000,3.15,31746.0,3.63
+parallel,8,100000,1.85,54054.1,6.19
