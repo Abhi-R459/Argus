@@ -1,48 +1,56 @@
+version: '3.9'
+
 services:
   db:
     image: postgres:15-alpine
-    container_name: argus_db
+    container_name: argus-postgres
     restart: unless-stopped
     environment:
       POSTGRES_DB: argus
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: password
     ports:
-      - "5432:5432"
+      - '5432:5432'
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - pgdata:/var/lib/postgresql/data
       - ./db/init:/docker-entrypoint-initdb.d
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d argus"]
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d argus']
       interval: 5s
       timeout: 5s
       retries: 5
 
   api:
-    image: python:3.12-slim
-    container_name: argus_api
+    build:
+      context: ./api
+    container_name: argus-api
     restart: unless-stopped
-    working_dir: /app
-    environment:
-      DATABASE_URL_MIGRATIONS: postgresql://postgres:password@db:5432/argus
-      DATABASE_URL_HR_ADMIN: postgresql://hr_admin:password@db:5432/argus
-      DATABASE_URL_COMPLIANCE_AUDITOR: postgresql://compliance_auditor:password@db:5432/argus
-      DATABASE_URL: postgresql://postgres:password@db:5432/argus
-      SIGNING_PRIVATE_KEY_PATH: /app/keys/verifier_private_key.pem
-      ANCHOR_STORE: local_file
-      ANCHOR_FILE_PATH: /app/anchor/chain_anchor.log
-      CHECKPOINT_INTERVAL: 25
-    volumes:
-      - .:/app
     ports:
-      - "8000:8000"
-    command: >
-      bash -c "pip install --no-cache-dir -r db/requirements.txt &&
-               alembic upgrade head &&
-               python -m uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload || tail -f /dev/null"
+      - '8000:8000'
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:password@db:5432/argus
+      - DATABASE_URL_MIGRATIONS=postgresql://postgres:password@db:5432/argus
+      - DATABASE_URL_HR_ADMIN=postgresql://hr_admin:password@db:5432/argus
+      - DATABASE_URL_COMPLIANCE_AUDITOR=postgresql://compliance_auditor:password@db:5432/argus
+      - SIGNING_PRIVATE_KEY_PATH=/app/keys/verifier_private_key.pem
+      - ANCHOR_STORE=local_file
+      - ANCHOR_FILE_PATH=/app/anchor/chain_anchor.log
+      - CHECKPOINT_INTERVAL=25
     depends_on:
       db:
         condition: service_healthy
+    env_file:
+      - .env
+
+  frontend:
+    build:
+      context: ./frontend
+    container_name: argus-frontend
+    restart: unless-stopped
+    ports:
+      - '80:80'
+    depends_on:
+      - api
 
 volumes:
-  postgres_data:
+  pgdata:
