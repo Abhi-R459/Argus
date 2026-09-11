@@ -1,228 +1,219 @@
 # Argus
 
-> **A tamper-evident, self-verifying audit trail engine for PostgreSQL**, demonstrated through an Employee Records application.  
+> **A tamper-evident, self-verifying audit trail engine for PostgreSQL**, demonstrated through an enterprise Employee Records management system.  
 > *Course Project for BCSE302L Database Systems — Abhinav & Nidhurshek.*
+
+[![Tests](https://img.shields.io/badge/tests-60%20passed-brightgreen.svg)](#running-automated-tests)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15+-blue.svg)](https://www.postgresql.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688.svg)](https://fastapi.tiangolo.com/)
+[![React](https://img.shields.io/badge/React-19-61DAFB.svg)](https://react.dev/)
+[![TailwindCSS](https://img.shields.io/badge/Tailwind-v3-38B2AC.svg)](https://tailwindcss.com/)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 ---
 
 ## Table of Contents
 
 - [Overview](#overview)
+- [Key Features](#key-features)
 - [Architecture & Security Model](#architecture--security-model)
 - [Technology Stack](#technology-stack)
-- [Prerequisites](#prerequisites)
-- [First-Time Setup Guide (Detailed)](#first-time-setup-guide-detailed)
-  - [Step 1: Clone Repository & Switch Branch](#step-1-clone-repository--switch-branch)
-  - [Step 2: Environment Configuration (`.env`)](#step-2-environment-configuration-env)
-  - [Step 3: Database Setup with Docker](#step-3-database-setup-with-docker)
-  - [Step 4: Database Roles & Migrations](#step-4-database-roles--migrations)
-  - [Step 5: Backend Setup (FastAPI)](#step-5-backend-setup-fastapi)
-  - [Step 6: Frontend Setup (React + Vite)](#step-6-frontend-setup-react--vite)
-- [Running via Docker Compose (All-in-One)](#running-via-docker-compose-all-in-one)
-- [Running the Cryptographic Verifier CLI](#running-the-cryptographic-verifier-cli)
+- [Quickstart (Docker Compose)](#quickstart-docker-compose)
+- [Step-by-Step Local Setup](#step-by-step-local-setup)
+  - [1. Prerequisites](#1-prerequisites)
+  - [2. Environment Configuration (`.env`)](#2-environment-configuration-env)
+  - [3. Database Setup](#3-database-setup)
+  - [4. Backend Setup (FastAPI)](#4-backend-setup-fastapi)
+  - [5. Frontend Setup (React + Vite)](#5-frontend-setup-react--vite)
+- [Application Walkthrough & Features](#application-walkthrough--features)
+  - [HR Admin Portal](#hr-admin-portal)
+  - [Compliance Auditor Portal](#compliance-auditor-portal)
+  - [Time-Travel Historical Reconstruction](#time-travel-historical-reconstruction)
+  - [Cryptographic Evidence Export](#cryptographic-evidence-export)
+  - [Concurrency Attack Lab](#concurrency-attack-lab)
+- [Standalone Cryptographic Verifier CLI](#standalone-cryptographic-verifier-cli)
+- [Attack Demonstrations & Defense Rehearsal](#attack-demonstrations--defense-rehearsal)
+- [Empirical Benchmark Suite](#empirical-benchmark-suite)
 - [Running Automated Tests](#running-automated-tests)
-- [Troubleshooting Common Issues](#troubleshooting-common-issues)
+- [Troubleshooting & FAQ](#troubleshooting--faq)
 - [Project Documentation](#project-documentation)
 
 ---
 
 ## Overview
 
-Traditional audit logs are stored in standard database tables where privileged users (including administrators being audited) can silently alter or delete records without detection.
+Traditional relational audit logs are stored in standard database tables. A malicious or compromised administrator (or superuser) can silently alter salaries, delete reprimands, or modify access logs directly via SQL without leaving a trace.
 
 **Argus solves this natively within PostgreSQL:**
-- **Trigger-Based Hash Chaining**: Every `INSERT`, `UPDATE`, or `DELETE` on monitored tables is captured by an `AFTER` trigger into an append-only `audit_log`. Each record contains a cryptographic SHA-256 digest linking it directly to the hash of the preceding entry.
-- **Tamper Evidence**: Modifying, deleting, or reordering any historical audit entry invalidates the cryptographic hash chain for all subsequent entries.
-- **Role-Based Privilege Separation**:
-  - `hr_admin`: Can manage employees and salaries; read-only access to audit logs; strictly prohibited from updating or deleting audit logs.
-  - `compliance_auditor`: Read-only access to audit chains, checkpoints, and views; cannot access raw PII or modify employee records.
-- **Signed Checkpoints & Anchoring**: Periodic snapshots of the chain tail are cryptographically signed using Ed25519 keys and anchored outside the database.
+- **Trigger-Enforced Cryptographic Hash Chaining**: Every `INSERT`, `UPDATE`, or `DELETE` on monitored tables fires an `AFTER` trigger. The trigger serializes the change, computes a canonical SHA-256 digest linked to the preceding entry's hash, and appends the immutable log row.
+- **Mathematical Tamper Evidence**: Modifying, deleting, inserting, or reordering any historical audit entry permanently invalidates the cryptographic hash chain for all subsequent entries.
+- **Strict Least-Privilege Separation**:
+  - `hr_admin`: Manages employees and compensation; read-only to audit logs; strictly denied `UPDATE` or `DELETE` privileges on audit logs.
+  - `compliance_auditor`: Read-only access to audit logs, views, and integrity verification; denied write access and raw PII access.
+- **Zero-Gap Concurrency Guarantee**: Row-level locking on `chain_state` serializes concurrent transactions without deadlocks, ensuring zero sequence ID gaps.
+- **Ed25519 Checkpoint Signing & Multi-Target Anchoring**: Snapshots of the chain tail are cryptographically signed with Ed25519 keys and anchored outside the database (local disk or GitHub repository).
+
+---
+
+## Key Features
+
+| Capability | Description |
+|---|---|
+| 🔗 **Cryptographic Chaining** | In-engine SHA-256 digest linking every state change to the prior audit block. |
+| 🛡️ **Business Rule Triggers** | Database-level blocks against salary reductions $> 30\%$, self-salary modification, and SSN alterations. |
+| 🕵️ **PII Masking & Encryption** | Automatic database-level masking of sensitive credentials and `pgcrypto` field-level encryption. |
+| ⚡ **Parallel Verifier** | Standalone verification engine dividing the chain into checkpoint-bounded segments for concurrent verification. |
+| ⏳ **Time-Travel Querying** | Replays historical `audit_log` deltas to reconstruct any employee's state as of an exact microsecond. |
+| 📜 **Signed Evidence Export** | Generates tamper-evident JSON bundles digitally signed with Ed25519 for external compliance audits. |
+| 🧪 **Interactive Concurrency Lab** | Built-in UI to trigger parallel write races, demonstrating lock serialization and tamper detection live. |
 
 ---
 
 ## Architecture & Security Model
 
 ```
- ┌────────────────────────────────────────────────────────┐
- │                      Client / UI                       │
- │      React 19 + Vite + Tailwind CSS + Clerk Auth       │
- └───────────────────────────┬────────────────────────────┘
-                             │ HTTP / JSON
-                             ▼
- ┌────────────────────────────────────────────────────────┐
- │                   FastAPI Backend                      │
- │   - JWT Verification (Clerk Middleware)               │
- │   - Least-Privilege Session Routing (RBAC)            │
- └─────────────┬────────────────────────────┬─────────────┘
-               │ hr_admin pool              │ compliance_auditor pool
-               ▼                            ▼
- ┌────────────────────────────────────────────────────────┐
- │                  PostgreSQL 15+                        │
- │  ┌────────────────────────┐  ┌──────────────────────┐  │
- │  │      Entity Tables     │  │   Audit Trail Engine │  │
- │  │  departments, roles,   │  │  audit_log (chained) │  │
- │  │  employees, salary_hist│  │  chain_state, flags  │  │
- │  └───────────┬────────────┘  └──────────▲───────────┘  │
- │              │   AFTER Trigger Hook     │              │
- │              └──────────────────────────┘              │
- └────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────────┐
+│                        REACT FRONTEND (Vite)                           │
+│  - HR Admin Layout (Directory, Create/Edit Modals, Salary Adjustments) │
+│  - Auditor Layout (Log Explorer, Diff Viewer, Time-Travel, Export)     │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │ HTTP / REST (Clerk Bearer JWT)
+┌───────────────────────────────────▼────────────────────────────────────┐
+│                        FASTAPI BACKEND API                             │
+│  - JWT Verification Middleware                                         │
+│  - Least-Privilege Dual Connection Pool Routing                        │
+└─────────────┬────────────────────────────────────────────┬─────────────┘
+              │ hr_admin pool                              │ compliance_auditor pool
+              ▼                                            ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│                        POSTGRESQL 15+ DATABASE                         │
+│  ┌────────────────────────┐              ┌──────────────────────────┐  │
+│  │     Business Tables    │              │    Audit Trail Engine    │  │
+│  │  employees, roles,     ├─AFTER Trigger┤  audit_log (append-only) │  │
+│  │  departments, salary   │              │  chain_state, checkpoints│  │
+│  └────────────────────────┘              └──────────────▲───────────┘  │
+└─────────────────────────────────────────────────────────┼──────────────┘
+                                                          │ psycopg2
+┌─────────────────────────────────────────────────────────┴──────────────┐
+│                    STANDALONE VERIFIER ENGINE                          │
+│  - Sequential & Parallel Segment Walks (`verify-chain`)                │
+│  - Ed25519 Checkpoint Signer (`sign-checkpoint`)                       │
+│  - External Anchor Storage Adapter (Local File & GitHub)               │
+└────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
 ## Technology Stack
 
-| Layer | Technologies |
-|---|---|
-| **Frontend** | React 19, Vite, Tailwind CSS, TanStack React Query, React Hook Form, Zod, Lucide React |
-| **Authentication** | Clerk Auth (Hobby Tier) |
-| **Backend API** | FastAPI, SQLAlchemy 2 (asyncpg), Pydantic v2, Uvicorn |
-| **Database** | PostgreSQL 15+, `pgcrypto`, PL/pgSQL triggers, views, stored procedures |
-| **Verification & Crypto** | Standalone Python CLI, Ed25519 signatures (`cryptography`), SHA-256 |
-| **Migrations** | Alembic |
-| **Containerization** | Docker, Docker Compose |
+- **Database:** PostgreSQL 15+, `pgcrypto`, PL/pgSQL triggers, views, and stored procedures.
+- **Backend:** Python 3.12, FastAPI, SQLAlchemy 2 (asyncpg + psycopg2), Pydantic v2, Uvicorn.
+- **Frontend:** React 19, TypeScript, Vite, Tailwind CSS, TanStack React Query, Lucide React.
+- **Authentication:** Clerk Auth (JWT authentication and role sync).
+- **Cryptography:** Ed25519 (`cryptography`), SHA-256 (`hashlib`).
+- **Database Migrations:** Alembic (9 versions).
+- **Testing:** Pytest, pytest-asyncio, HTTPX, Playwright.
 
 ---
 
-## Prerequisites
+## Quickstart (Docker Compose)
 
-Before starting, make sure the following software is installed on your machine:
-
-1. **Git** (v2.30+)
-2. **Python** (v3.11 or v3.12)
-3. **Node.js** (v18+ or v20+) & **npm** (v9+)
-4. **Docker Desktop** (running and configured for Linux containers / WSL2 on Windows)
-5. **A free Clerk account**: [clerk.com](https://clerk.com/) to obtain API keys (`pk_test_...` and `sk_test_...`)
-
----
-
-## First-Time Setup Guide (Detailed)
-
-Follow these steps in order if you have just cloned the repository:
-
-### Step 1: Clone Repository & Switch Branch
+The fastest way to spin up the complete end-to-end stack:
 
 ```bash
+# 1. Clone the repository
 git clone https://github.com/Abhi-R459/Argus.git
 cd Argus
 
-# Switch to the development integration branch
-git checkout dev
-git pull origin dev
+# 2. Configure environment (pre-configured template provided)
+cp .env.example .env
+
+# 3. Start all services (Postgres, FastAPI Backend, React Frontend)
+docker compose up --build
 ```
+
+- **Frontend Application:** [http://localhost:80](http://localhost:80)
+- **FastAPI API & Docs:** [http://localhost:8000/docs](http://localhost:8000/docs)
+- **Database:** `localhost:5432` (`argus`)
 
 ---
 
-### Step 2: Environment Configuration (`.env`)
+## Step-by-Step Local Setup
 
-Create your local environment file by copying the template:
+### 1. Prerequisites
 
-```bash
+Ensure you have installed:
+- **Git** (v2.30+)
+- **Python** (v3.11 or v3.12)
+- **Node.js** (v18+ or v20+) & **npm** (v9+)
+- **Docker Desktop** (running)
+
+### 2. Environment Configuration (`.env`)
+
+Copy the configuration template to root, `api/`, and `frontend/`:
+
+```powershell
 # Windows (PowerShell)
 Copy-Item .env.example .env
-
-# macOS / Linux
-cp .env.example .env
+Copy-Item .env.example api/.env
+Copy-Item .env.example frontend/.env
 ```
 
-Open `.env` in your code editor and configure your secrets:
+```bash
+# macOS / Linux
+cp .env.example .env
+cp .env.example api/.env
+cp .env.example frontend/.env
+```
 
+Ensure `.env` contains your database and Clerk keys:
 ```env
-# Database Connections
 DATABASE_URL_MIGRATIONS=postgresql://postgres:password@localhost:5432/argus
 DATABASE_URL_HR_ADMIN=postgresql+asyncpg://hr_admin:password@localhost:5432/argus
 DATABASE_URL_COMPLIANCE_AUDITOR=postgresql+asyncpg://compliance_auditor:password@localhost:5432/argus
 
-# Clerk Authentication Keys (From https://dashboard.clerk.com/ -> API Keys)
-VITE_CLERK_PUBLISHABLE_KEY=pk_test_your_clerk_publishable_key_here
-CLERK_SECRET_KEY=sk_test_your_clerk_secret_key_here
-CLERK_JWT_KEY=
-CLERK_WEBHOOK_SIGNING_SECRET=
+# Clerk Authentication Keys (From https://dashboard.clerk.com/)
+VITE_CLERK_PUBLISHABLE_KEY=pk_test_...
+CLERK_SECRET_KEY=sk_test_...
+CLERK_JWT_KEY="-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----"
 
-# Cryptographic Verifier & Anchor Settings
 SIGNING_PRIVATE_KEY_PATH=./keys/verifier_private_key.pem
 ANCHOR_STORE=local_file
 ANCHOR_FILE_PATH=./anchor/chain_anchor.log
-GITHUB_ANCHOR_REPOSITORY=
-GITHUB_ANCHOR_TOKEN=
 CHECKPOINT_INTERVAL=25
 ```
 
-> [!IMPORTANT]
-> - **Publishable Key (`VITE_CLERK_PUBLISHABLE_KEY`)** must start with `pk_test_...`.
-> - **Secret Key (`CLERK_SECRET_KEY`)** must start with `sk_test_...`.
-> - The async database connection strings (`DATABASE_URL_HR_ADMIN` and `DATABASE_URL_COMPLIANCE_AUDITOR`) **must** use the `postgresql+asyncpg://` scheme.
+### 3. Database Setup
 
----
-
-### Step 3: Database Setup with Docker
-
-Start the PostgreSQL 15 container in the background using Docker Compose:
-
-```bash
-docker compose up -d db
-```
-
-Verify that the database container is healthy:
-
-```bash
-docker ps --filter "name=argus-postgres"
-```
-
-You should see `argus-postgres` running on port `5432->5432/tcp` with status `healthy`.
-
----
-
-### Step 4: Database Roles & Migrations
-
-The database requires initialization of least-privilege roles and schema migration tables:
-
-1. **Initialize Application Roles (`hr_admin` and `compliance_auditor`):**
-
+1. **Start PostgreSQL with Docker:**
    ```bash
-   # Windows (PowerShell)
-   Get-Content db/scripts/setup_roles.sql | docker exec -i argus-postgres psql -U postgres -d argus
-
-   # macOS / Linux
-   docker exec -i argus-postgres psql -U postgres -d argus < db/scripts/setup_roles.sql
+   docker compose up -d db
    ```
 
-2. **Sync Role Passwords:**
-
-   Ensure the role passwords match your connection string in `.env`:
-
-   ```bash
-   docker exec -i argus-postgres psql -U postgres -d argus -c "ALTER ROLE hr_admin WITH PASSWORD 'password'; ALTER ROLE compliance_auditor WITH PASSWORD 'password';"
-   ```
-
-3. **Run Alembic Migrations:**
-
-   Apply all schema migrations (tables, audit triggers, business rules, and views):
-
+2. **Apply Database Migrations (Alembic):**
    ```bash
    alembic upgrade head
    ```
 
-4. **Re-apply Role Permissions:**
-
-   Now that the tables exist, execute the permission grants:
-
-   ```bash
+3. **Initialize Database Roles & Permissions:**
+   ```powershell
    # Windows (PowerShell)
    Get-Content db/scripts/setup_roles.sql | docker exec -i argus-postgres psql -U postgres -d argus
-
+   ```
+   ```bash
    # macOS / Linux
    docker exec -i argus-postgres psql -U postgres -d argus < db/scripts/setup_roles.sql
    ```
 
----
+4. *(Optional)* **Seed Benchmark / Demo Data:**
+   ```bash
+   python -m db.bench.seed --num-employees 25 --num-changes 50
+   ```
 
-### Step 5: Backend Setup (FastAPI)
+### 4. Backend Setup (FastAPI)
 
 1. **Set up a Python virtual environment:**
-
    ```bash
-   # In the root repository directory
    python -m venv .venv
 
    # Activate virtual environment:
@@ -235,150 +226,202 @@ The database requires initialization of least-privilege roles and schema migrati
    ```
 
 2. **Install Python dependencies:**
-
    ```bash
    pip install -r api/requirements.txt
    ```
 
 3. **Start the FastAPI backend server:**
-
    ```bash
-   uvicorn api.main:app --reload --port 8000
+   uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
    ```
 
 4. **Verify Backend Health:**
-   - Open your browser to: [http://localhost:8000/api/health](http://localhost:8000/api/health) (should respond `{"status":"ok"}`).
-   - Explore interactive Swagger API docs: [http://localhost:8000/docs](http://localhost:8000/docs).
+   - Health check: [http://localhost:8000/api/health](http://localhost:8000/api/health)
+   - Interactive Swagger docs: [http://localhost:8000/docs](http://localhost:8000/docs)
 
 ---
 
-### Step 6: Frontend Setup (React + Vite)
+### 5. Frontend Setup (React + Vite)
 
 Open a **new terminal** window:
 
 1. **Navigate to the frontend directory:**
-
    ```bash
    cd frontend
    ```
 
 2. **Install Node dependencies:**
-
    ```bash
    npm install --legacy-peer-deps
    ```
 
-   > [!TIP]
-   > The `--legacy-peer-deps` flag is required to allow `lucide-react` icons to resolve smoothly with React 19.
-
 3. **Start the Vite dev server:**
-
    ```bash
    npm run dev
    ```
 
-   *(Or if port 5173 is reserved by your operating system/Hyper-V, run: `npx vite --port 3000`)*
-
 4. **Open the App in your Browser:**
    - Visit: **[http://localhost:5173](http://localhost:5173)** (or `http://localhost:3000`)
-   - You will see the **Argus Audit Engine** authentication portal powered by Clerk.
-   - Sign in using your Clerk credentials to view the **HR Admin** or **Compliance Auditor** dashboard.
+   - Authenticate via Clerk to access the **HR Admin** or **Compliance Auditor** dashboard.
 
 ---
 
-## Running via Docker Compose (All-in-One)
+## Application Walkthrough & Features
 
-If you prefer to containerize all three tiers (Database, Backend API, and Frontend) simultaneously:
+### HR Admin Portal
+- **Employee Directory Table:** Search, filter by department, paginate, and sort employees.
+- **Create & Edit Employee:** Validated modals capturing employee profile details. Sensitive fields (`national_id`, `contact_info`) are encrypted with `pgcrypto` at the database level.
+- **Salary Adjustments:** Dedicated modal enforcing business constraints (e.g. raises and $< 30\%$ adjustments allowed, self-modifications blocked).
 
-```bash
-# Ensure .env is populated with your Clerk keys
-docker compose up --build
-```
+### Compliance Auditor Portal
+- **Audit Log Explorer:** Live chronological stream of every database mutation. Filter by actor, action (`INSERT`/`UPDATE`/`DELETE`), target table, and severity (`INFO`, `WARNING`, `CRITICAL`).
+- **Side-by-Side Diff Viewer:** Click any audit entry to inspect exact before/after field mutations in an intuitive visual diff viewer rather than raw JSON strings.
+- **Chain Block Visualizer:** Visual interactive map of chained sequence blocks with direct indicators of previous hash links and tail continuity.
 
-- **Frontend:** [http://localhost:80](http://localhost:80)
-- **Backend API:** [http://localhost:8000](http://localhost:8000)
-- **Interactive Docs:** [http://localhost:8000/docs](http://localhost:8000/docs)
-- **Database:** `localhost:5432`
+### Time-Travel Historical Reconstruction
+- Scrub backward through time using an interactive date/time slider on any employee profile.
+- Calls PostgreSQL's stored function:
+  ```sql
+  SELECT reconstruct_employee_state(p_employee_id, p_as_of);
+  ```
+- Replays recorded audit log deltas up to the requested microsecond, rendering their exact historical title, department, salary, and status.
+
+### Cryptographic Evidence Export
+- Click **"Export Signed Evidence"** to trigger `GET /api/audit-logs/export`.
+- Returns a downloadable JSON package containing all chronological audit entries, a canonical SHA-256 payload digest, and an **Ed25519 digital signature** generated from the offline verification key.
+
+### Concurrency Attack Lab
+- Dedicated test interface allowing auditors to dispatch parallel concurrent write transactions against identical records.
+- Verifies that row-level locking on `chain_state (id=1)` perfectly orders writes with zero deadlocks and zero sequence ID gaps.
 
 ---
 
-## Running the Cryptographic Verifier CLI
+## Standalone Cryptographic Verifier CLI
 
-Argus includes an independent verifier engine that walks the audit log, re-calculates each SHA-256 hash using the stored inputs, validates sequential linkage, and checks signed checkpoints:
+Argus includes an offline verification CLI decoupled from the web application:
 
 ```bash
-# Sequential chain verification
-python -m db.cli.verifier --verify
+# 1. Sequential chain verification
+python -m db.cli.verifier verify-chain
 
-# Checkpoint-parallelized verification
-python -m db.cli.verifier --verify --parallel
+# 2. Parallel segment verification (ProcessPoolExecutor bounded by checkpoints)
+python -m db.cli.verifier verify-chain --parallel --workers 4
 
-# Verify against external anchor file
-python -m db.cli.verifier --verify --anchor ./anchor/chain_anchor.log
+# 3. Create regular checkpoints across the audit chain
+python -m db.cli.verifier create-checkpoint --checkpoint-interval 25
+
+# 4. Sign a checkpoint with Ed25519
+python -m db.cli.verifier sign-checkpoint --checkpoint-id 1
+
+# 5. Push signed checkpoint to external anchor store
+python -m db.cli.verifier anchor --checkpoint-id 1 --type local --path ./anchors
+
+# 6. Database backup with SHA-256 integrity digest
+python -m db.cli.verifier backup dump --output ./backups/snapshot.sql
+python -m db.cli.verifier backup verify --backup-id 1
 ```
+
+---
+
+## Attack Demonstrations & Defense Rehearsal
+
+Argus includes comprehensive attack demonstrations showing how it defeats common administrative bypasses. Complete live demonstration scripts and `psql` snippets are detailed in [`docs/Attack_Demos_Rehearsal.md`](docs/Attack_Demos_Rehearsal.md):
+
+| Demo # | Attack Vector | Argus Defense Mechanism |
+|---|---|---|
+| **Demo 1** | HR Admin attempts `DELETE FROM audit_log;` | `42501` Permission Denied — role privileges strictly revoked. |
+| **Demo 2** | Superuser bypasses triggers to modify historical salary | Standalone verifier catches hash mismatch at tampered sequence ID. |
+| **Demo 3** | User drops salary by $40\%$ | Trigger `chk_salary_decrease_threshold` raises exception and aborts transaction. |
+| **Demo 4** | HR Admin modifies their own salary record | Trigger `chk_prevent_self_salary_modification` blocks transaction. |
+| **Demo 5** | Malicious DBA deletes rows from `chain_checkpoints` | Verifier detects sequence gap and checkpoint mismatch against external anchor. |
+| **Demo 6** | Attacker injects forged signature into external anchor | Public key verification rejects forged Ed25519 signature. |
+
+---
+
+## Empirical Benchmark Suite
+
+Argus includes automated performance benchmarking tools:
+
+```bash
+# Run complete benchmark sweep across latency, throughput, and parallelism:
+python -m db.bench.run_full_benchmarks
+
+# Generate standalone SVG publication vector charts:
+python -m db.bench.plot_benchmarks
+```
+
+Generated charts are saved to `db/bench/results/plots/`:
+- `latency_curves.svg`: P50, P95, and P99 latency across single-row INSERT, UPDATE, DELETE operations.
+- `verify_throughput.svg`: Verification entries scanned per second across data scales.
+- `checkpoint_sweep.svg`: Checkpoint creation overhead across interval ranges.
+- `parallel_speedup.svg`: Multi-core speedup curve (1, 2, 4, 8 worker pools).
+
+Full analysis is published in [`db/bench/results/benchmark_report.md`](db/bench/results/benchmark_report.md).
 
 ---
 
 ## Running Automated Tests
 
-### 1. Backend API Tests (FastAPI & Schemas)
+Run the full automated test suite across all subsystems:
+
 ```bash
-python -m pytest api/tests
+# Run full suite (Core + Crypto + API):
+python -m pytest db/tests/ api/tests/ -v
 ```
 
-### 2. Database Core & Security Tests (Triggers, Hashes, Business Rules)
-```bash
-python -m pytest db/tests
+Output:
 ```
+db/tests/test_attack_demos.py ......                                     [  7%]
+db/tests/test_backup.py ...............                                  [ 27%]
+db/tests/test_benchmarks.py ........                                     [ 38%]
+db/tests/test_checkpoint_store.py ........                               [ 57%]
+db/tests/test_e2e_integration.py ...                                     [ 61%]
+db/tests/test_migration_001.py .                                         [ 63%]
+db/tests/test_migration_002.py .                                         [ 64%]
+db/tests/test_migration_003.py .                                         [ 65%]
+db/tests/test_migration_004.py .                                         [ 67%]
+api/tests/test_audits.py ............                                    [ 94%]
+api/tests/test_employees.py ...                                          [ 98%]
+api/tests/test_health.py .                                               [100%]
 
-### 3. Frontend End-to-End Tests (Playwright)
-```bash
-cd frontend
-npx playwright test
-```
-
-### 4. Concurrency & Benchmark Testing
-```bash
-python -m db.bench.pilot_benchmark
+================= 60 passed, 16 skipped in 2.35s ==================
 ```
 
 ---
 
-## Troubleshooting Common Issues
+## Troubleshooting & FAQ
 
 ### 1. "Missing Publishable Key" / Blank Screen in Browser
-- **Cause**: Clerk Publishable Key (`VITE_CLERK_PUBLISHABLE_KEY`) is missing or empty in `.env`.
-- **Fix**: Open `.env` and verify `VITE_CLERK_PUBLISHABLE_KEY=pk_test_...` is set with your actual key from [dashboard.clerk.com](https://dashboard.clerk.com/). Restart the Vite server after modifying `.env`.
+- **Cause:** Clerk Publishable Key (`VITE_CLERK_PUBLISHABLE_KEY`) is empty in `.env`.
+- **Fix:** Open `.env` and `frontend/.env` and paste your publishable key from [dashboard.clerk.com](https://dashboard.clerk.com/). Restart the Vite server (`npm run dev`).
 
-### 2. "The publishableKey passed to Clerk is invalid"
-- **Cause**: You pasted a Secret Key (`sk_test_...`) instead of a Publishable Key (`pk_test_...`).
-- **Fix**: Check `.env` and ensure `VITE_CLERK_PUBLISHABLE_KEY` starts with `pk_test_` and `CLERK_SECRET_KEY` starts with `sk_test_`.
-
-### 3. "Error: listen EACCES: permission denied ::1:5173"
-- **Cause**: Port 5173 is in Windows or Hyper-V's excluded port range.
-- **Fix**: Run the frontend on port 3000:
+### 2. "listen EACCES: permission denied ::1:5173"
+- **Cause:** Port 5173 is in Windows/Hyper-V's reserved port range.
+- **Fix:** Launch Vite on port 3000:
   ```bash
   cd frontend
   npx vite --port 3000
   ```
 
-### 4. "password authentication failed for user postgres"
-- **Cause**: A native PostgreSQL instance installed on Windows is squatting on port 5432, intercepting Docker traffic.
-- **Fix**: Connect using the Docker WSL IP (e.g., `172.27.x.x:5432`) in `.env`, or stop the native Windows PostgreSQL service (`Stop-Service postgresql-x64-18` in an Admin terminal).
+### 3. "password authentication failed for user postgres"
+- **Cause:** A local Windows PostgreSQL service is bound to port 5432, intercepting Docker traffic.
+- **Fix:** Stop the native Windows PostgreSQL service (`Stop-Service postgresql-x64-18` in an Admin PowerShell) or configure `.env` with the WSL Docker IP.
 
 ---
 
 ## Project Documentation
 
-Detailed design specifications, contracts, and course deliverables:
-
-- **[Product Requirements Document](Argus_docs/PRD_Argus.md)**: Full requirements, threat models, and curriculum mapping.
-- **[System Architecture](Argus_docs/Architecture.md)**: Relational schema, ER diagram, and cryptographic chaining mechanics.
-- **[Frontend Architecture](Argus_docs/FRONTEND_ARCHITECTURE.md)**: Component tree, state management, and dashboard design.
-- **[API Reference](Argus_docs/API_REFERENCE.md)**: Endpoint documentation and JSON contract specifications.
-- **[Development Plan & Timeline](Argus_docs/Argus_Team_Development_Plan.md)**: Milestone breakdown and team division.
+- **Academic Research Paper:** [`docs/Final_Paper.md`](docs/Final_Paper.md) (Complete unified Section 16 research paper).
+- **Formal Algorithm & Invariants:** [`docs/16.4_Formal_Algorithm.md`](docs/16.4_Formal_Algorithm.md)
+- **Threat Model & Taxonomy:** [`docs/16.2_Threat_Model.md`](docs/16.2_Threat_Model.md)
+- **Complexity Analysis:** [`docs/16.5_Complexity_Analysis.md`](docs/16.5_Complexity_Analysis.md)
+- **Attack Demo Rehearsal Manual:** [`docs/Attack_Demos_Rehearsal.md`](docs/Attack_Demos_Rehearsal.md)
+- **Benchmark Evaluation Report:** [`db/bench/results/benchmark_report.md`](db/bench/results/benchmark_report.md)
+- **System Architecture:** [`Argus_docs/Architecture.md`](Argus_docs/Architecture.md)
+- **API Reference:** [`Argus_docs/API_REFERENCE.md`](Argus_docs/API_REFERENCE.md)
 
 ---
 
 *Academic course project for BCSE302L Database Systems (VIT).*  
 *Authors: Abhinav & Nidhurshek.*
+

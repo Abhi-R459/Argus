@@ -1,17 +1,56 @@
+import hashlib
 import json
+import os
 from datetime import datetime, timezone
+from pathlib import Path
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from ..models.audit_log import AuditLog
 from ..models.user import User
+from ..config import get_settings
+
+try:
+    from db.cli.signer import sign_checkpoint
+    from db.cli.keygen import (
+        load_private_key,
+        generate_keypair,
+        save_keypair,
+        get_default_key_dir,
+    )
+except ImportError:
+    from ...db.cli.signer import sign_checkpoint  # type: ignore[no-redef]
+    from ...db.cli.keygen import (  # type: ignore[no-redef]
+        load_private_key,
+        generate_keypair,
+        save_keypair,
+        get_default_key_dir,
+    )
+
+
+def get_or_create_signing_key():
+    """Resolve or generate an Ed25519 signing keypair for audit evidence export."""
+    settings = get_settings()
+    configured_path = Path(settings.SIGNING_PRIVATE_KEY_PATH)
+    default_path = Path(get_default_key_dir()) / "signing_key.pem"
+
+    for candidate in [configured_path, default_path]:
+        if candidate.is_file():
+            try:
+                return load_private_key(str(candidate))
+            except Exception:
+                pass
+
+    # If key doesn't exist, generate and save in default key directory
+    priv_pem, pub_pem = generate_keypair()
+    target_dir = configured_path.parent if configured_path.parent.exists() else get_default_key_dir()
+    priv_path, _ = save_keypair(priv_pem, pub_pem, str(target_dir))
+    return load_private_key(priv_path)
+
 
 async def generate_signed_evidence_export(session: AsyncSession) -> dict:
     """
-    Fetch all audit logs and generate a signed JSON export.
-    
-    TODO (PENDING_ABHINAV): The cryptographic signing logic relies on Abhinav's 
-    checkpoint signing utility (Week 6). Currently mocked.
+    Fetch all audit logs and generate an Ed25519 signed JSON export.
     """
     query = (
         select(
@@ -58,15 +97,21 @@ async def generate_signed_evidence_export(session: AsyncSession) -> dict:
         "logs": logs
     }
     
-    # MOCK SIGNATURE
-    # Replace with subprocess call to Abhinav's signing utility or import it
-    mock_signature = "mock_signature_until_abhinav_signing_utility_is_ready"
+    # Compute canonical SHA-256 hash of payload
+    payload_canonical = json.dumps(export_payload, sort_keys=True, separators=(",", ":"))
+    payload_hash = hashlib.sha256(payload_canonical.encode("utf-8")).hexdigest()
+
+    # Cryptographic Ed25519 signature
+    private_key = get_or_create_signing_key()
+    signature_bytes = sign_checkpoint(private_key, payload_hash)
     
     return {
         "metadata": {
             "version": "1.0",
-            "signature_algorithm": "RSA-SHA256 (MOCK)",
-            "signature": mock_signature
+            "signature_algorithm": "Ed25519",
+            "signature": signature_bytes.hex(),
+            "payload_hash": payload_hash,
         },
         "data": export_payload
     }
+
