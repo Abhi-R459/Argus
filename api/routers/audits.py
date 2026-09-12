@@ -19,6 +19,7 @@ import hashlib
 import hmac
 import json
 import math
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select, func, text, or_
@@ -71,6 +72,8 @@ async def list_audit_logs(
     table_name: Optional[str] = Query(None, description="Filter by table name"),
     severity: Optional[str] = Query(None, description="INFO | WARNING | CRITICAL"),
     national_id_search: Optional[str] = Query(None, description="Search by National ID via HMAC blind index"),
+    sequence_id: Optional[int] = Query(None, description="Filter by exact sequence_id"),
+    employee_id: Optional[int] = Query(None, description="Filter by employee_id"),
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
     current_user: User = Depends(get_current_user),
@@ -88,7 +91,7 @@ async def list_audit_logs(
     query = (
         select(
             AuditLog.sequence_id,
-            User.full_name.label("actor_name"),
+            func.coalesce(User.full_name, "System").label("actor_name"),
             AuditLog.employee_id,
             AuditLog.action,
             AuditLog.table_name,
@@ -100,7 +103,7 @@ async def list_audit_logs(
             AuditLog.previous_hash,
             AuditLog.created_at,
         )
-        .join(User, AuditLog.actor_user_id == User.user_id)
+        .outerjoin(User, AuditLog.actor_user_id == User.user_id)
     )
 
     # Apply optional filters
@@ -112,6 +115,10 @@ async def list_audit_logs(
         query = query.where(AuditLog.table_name.ilike(f"%{table_name}%"))
     if severity:
         query = query.where(AuditLog.severity == severity.upper())
+    if sequence_id is not None:
+        query = query.where(AuditLog.sequence_id == sequence_id)
+    if employee_id is not None:
+        query = query.where(AuditLog.employee_id == employee_id)
     if national_id_search:
         settings = get_settings()
         clean_nid = national_id_search.strip()
@@ -186,11 +193,46 @@ async def run_verification(
 
     def _execute_verification():
         try:
+            import json
+            from pathlib import Path
             import psycopg2
             from db.cli.hash_verifier import verify_chain
             conn = psycopg2.connect(db_url, connect_timeout=2)
             try:
-                return verify_chain(conn)
+                res = verify_chain(conn)
+                anchor_mismatch = None
+                anchor_dir = Path("anchor")
+                if anchor_dir.exists():
+                    for p in anchor_dir.glob("*.json"):
+                        try:
+                            with open(p, "r", encoding="utf-8") as f:
+                                data = json.load(f)
+                                chk_id = data.get("checkpoint_id")
+                                stored_hash = data.get("checkpoint_hash")
+                                with conn.cursor() as cur:
+                                    cur.execute("SELECT checkpoint_hash FROM chain_checkpoints WHERE checkpoint_id = %s", (chk_id,))
+                                    row = cur.fetchone()
+                                    if row and row[0] != stored_hash:
+                                        anchor_mismatch = f"External anchor mismatch: Checkpoint {chk_id} altered in DB ({row[0][:16]}...) vs external anchor ({stored_hash[:16]}...)."
+                                        break
+                        except Exception:
+                            pass
+
+                if not anchor_mismatch:
+                    try:
+                        from db.cli.key_management import load_public_key
+                        from db.cli.signer import verify_signature
+                        pub = load_public_key()
+                        with conn.cursor() as cur:
+                            cur.execute("SELECT checkpoint_id, checkpoint_hash, signature FROM chain_checkpoints")
+                            for chk_id, chk_hash, chk_sig in cur.fetchall():
+                                if chk_sig and not verify_signature(pub, chk_hash, bytes(chk_sig)):
+                                    anchor_mismatch = f"Checkpoint signature forgery: Checkpoint {chk_id} has invalid cryptographic signature."
+                                    break
+                    except Exception:
+                        pass
+
+                return (res, anchor_mismatch)
             finally:
                 conn.close()
         except BaseException as exc:
@@ -199,32 +241,17 @@ async def run_verification(
     verify_output = await asyncio.to_thread(_execute_verification)
 
     if isinstance(verify_output, BaseException):
-        # Fallback in mock / unit-test environments without live PostgreSQL
-        total_entries = await session.scalar(select(func.count(AuditLog.sequence_id))) or 0
-        last_id_row = await session.scalar(
-            select(AuditLog.sequence_id).order_by(AuditLog.sequence_id.desc()).limit(1)
-        )
         return VerificationResult(
-            status="intact",
-            entries_scanned=total_entries,
-            anchor_match=True,
-            last_verified_sequence_id=last_id_row or 0,
+            status="error",
+            entries_scanned=0,
+            anchor_match=False,
+            last_verified_sequence_id=0,
             tampered_sequence_id=None,
-            details=f"Verification fallback: scanned {total_entries} entries (connection notice: {verify_output}).",
+            details=f"Verification engine failure: unable to connect or verify database ({str(verify_output)}).",
         )
 
-    res = verify_output
-    if res.is_valid:
-        last_verified = res.last_sequence_id if res.last_sequence_id >= 0 else 0
-        return VerificationResult(
-            status="intact",
-            entries_scanned=res.total_entries,
-            anchor_match=True,
-            last_verified_sequence_id=last_verified,
-            tampered_sequence_id=None,
-            details=f"Chain walks successfully across {res.total_entries} entries. Tail hash matches anchor store.",
-        )
-    else:
+    res, anchor_mismatch = verify_output
+    if not res.is_valid:
         tampered_id = None
         details = "Integrity violation detected."
         if res.mismatches:
@@ -246,6 +273,25 @@ async def run_verification(
             tampered_sequence_id=tampered_id,
             details=details,
         )
+    elif anchor_mismatch:
+        return VerificationResult(
+            status="tampered",
+            entries_scanned=res.total_entries,
+            anchor_match=False,
+            last_verified_sequence_id=0,
+            tampered_sequence_id=None,
+            details=anchor_mismatch,
+        )
+    else:
+        last_verified = res.last_sequence_id if res.last_sequence_id >= 0 else 0
+        return VerificationResult(
+            status="intact",
+            entries_scanned=res.total_entries,
+            anchor_match=True,
+            last_verified_sequence_id=last_verified,
+            tampered_sequence_id=None,
+            details=f"Chain walks successfully across {res.total_entries} entries. Tail hash matches anchor store.",
+        )
 
 
 # ─── GET /api/suspicious-activity ────────────────────────────────────────────
@@ -262,8 +308,14 @@ async def list_suspicious_flags(
     """List all suspicious activity flags, newest first.
 
     Populated by Abhinav's Week 8 refresh_suspicious_activity_flags()
-    procedure. Returns empty list until then.
+    procedure.
     """
+    try:
+        await session.execute(text("CALL refresh_suspicious_activity_flags()"))
+        await session.commit()
+    except Exception:
+        pass
+
     result = await session.execute(
         select(SuspiciousActivityFlag).order_by(
             SuspiciousActivityFlag.created_at.desc()
@@ -347,19 +399,6 @@ async def reconstruct_employee_state(
     )
     state = recon_res.scalar()
 
-    # If state is a mock object (in unit tests with AsyncMock), populate default mock state
-    if hasattr(state, "__class__") and "Mock" in state.__class__.__name__:
-        emp_res = await session.execute(select(Employee).where(Employee.employee_id == employee_id))
-        emp = emp_res.scalar_one_or_none()
-        state = {
-            "employee_id": employee_id,
-            "full_name": emp.full_name if emp else f"Employee {employee_id}",
-            "email": emp.email if emp else f"emp{employee_id}@example.com",
-            "role_id": emp.role_id if emp else 1,
-            "date_hired": str(emp.date_hired) if emp else "2024-01-01",
-            "is_active": emp.is_active if emp else True,
-        }
-
     # If state is None, employee did not exist as of target timestamp
     if state is None:
         raise HTTPException(
@@ -402,11 +441,11 @@ async def reconstruct_employee_state(
             .where(Role.role_id == int(role_id))
         )
         role_row = role_res.first()
-        if role_row and not (hasattr(role_row, "__class__") and "Mock" in role_row.__class__.__name__):
+        if role_row:
             try:
-                role_title = str(role_row[0]) if not (hasattr(role_row[0], "__class__") and "Mock" in role_row[0].__class__.__name__) else "Unknown"
-                department_name = str(role_row[1]) if not (hasattr(role_row[1], "__class__") and "Mock" in role_row[1].__class__.__name__) else "Unknown"
-            except Exception:
+                role_title = str(role_row[0])
+                department_name = str(role_row[1])
+            except (IndexError, TypeError, ValueError):
                 role_title, department_name = "Unknown", "Unknown"
 
     # Resolve Salary as of target timestamp
@@ -421,9 +460,10 @@ async def reconstruct_employee_state(
     )
     sal_row = sal_res.scalar()
     try:
-        salary = float(sal_row) if sal_row is not None and not (hasattr(sal_row, '__class__') and 'Mock' in sal_row.__class__.__name__) else 0.0
+        salary = float(sal_row) if sal_row is not None else 0.0
     except (TypeError, ValueError):
         salary = 0.0
+
 
     return TimeTravelResponse(
         employee_id=employee_id,
@@ -521,11 +561,26 @@ def _map_severity_to_frontend(severity: Optional[str]) -> str:
     dependencies=_auditor_only,
 )
 async def get_audit_chain(
+    response: Response,
     limit: int = Query(10, ge=1, le=100, description="Number of entries to return (newest first)"),
+    offset: int = Query(0, ge=0, description="Offset for pagination"),
+    around_seq: Optional[int] = Query(None, description="Center window around a specific sequence_id"),
+    table_name: Optional[str] = Query(None, description="Filter by table name"),
+    action: Optional[str] = Query(None, description="Filter by action: INSERT, UPDATE, DELETE"),
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session),
 ):
-    """Retrieve the most recent audit hash chain entries for live visualizer."""
+    """Retrieve audit hash chain entries with optional pagination, filters, or centered around a sequence ID."""
+    count_query = select(func.count(AuditLog.sequence_id))
+    if table_name:
+        count_query = count_query.where(AuditLog.table_name == table_name)
+    if action:
+        count_query = count_query.where(AuditLog.action == action.upper())
+
+    total_res = await session.execute(count_query)
+    total_count = total_res.scalar() or 0
+    response.headers["X-Total-Count"] = str(total_count)
+
     query = (
         select(
             AuditLog.sequence_id,
@@ -541,17 +596,31 @@ async def get_audit_chain(
             AuditLog.new_value,
         )
         .outerjoin(User, AuditLog.actor_user_id == User.user_id)
-        .order_by(AuditLog.sequence_id.desc())
-        .limit(limit)
     )
+
+    if around_seq is not None:
+        half = limit // 2
+        start_seq = max(1, around_seq - half)
+        end_seq = start_seq + limit - 1
+        query = query.where(AuditLog.sequence_id >= start_seq, AuditLog.sequence_id <= end_seq)
+
+    if table_name:
+        query = query.where(AuditLog.table_name == table_name)
+    if action:
+        query = query.where(AuditLog.action == action.upper())
+
+    query = query.order_by(AuditLog.sequence_id.desc())
+
+    if around_seq is None:
+        query = query.offset(offset).limit(limit)
+    else:
+        query = query.limit(limit)
 
     result = await session.execute(query)
     rows = result.all()
 
     chain: List[ChainEntry] = []
     for row in rows:
-        if hasattr(row, "_mock_return_value"):
-            continue
         chain.append(
             ChainEntry(
                 entry_id=row.sequence_id,
@@ -601,17 +670,23 @@ async def get_anchor_status(
             text("SELECT tail_sequence_id FROM chain_state WHERE id = 1")
         )
         state_row = state_res.first()
-        if state_row and state_row[0] is not None and not (hasattr(state_row[0], "__class__") and "Mock" in state_row[0].__class__.__name__):
-            tail_seq = int(state_row[0])
+        if state_row and state_row[0] is not None:
+            try:
+                tail_seq = int(state_row[0])
+            except (ValueError, TypeError):
+                tail_seq = 0
         else:
             max_res = await session.execute(text("SELECT COALESCE(MAX(sequence_id), 0) FROM audit_log"))
             max_row = max_res.first()
-            if max_row and max_row[0] is not None and not (hasattr(max_row[0], "__class__") and "Mock" in max_row[0].__class__.__name__):
-                tail_seq = int(max_row[0])
+            if max_row and max_row[0] is not None:
+                try:
+                    tail_seq = int(max_row[0])
+                except (ValueError, TypeError):
+                    tail_seq = 0
     except Exception:
         tail_seq = 0
 
-    if not latest_chk or (hasattr(latest_chk, "__class__") and "Mock" in latest_chk.__class__.__name__):
+    if not latest_chk:
         return AnchorInfo(
             status="MISSING",
             anchor_store=store_type,
@@ -620,6 +695,7 @@ async def get_anchor_status(
             anchor_hash="sha256:0000000000000000000000000000000000000000000000000000000000000000",
             entries_since_anchor=tail_seq,
         )
+
 
     try:
         chk_seq = int(latest_chk[0]) if latest_chk[0] is not None else 0
@@ -641,6 +717,22 @@ async def get_anchor_status(
 
     delta = max(0, tail_seq - chk_seq)
     status_str = "STALE" if delta > settings.CHECKPOINT_INTERVAL * 2 else "ANCHORED"
+
+    # Check external anchor store if available
+    anchor_dir = Path("anchor")
+    if anchor_dir.exists():
+        for p in anchor_dir.glob("*.json"):
+            try:
+                with open(p, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    f_chk_seq = data.get("sequence_id")
+                    f_chk_hash = data.get("checkpoint_hash")
+                    if f_chk_seq == chk_seq and f_chk_hash and chk_hash:
+                        if f_chk_hash != chk_hash:
+                            status_str = "MISMATCH"
+                            break
+            except Exception:
+                pass
 
     return AnchorInfo(
         status=status_str,
@@ -775,7 +867,7 @@ async def get_system_metrics(
 
 
 @router.post(
-    "/test/concurrency-run",
+    "/analytics/diagnostics/concurrency-benchmark",
     response_model=ConcurrencyRunResponse,
     dependencies=_auditor_only,
 )

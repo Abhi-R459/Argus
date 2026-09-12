@@ -33,6 +33,7 @@ Extensive empirical evaluations confirm that Argus introduces amortized $O(1)$ w
 - [16.8 Empirical Benchmark Evaluation](#168-empirical-benchmark-evaluation)
 - [16.9 Architecture & Project Mapping](#169-architecture--project-mapping)
 - [16.10 Sequencing, Pedagogy & Mentorship Note](#1610-sequencing-pedagogy--mentorship-note)
+- [16.11 Enterprise Auditor UX & Cross-View Forensic Navigation](#1611-enterprise-auditor-ux--cross-view-forensic-navigation)
 
 ---
 
@@ -170,6 +171,23 @@ Developed over an 11-week academic lifecycle, Argus serves as a pedagogical demo
 - Concurrency control via Two-Phase Locking (2PL).
 - Transactional atomicity and Write-Ahead Log (WAL) crash recovery.
 - B-tree indexing and keyset streaming optimization.
+
+---
+
+## 16.11 Enterprise Auditor UX & Cross-View Forensic Navigation
+
+A fundamental challenge in cryptographic audit architectures is bridging formal mathematical guarantees (hash chains, digital signatures, blind indexes) with operational usability for human compliance auditors. If incident alerting is fragmented across disjointed views or requires manual copy-pasting of 64-character hex digests and microsecond timestamps, the Mean Time to Investigate (MTTI) escalates, introducing operational blind spots.
+
+Argus addresses this through a reactive, cohesive forensic navigation architecture:
+
+1. **Global Reactive Incident State & Persistent Alerting:** Rather than isolating violation indicators to a single dashboard tab, a shared client-side hook (`useIncidentStatus()`) synthesizes real-time results from `POST /api/verify`, `GET /api/anchor/status`, and unreviewed trigger flags. When out-of-band tampering ($A_{DBA}$) or anchor divergence is detected, high-contrast crimson banners persist across all routes in `AuditorLayout.tsx` with one-click direct investigation deep-links.
+2. **Dedicated Full-Page Chain Explorer (`/auditor/chain`):** Enterprise audit verification requires examining block lineages beyond small overview cards. The dedicated chain explorer exposes keyset-based pagination and centered windowing (`around_seq`), allowing auditors to jump to any sequence block, inspect cryptographic parents and entry digests, view side-by-side JSON property diffs, and inspect detached Ed25519 checkpoint signatures.
+3. **Frictionless Cross-View Forensic Traversal:** All portal views adhere to a standardized query contract (`?seq=`, `?emp_id=`, `?as_of=`):
+   - An alert in the persistent banner deep-links to `/auditor/chain?seq=X`, automatically windowing the chain around block $X$ and opening the Block Inspector.
+   - An entry in `AuditLogTable.tsx` provides direct jumps: *"Inspect in Chain"* (`/auditor/chain?seq=X`) and *"Time-Travel to Change"* (`/auditor/time-travel?emp_id=Y&as_of=Z`).
+   - A flagged violation in `RiskPanel.tsx` deep-links directly into matching audit records and visualizer nodes.
+4. **Interactive Historical Time-Travel:** The `TimeTravelView.tsx` interface eliminates blind guesswork by providing a searchable employee directory dropdown coupled with a chronological mutation timeline. Auditors click any historical mutation event to automatically populate the target microsecond timestamp and invoke `reconstruct_employee_state(:emp_id, :as_of)` via PostgreSQL's $O(\log N)$ composite B-tree index.
+5. **Strict Auditor Role Read-Only Purity:** To uphold formal security assumptions, the auditor portal contains zero backdoor attack injection or test endpoints. Administrative Red Team simulations are executed out-of-band via superuser CLI sockets (`db.cli.adversary`), while the compliance auditor role remains strictly read-only (`SELECT`-only permissions enforced at both the FastAPI dependency layer and PostgreSQL connection pool).
 
 ---
 

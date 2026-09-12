@@ -1,11 +1,17 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@clerk/clerk-react';
 import {
   ChevronLeft, ChevronRight, Search, SlidersHorizontal,
-  Hash, ChevronDown, ChevronUp, ArrowRight,
+  Hash, ChevronDown, ChevronUp, ArrowRight, GitBranch, Clock,
 } from 'lucide-react';
-import { fetchAuditLogs, type AuditLogFilters, type AuditLogItem } from '../../services/auditService';
+import {
+  fetchAuditLogs,
+  useIncidentStatus,
+  type AuditLogFilters,
+  type AuditLogItem,
+} from '../../services/auditService';
 import DiffViewer from './DiffViewer';
 
 // ─── Badges & colours ─────────────────────────────────────────────────────────
@@ -44,24 +50,46 @@ function relativeTime(iso: string) {
 
 // ─── Expandable row ───────────────────────────────────────────────────────────
 
-function AuditRow({ entry }: { entry: AuditLogItem }) {
-  const [open, setOpen] = useState(false);
+function AuditRow({
+  entry,
+  isTampered,
+  isTargetSeq,
+}: {
+  entry: AuditLogItem;
+  isTampered?: boolean;
+  isTargetSeq?: boolean;
+}) {
+  const [open, setOpen] = useState(Boolean(isTargetSeq || isTampered));
+  const navigate = useNavigate();
 
   return (
     <>
       <tr
         className={`group cursor-pointer transition-colors duration-150 ${
-          open ? 'bg-slate-800/60' : 'hover:bg-slate-800/40'
-        } ${entry.severity === 'CRITICAL' ? 'border-l-2 border-red-500/40' : ''}`}
+          isTampered
+            ? 'bg-red-500/15 border-l-4 border-red-500 hover:bg-red-500/20 shadow-sm shadow-red-950/40'
+            : isTargetSeq
+            ? 'bg-violet-500/15 border-l-4 border-violet-500 hover:bg-violet-500/20'
+            : open
+            ? 'bg-slate-800/60'
+            : 'hover:bg-slate-800/40'
+        } ${entry.severity === 'CRITICAL' && !isTampered && !isTargetSeq ? 'border-l-2 border-red-500/40' : ''}`}
         onClick={() => setOpen((v) => !v)}
       >
         {/* Seq ID */}
         <td className="px-4 py-3 whitespace-nowrap">
           <div className="flex items-center space-x-2">
             <span
-              className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${SEVERITY_DOT[entry.severity] ?? 'bg-slate-400'}`}
+              className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                isTampered ? 'bg-red-400 animate-ping' : SEVERITY_DOT[entry.severity] ?? 'bg-slate-400'
+              }`}
             />
             <span className="text-sm font-mono text-slate-300">#{entry.sequence_id}</span>
+            {isTampered && (
+              <span className="text-[10px] font-mono font-bold bg-red-500/30 text-red-200 border border-red-500/50 px-1.5 py-0.5 rounded animate-pulse">
+                TAMPERED
+              </span>
+            )}
           </div>
         </td>
 
@@ -70,7 +98,13 @@ function AuditRow({ entry }: { entry: AuditLogItem }) {
           <div className="flex items-center space-x-1 text-xs font-mono text-violet-400/80">
             <span className="text-slate-600">{truncateHash(entry.previous_hash, 6)}</span>
             <ArrowRight className="w-3 h-3 text-slate-700" />
-            <span className="bg-violet-500/5 border border-violet-500/15 px-1.5 py-0.5 rounded">
+            <span
+              className={`px-1.5 py-0.5 rounded border ${
+                isTampered
+                  ? 'bg-red-500/20 border-red-500/40 text-red-300 font-semibold'
+                  : 'bg-violet-500/5 border-violet-500/15'
+              }`}
+            >
               {truncateHash(entry.entry_hash)}
             </span>
           </div>
@@ -130,12 +164,37 @@ function AuditRow({ entry }: { entry: AuditLogItem }) {
       {open && (
         <tr>
           <td colSpan={8} className="p-0">
-            <div className="px-6 py-4 bg-slate-900/70 border-t border-slate-700/50">
+            <div className="px-6 py-4 bg-slate-900/70 border-t border-slate-700/50 space-y-4">
               <DiffViewer
                 oldValue={entry.old_value}
                 newValue={entry.new_value}
                 operation={entry.action}
               />
+              <div className="flex items-center justify-end space-x-2 pt-2 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    navigate(`/auditor/chain?seq=${entry.sequence_id}`);
+                  }}
+                  className="px-3 py-1.5 rounded-lg bg-violet-600/20 hover:bg-violet-600/30 border border-violet-500/30 text-violet-200 text-xs font-medium flex items-center space-x-1.5 transition-colors"
+                >
+                  <GitBranch className="w-3.5 h-3.5 text-violet-400" />
+                  <span>Inspect in Chain Explorer</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    const empId = entry.employee_id || entry.row_id;
+                    navigate(`/auditor/time-travel?emp_id=${empId}&as_of=${encodeURIComponent(entry.created_at)}`);
+                  }}
+                  className="px-3 py-1.5 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/30 text-indigo-200 text-xs font-medium flex items-center space-x-1.5 transition-colors"
+                >
+                  <Clock className="w-3.5 h-3.5 text-indigo-400" />
+                  <span>Time-Travel to Change ⏱</span>
+                </button>
+              </div>
             </div>
           </td>
         </tr>
@@ -165,6 +224,21 @@ function FilterBar({ filters, onChange }: FilterBarProps) {
           value={filters.table_name ?? ''}
           onChange={(e) => onChange({ table_name: e.target.value, page: 1 })}
           className="pl-8 pr-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-xs text-slate-300 placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-violet-500/50 focus:border-violet-500/50 w-36 transition-all"
+        />
+      </div>
+
+      {/* Sequence ID search */}
+      <div className="relative">
+        <Hash className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500" />
+        <input
+          type="number"
+          placeholder="Seq #…"
+          value={filters.sequence_id ?? ''}
+          onChange={(e) => {
+            const val = e.target.value ? parseInt(e.target.value, 10) : undefined;
+            onChange({ sequence_id: val, page: 1 });
+          }}
+          className="pl-8 pr-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-xs text-slate-300 placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-violet-500/50 focus:border-violet-500/50 w-24 transition-all font-mono"
         />
       </div>
 
@@ -205,9 +279,9 @@ function FilterBar({ filters, onChange }: FilterBarProps) {
       </select>
 
       {/* Clear */}
-      {(filters.table_name || filters.action || filters.severity || filters.national_id_search) && (
+      {(filters.table_name || filters.action || filters.severity || filters.national_id_search || filters.sequence_id !== undefined) && (
         <button
-          onClick={() => onChange({ table_name: '', action: '', severity: '', national_id_search: '', page: 1 })}
+          onClick={() => onChange({ table_name: '', action: '', severity: '', national_id_search: '', sequence_id: undefined, page: 1 })}
           className="text-xs text-slate-500 hover:text-slate-300 transition-colors underline underline-offset-2"
         >
           Clear filters
@@ -221,15 +295,39 @@ function FilterBar({ filters, onChange }: FilterBarProps) {
 
 export default function AuditLogTable() {
   const { getToken } = useAuth();
-  const [filters, setFilters] = useState<AuditLogFilters>({ page: 1, limit: 20 });
+  const [searchParams, setSearchParams] = useSearchParams();
+  const seqParam = searchParams.get('seq');
+  const targetSeq = seqParam ? parseInt(seqParam, 10) : undefined;
+  const incident = useIncidentStatus();
+
+  const [filters, setFilters] = useState<AuditLogFilters>({
+    page: 1,
+    limit: 20,
+    sequence_id: targetSeq && !isNaN(targetSeq) ? targetSeq : undefined,
+  });
+
+  useEffect(() => {
+    if (seqParam) {
+      const parsed = parseInt(seqParam, 10);
+      if (!isNaN(parsed) && filters.sequence_id !== parsed) {
+        setFilters((prev) => ({ ...prev, sequence_id: parsed, page: 1 }));
+      }
+    }
+  }, [seqParam]);
 
   const { data, isLoading, isError, isFetching } = useQuery({
     queryKey: ['auditLogs', filters],
     queryFn: () => fetchAuditLogs(filters, getToken),
+    refetchInterval: 10000,
   });
 
-  const updateFilters = (patch: Partial<AuditLogFilters>) =>
+  const updateFilters = (patch: Partial<AuditLogFilters>) => {
+    if (patch.sequence_id === undefined && searchParams.has('seq')) {
+      searchParams.delete('seq');
+      setSearchParams(searchParams);
+    }
     setFilters((prev) => ({ ...prev, ...patch }));
+  };
 
   const page  = filters.page  ?? 1;
   const limit = filters.limit ?? 20;
@@ -244,6 +342,11 @@ export default function AuditLogTable() {
           {data && (
             <span className="text-xs text-slate-500 bg-slate-800 px-2 py-0.5 rounded border border-slate-700">
               {data.total.toLocaleString()} entries
+            </span>
+          )}
+          {filters.sequence_id !== undefined && (
+            <span className="text-xs font-mono font-semibold bg-violet-500/20 text-violet-300 border border-violet-500/30 px-2 py-0.5 rounded">
+              Seq #{filters.sequence_id}
             </span>
           )}
           {isFetching && !isLoading && (
@@ -299,7 +402,12 @@ export default function AuditLogTable() {
               </tr>
             ) : (
               data?.items.map((entry) => (
-                <AuditRow key={entry.sequence_id} entry={entry} />
+                <AuditRow
+                  key={entry.sequence_id}
+                  entry={entry}
+                  isTampered={entry.sequence_id === incident.tamperedSeqId}
+                  isTargetSeq={entry.sequence_id === targetSeq}
+                />
               ))
             )}
           </tbody>

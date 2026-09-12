@@ -158,6 +158,25 @@ async def test_anchor_status_stale(client_auditor: AsyncClient, mock_db_session:
     assert data["entries_since_anchor"] == 100
 
 
+async def test_anchor_status_mismatch(client_auditor: AsyncClient, mock_db_session: AsyncMock, tmp_path, monkeypatch):
+    """Assert /api/anchor/status returns MISMATCH when external anchor differs from DB checkpoint."""
+    now = datetime.now(timezone.utc)
+    chk_mock = MagicMock()
+    # Sequence 47 matches anchor/2.json, but has a tampered hash in DB
+    chk_mock.first.return_value = (47, "bad" * 21 + "b", now)
+
+    state_mock = MagicMock()
+    state_mock.first.return_value = (48,)
+
+    mock_db_session.execute.side_effect = [chk_mock, state_mock]
+
+    response = await client_auditor.get("/api/anchor/status")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "MISMATCH"
+    assert data["entries_since_anchor"] == 1
+
+
 async def test_anchor_status_hr_forbidden(client_hr: AsyncClient):
     """Assert hr_admin role is strictly forbidden from accessing anchor status."""
     response = await client_hr.get("/api/anchor/status")

@@ -51,10 +51,14 @@ GRANT USAGE ON SCHEMA public TO compliance_auditor;
 GRANT SELECT ON audit_log TO compliance_auditor;
 REVOKE INSERT, UPDATE, DELETE ON audit_log FROM compliance_auditor;
 
-GRANT SELECT ON suspicious_activity_flags TO compliance_auditor;
+GRANT SELECT, UPDATE ON suspicious_activity_flags TO compliance_auditor;
 GRANT SELECT ON chain_state TO compliance_auditor;
 GRANT SELECT ON chain_checkpoints TO compliance_auditor;
 GRANT SELECT ON backups TO compliance_auditor;
+
+-- Metadata tables for audit trail actor & time-travel resolution
+GRANT SELECT ON users TO compliance_auditor;
+GRANT SELECT ON departments, roles, salary_history TO compliance_auditor;
 
 -- Views
 GRANT SELECT ON v_compliance_overview TO compliance_auditor;

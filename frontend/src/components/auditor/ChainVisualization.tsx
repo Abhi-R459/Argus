@@ -4,6 +4,7 @@ import type { ChainEntry, AuditOperation, Severity } from '../../services/auditS
 
 interface ChainVisualizationProps {
   entries: ChainEntry[];
+  tamperedSequenceId?: number | null;
 }
 
 const OPERATION_STYLES: Record<AuditOperation, string> = {
@@ -130,19 +131,22 @@ function DiffDrawer({ entry }: DiffDrawerProps) {
 interface ChainRowProps {
   entry: ChainEntry;
   isFirst: boolean;
+  isTampered?: boolean;
 }
 
-function ChainRow({ entry, isFirst }: ChainRowProps) {
+function ChainRow({ entry, isFirst, isTampered }: ChainRowProps) {
   const [expanded, setExpanded] = useState(false);
 
   return (
     <>
       <tr
         className={`group cursor-pointer transition-colors duration-150 ${
-          SEVERITY_ROW_GLOW[entry.severity]
-        } ${expanded ? 'bg-slate-800/60' : 'hover:bg-slate-800/40'}`}
+          isTampered
+            ? 'bg-red-500/10 border-l-4 border-red-500 shadow-[inset_0_0_15px_rgba(239,68,68,0.2)]'
+            : `${SEVERITY_ROW_GLOW[entry.severity]} ${expanded ? 'bg-slate-800/60' : 'hover:bg-slate-800/40'}`
+        }`}
         onClick={() => setExpanded((v) => !v)}
-        title="Click to expand diff"
+        title={isTampered ? 'Tampered row detected! Click to expand diff' : 'Click to expand diff'}
       >
         {/* Entry ID & hash chain connector */}
         <td className="px-4 py-3 whitespace-nowrap">
@@ -150,17 +154,32 @@ function ChainRow({ entry, isFirst }: ChainRowProps) {
             {/* Chain connector dot */}
             <div className="flex flex-col items-center">
               <div
-                className={`w-2 h-2 rounded-full flex-shrink-0 ${SEVERITY_DOT[entry.severity]}`}
+                className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                  isTampered
+                    ? 'bg-red-500 animate-ping shadow-[0_0_8px_rgba(239,68,68,0.9)]'
+                    : SEVERITY_DOT[entry.severity]
+                }`}
               />
               {!isFirst && <div className="w-0.5 h-4 bg-slate-700 mt-0.5" />}
             </div>
-            <span className="text-sm font-mono text-slate-300">#{entry.entry_id}</span>
+            <span className={`text-sm font-mono ${isTampered ? 'text-red-400 font-bold' : 'text-slate-300'}`}>
+              #{entry.entry_id}
+            </span>
+            {isTampered && (
+              <span className="ml-1.5 px-1.5 py-0.5 rounded text-[10px] font-bold bg-red-500/30 text-red-300 border border-red-500/50 animate-pulse">
+                TAMPERED
+              </span>
+            )}
           </div>
         </td>
 
         {/* Hash */}
         <td className="px-4 py-3 whitespace-nowrap">
-          <span className="text-xs font-mono text-violet-400/80 bg-violet-500/5 border border-violet-500/15 px-2 py-0.5 rounded">
+          <span className={`text-xs font-mono px-2 py-0.5 rounded border ${
+            isTampered
+              ? 'text-red-300 bg-red-500/15 border-red-500/30 font-semibold'
+              : 'text-violet-400/80 bg-violet-500/5 border-violet-500/15'
+          }`}>
             {truncateHash(entry.hash)}
           </span>
         </td>
@@ -236,7 +255,7 @@ function ChainRow({ entry, isFirst }: ChainRowProps) {
   );
 }
 
-export default function ChainVisualization({ entries }: ChainVisualizationProps) {
+export default function ChainVisualization({ entries, tamperedSequenceId }: ChainVisualizationProps) {
   return (
     <div className="bg-slate-900/50 border border-slate-700/50 rounded-2xl overflow-hidden">
       {/* Header */}
@@ -247,6 +266,12 @@ export default function ChainVisualization({ entries }: ChainVisualizationProps)
           <span className="text-xs text-slate-500 bg-slate-800 px-2 py-0.5 rounded border border-slate-700">
             {entries.length} entries
           </span>
+          {tamperedSequenceId && (
+            <span className="text-xs text-red-400 bg-red-500/15 border border-red-500/30 px-2.5 py-0.5 rounded-full font-mono animate-pulse flex items-center space-x-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
+              <span>Violation at #{tamperedSequenceId}</span>
+            </span>
+          )}
         </div>
         <span className="text-xs text-slate-600 italic">Click any row to expand diff</span>
       </div>
@@ -268,7 +293,12 @@ export default function ChainVisualization({ entries }: ChainVisualizationProps)
           </thead>
           <tbody className="divide-y divide-slate-800/60">
             {entries.map((entry, i) => (
-              <ChainRow key={entry.entry_id} entry={entry} isFirst={i === entries.length - 1} />
+              <ChainRow
+                key={entry.entry_id}
+                entry={entry}
+                isFirst={i === entries.length - 1}
+                isTampered={entry.entry_id === tamperedSequenceId}
+              />
             ))}
           </tbody>
         </table>

@@ -5,9 +5,30 @@
  * PostgreSQL engine telemetry, and high-concurrency simulation.
  */
 
+import { useQuery } from '@tanstack/react-query';
+import { useAuth } from '@clerk/clerk-react';
 import { fetchWithAuth, API_BASE_URL } from '../lib/api';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
+
+export interface AuditChainOptions {
+  limit?: number;
+  offset?: number;
+  around_seq?: number;
+  table_name?: string;
+  action?: string;
+}
+
+export interface IncidentState {
+  isCompromised: boolean;
+  tamperedSeqId: number | null;
+  anchorMismatch: boolean;
+  unreviewedFlagsCount: number;
+  lastVerifiedAt: string | null;
+  details: string | null;
+  isLoading: boolean;
+  refetch: () => void;
+}
 
 export type VerificationStatus = 'VERIFIED' | 'TAMPERED' | 'PENDING';
 export type AnchorStoreType = 'local_file' | 'github_repo';
@@ -30,7 +51,7 @@ export interface ChainEntry {
 }
 
 export interface AnchorInfo {
-  status: 'ANCHORED' | 'STALE' | 'MISSING';
+  status: 'ANCHORED' | 'STALE' | 'MISSING' | 'MISMATCH';
   anchor_store: AnchorStoreType;
   anchor_location: string;
   last_anchored: string;       // ISO timestamp
@@ -158,8 +179,21 @@ export interface AuditLogFilters {
   table_name?: string;
   severity?: 'INFO' | 'WARNING' | 'CRITICAL' | '';
   national_id_search?: string;
+  sequence_id?: number;
+  employee_id?: number;
   page?: number;
   limit?: number;
+}
+
+export interface EmployeeListItem {
+  employee_id: number;
+  full_name: string;
+  email: string;
+  role_title: string;
+  department_name: string;
+  salary: number | null;
+  date_hired: string;
+  is_active: boolean;
 }
 
 export interface VerificationResult {
@@ -198,6 +232,12 @@ export async function fetchAuditLogs(
   if (filters.table_name) params.set('table_name',  filters.table_name);
   if (filters.severity)   params.set('severity',    filters.severity);
   if (filters.national_id_search) params.set('national_id_search', filters.national_id_search);
+  if (filters.sequence_id !== undefined && filters.sequence_id !== null) {
+    params.set('sequence_id', String(filters.sequence_id));
+  }
+  if (filters.employee_id !== undefined && filters.employee_id !== null) {
+    params.set('employee_id', String(filters.employee_id));
+  }
   params.set('page',  String(filters.page  ?? 1));
   params.set('limit', String(filters.limit ?? 20));
 
@@ -300,9 +340,61 @@ export async function downloadSignedEvidence(
 
 export async function fetchAuditChain(
   getToken: () => Promise<string | null>,
-  limit = 10,
+  options: number | AuditChainOptions = 10,
 ): Promise<ChainEntry[]> {
-  return fetchWithAuth(`/audit-logs/chain?limit=${limit}`, {}, getToken);
+  const opts: AuditChainOptions = typeof options === 'number' ? { limit: options } : options;
+  const params = new URLSearchParams();
+  if (opts.limit !== undefined) params.set('limit', String(opts.limit));
+  if (opts.offset !== undefined) params.set('offset', String(opts.offset));
+  if (opts.around_seq !== undefined) params.set('around_seq', String(opts.around_seq));
+  if (opts.table_name) params.set('table_name', opts.table_name);
+  if (opts.action) params.set('action', opts.action);
+
+  const queryStr = params.toString();
+  return fetchWithAuth(`/audit-logs/chain${queryStr ? `?${queryStr}` : ''}`, {}, getToken);
+}
+
+export function useIncidentStatus(): IncidentState {
+  const { getToken } = useAuth();
+
+  const verificationQuery = useQuery({
+    queryKey: ['chain-verification'],
+    queryFn: () => runVerification(getToken),
+    refetchInterval: 10000,
+  });
+
+  const anchorQuery = useQuery({
+    queryKey: ['anchor-status'],
+    queryFn: () => fetchAnchorStatus(getToken),
+    refetchInterval: 15000,
+  });
+
+  const flagsQuery = useQuery({
+    queryKey: ['suspicious-flags'],
+    queryFn: () => fetchSuspiciousFlags(getToken),
+    refetchInterval: 15000,
+  });
+
+  const isVerificationTampered = verificationQuery.data?.status === 'tampered';
+  const anchorMismatch = anchorQuery.data?.status === 'MISMATCH';
+  const isCompromised = Boolean(isVerificationTampered || anchorMismatch);
+  const tamperedSeqId = verificationQuery.data?.tampered_sequence_id ?? null;
+  const unreviewedFlagsCount = flagsQuery.data ? flagsQuery.data.filter((f) => !f.reviewed_at).length : 0;
+
+  return {
+    isCompromised,
+    tamperedSeqId,
+    anchorMismatch,
+    unreviewedFlagsCount,
+    lastVerifiedAt: verificationQuery.data ? new Date().toISOString() : null,
+    details: verificationQuery.data?.details ?? null,
+    isLoading: verificationQuery.isLoading || anchorQuery.isLoading,
+    refetch: () => {
+      verificationQuery.refetch();
+      anchorQuery.refetch();
+      flagsQuery.refetch();
+    },
+  };
 }
 
 export async function fetchAnchorStatus(
@@ -374,11 +466,12 @@ export async function runConcurrencyTest(
   workers: number,
   getToken: () => Promise<string | null>,
 ): Promise<ConcurrencyResult> {
-  return fetchWithAuth('/test/concurrency-run', {
+  return fetchWithAuth('/analytics/diagnostics/concurrency-benchmark', {
     method: 'POST',
     body: JSON.stringify({ workers }),
   }, getToken);
 }
+
 
 export async function fetchDepartments(
   getToken: () => Promise<string | null>,
@@ -391,5 +484,30 @@ export async function fetchRoles(
 ): Promise<RoleItem[]> {
   return fetchWithAuth('/roles', {}, getToken);
 }
+
+export async function fetchEmployees(
+  getToken: () => Promise<string | null>,
+  limit: number = 100,
+): Promise<{ items: EmployeeListItem[]; total: number }> {
+  return fetchWithAuth(`/employees?limit=${limit}`, {}, getToken);
+}
+
+export interface UserProfile {
+  user_id: number;
+  clerk_user_id: string;
+  full_name: string;
+  email: string;
+  role: 'hr_admin' | 'compliance_auditor';
+  is_active: boolean;
+  created_at: string;
+}
+
+export async function fetchMyProfile(
+  getToken: () => Promise<string | null>,
+): Promise<UserProfile> {
+  return fetchWithAuth('/auth/me', {}, getToken);
+}
+
+
 
 

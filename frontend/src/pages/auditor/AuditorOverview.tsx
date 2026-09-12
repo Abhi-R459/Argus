@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@clerk/clerk-react';
 import AnchorStatus from '../../components/auditor/AnchorStatus';
@@ -23,13 +24,18 @@ const DEFAULT_ANCHOR: AnchorInfo = {
 
 export default function AuditorOverview() {
   const { getToken } = useAuth();
+  const [tamperedSeqId, setTamperedSeqId] = useState<number | null>(null);
 
   const {
     data: chainEntries = [],
     isLoading: isChainLoading,
   } = useQuery({
-    queryKey: ['audit-chain'],
-    queryFn: () => fetchAuditChain(getToken, 10),
+    queryKey: ['audit-chain', tamperedSeqId],
+    queryFn: () =>
+      fetchAuditChain(
+        getToken,
+        tamperedSeqId ? { around_seq: tamperedSeqId, limit: 12 } : { limit: 10 }
+      ),
     refetchInterval: 10000,
   });
 
@@ -47,7 +53,7 @@ export default function AuditorOverview() {
 
       {/* Top row: VerificationControl, AnchorStatus, and ExportControl */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <VerificationControl />
+        <VerificationControl onResult={(res) => setTamperedSeqId(res.tampered_sequence_id)} />
         {isAnchorLoading ? (
           <div className="rounded-2xl border border-slate-700/50 bg-slate-900/50 p-5 flex flex-col items-center justify-center min-h-[220px]">
             <Loader2 className="w-6 h-6 text-violet-400 animate-spin mb-2" />
@@ -62,14 +68,26 @@ export default function AuditorOverview() {
       {/* Main content: Chain view + suspicious flags */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
         {/* Chain visualization — 2/3 width */}
-        <div className="xl:col-span-2">
+        <div className="xl:col-span-2 space-y-2">
+          <div className="flex items-center justify-between px-1">
+            <span className="text-xs font-mono font-medium text-slate-400">
+              {tamperedSeqId ? `Focused window around violation #${tamperedSeqId}` : 'Recent Chain Blocks (Tail)'}
+            </span>
+            <Link
+              to={`/auditor/chain${tamperedSeqId ? `?seq=${tamperedSeqId}` : ''}`}
+              className="text-xs text-violet-400 hover:text-violet-300 flex items-center space-x-1 font-medium transition-colors group"
+            >
+              <span>Full Chain Explorer</span>
+              <ArrowRight className="w-3.5 h-3.5 transition-transform group-hover:translate-x-0.5" />
+            </Link>
+          </div>
           {isChainLoading && chainEntries.length === 0 ? (
             <div className="bg-slate-900/50 border border-slate-700/50 rounded-2xl p-12 flex flex-col items-center justify-center">
               <Loader2 className="w-6 h-6 text-violet-400 animate-spin mb-2" />
               <span className="text-xs text-slate-500 font-mono">Loading hash chain...</span>
             </div>
           ) : (
-            <ChainVisualization entries={chainEntries} />
+            <ChainVisualization entries={chainEntries} tamperedSequenceId={tamperedSeqId} />
           )}
         </div>
 

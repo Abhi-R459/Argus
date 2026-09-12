@@ -118,7 +118,7 @@ async def generate_signed_evidence_export(session: AsyncSession) -> dict:
 
 import io
 import zipfile
-from sqlalchemy import text
+from sqlalchemy import text, cast, Text
 from cryptography.hazmat.primitives import serialization
 
 
@@ -140,12 +140,12 @@ async def generate_evidence_bundle(session: AsyncSession) -> bytes:
             AuditLog.action,
             AuditLog.table_name,
             AuditLog.row_id,
-            AuditLog.old_value,
-            AuditLog.new_value,
+            cast(AuditLog.old_value, Text).label("old_value_text"),
+            cast(AuditLog.new_value, Text).label("new_value_text"),
             AuditLog.severity,
             AuditLog.entry_hash,
             AuditLog.previous_hash,
-            AuditLog.created_at,
+            cast(AuditLog.created_at, Text).label("created_at_text"),
         )
         .order_by(AuditLog.sequence_id.asc())
     )
@@ -159,15 +159,20 @@ async def generate_evidence_bundle(session: AsyncSession) -> bytes:
         if hasattr(row, "_mock_return_value"):
             continue
 
-        old_val_text = None
-        if row.old_value is not None:
+        old_val_text = getattr(row, "old_value_text", None)
+        if old_val_text is None and hasattr(row, "old_value") and row.old_value is not None:
             old_val_text = row.old_value if isinstance(row.old_value, str) else json.dumps(row.old_value, sort_keys=True, separators=(",", ":"))
 
-        new_val_text = None
-        if row.new_value is not None:
+        new_val_text = getattr(row, "new_value_text", None)
+        if new_val_text is None and hasattr(row, "new_value") and row.new_value is not None:
             new_val_text = row.new_value if isinstance(row.new_value, str) else json.dumps(row.new_value, sort_keys=True, separators=(",", ":"))
 
-        created_at_text = row.created_at.isoformat() if hasattr(row.created_at, "isoformat") else (str(row.created_at) if row.created_at else "")
+        created_at_text = getattr(row, "created_at_text", None)
+        if created_at_text is None:
+            created_at_val = getattr(row, "created_at", None)
+            created_at_text = created_at_val.isoformat() if hasattr(created_at_val, "isoformat") else (str(created_at_val) if created_at_val else "")
+        else:
+            created_at_text = str(created_at_text)
 
         event_dict = {
             "sequence_id": row.sequence_id,

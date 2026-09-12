@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     GITHUB_ANCHOR_TOKEN: str = ""
     CHECKPOINT_INTERVAL: int = 25
     AUDIT_SALT: str = "argus_default_blind_index_salt_2026"
+    ALLOW_DEMO_ROLE_SWITCH: bool = True
 
     model_config = SettingsConfigDict(
         env_file=".env",

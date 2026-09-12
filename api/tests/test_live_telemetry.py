@@ -83,8 +83,9 @@ async def test_concurrency_run_auditor(client_auditor: AsyncClient, mock_db_sess
     m_row = MagicMock(); m_row.first.return_value = (49, 'hash')
     mock_db_session.execute.side_effect = [m_tail, m_row, m_row, m_row]
 
-    response = await client_auditor.post('/api/test/concurrency-run', json={'workers': 3})
+    response = await client_auditor.post('/api/analytics/diagnostics/concurrency-benchmark', json={'workers': 3})
     assert response.status_code == 200
+
     data = response.json()
     assert data['workers'] == 3
     assert data['success_count'] == 3

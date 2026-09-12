@@ -40,10 +40,18 @@ const STATUS_STYLES = {
     icon: 'text-red-400',
     glow: '',
   },
+  MISMATCH: {
+    border: 'border-red-500/50',
+    bg: 'bg-red-500/10',
+    pillBg: 'bg-red-500/25 text-red-200 border-red-500/50',
+    dot: 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.9)] animate-ping',
+    icon: 'text-red-400',
+    glow: 'shadow-[0_0_30px_rgba(239,68,68,0.15)]',
+  },
 };
 
 export default function AnchorStatus({ data }: AnchorStatusProps) {
-  const style = STATUS_STYLES[data.status];
+  const style = STATUS_STYLES[data.status] || STATUS_STYLES.MISSING;
 
   return (
     <div

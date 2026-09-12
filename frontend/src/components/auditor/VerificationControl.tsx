@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { useMutation } from '@tanstack/react-query';
+import { useState, useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@clerk/clerk-react';
 import {
   Play, Loader2, CheckCircle2, AlertTriangle,
@@ -7,14 +7,35 @@ import {
 } from 'lucide-react';
 import { runVerification, type VerificationResult } from '../../services/auditService';
 
-export default function VerificationControl() {
+interface VerificationControlProps {
+  onResult?: (result: VerificationResult) => void;
+}
+
+export default function VerificationControl({ onResult }: VerificationControlProps = {}) {
   const { getToken } = useAuth();
   const [lastResult, setLastResult] = useState<VerificationResult | null>(null);
 
-  const mutation = useMutation({
-    mutationFn: () => runVerification(getToken),
-    onSuccess: (data) => setLastResult(data),
+  const {
+    data,
+    isError,
+    error,
+    refetch,
+    isFetching,
+  } = useQuery({
+    queryKey: ['chain-verification'],
+    queryFn: async () => {
+      const res = await runVerification(getToken);
+      return res;
+    },
+    refetchInterval: 10000,
   });
+
+  useEffect(() => {
+    if (data) {
+      setLastResult(data);
+      onResult?.(data);
+    }
+  }, [data, onResult]);
 
   const isIntact   = lastResult?.status === 'intact';
   const isTampered = lastResult?.status === 'tampered';
@@ -30,12 +51,12 @@ export default function VerificationControl() {
         {lastResult && (
           <button
             id="reverify-btn"
-            onClick={() => mutation.mutate()}
-            disabled={mutation.isPending}
+            onClick={() => refetch()}
+            disabled={isFetching}
             className="text-xs text-slate-500 hover:text-violet-300 flex items-center space-x-1 transition-colors disabled:opacity-40"
           >
-            <RefreshCw className="w-3 h-3" />
-            <span>Re-run</span>
+            <RefreshCw className={`w-3 h-3 ${isFetching ? 'animate-spin text-violet-400' : ''}`} />
+            <span>{isFetching ? 'Verifying…' : 'Re-run'}</span>
           </button>
         )}
       </div>
@@ -55,11 +76,11 @@ export default function VerificationControl() {
             </div>
             <button
               id="run-verification-btn"
-              onClick={() => mutation.mutate()}
-              disabled={mutation.isPending}
+              onClick={() => refetch()}
+              disabled={isFetching}
               className="inline-flex items-center px-5 py-2.5 rounded-xl text-sm font-semibold bg-violet-600 hover:bg-violet-500 text-white border border-violet-500 shadow-[0_0_20px_rgba(139,92,246,0.25)] hover:shadow-[0_0_30px_rgba(139,92,246,0.35)] transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {mutation.isPending ? (
+              {isFetching ? (
                 <>
                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                   Verifying chain…
@@ -75,7 +96,7 @@ export default function VerificationControl() {
         )}
 
         {/* Running state overlay */}
-        {mutation.isPending && (
+        {isFetching && !lastResult && (
           <div className="flex items-center space-x-3 px-4 py-3 rounded-xl bg-violet-500/8 border border-violet-500/15">
             <Loader2 className="w-5 h-5 text-violet-400 animate-spin flex-shrink-0" />
             <div>
@@ -86,18 +107,18 @@ export default function VerificationControl() {
         )}
 
         {/* Error state */}
-        {mutation.isError && !mutation.isPending && (
+        {isError && !isFetching && (
           <div className="flex items-start space-x-3 px-4 py-3 rounded-xl bg-red-500/8 border border-red-500/20">
             <XCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
             <div>
               <p className="text-sm font-medium text-red-300">Verification request failed</p>
               <p className="text-xs text-slate-500 mt-0.5">
-                {mutation.error instanceof Error
-                  ? mutation.error.message
+                {error instanceof Error
+                  ? error.message
                   : 'Network error — check the API is running.'}
               </p>
               <button
-                onClick={() => mutation.mutate()}
+                onClick={() => refetch()}
                 className="mt-2 text-xs text-red-400 hover:text-red-300 underline underline-offset-2"
               >
                 Retry
@@ -107,7 +128,7 @@ export default function VerificationControl() {
         )}
 
         {/* Result card */}
-        {lastResult && !mutation.isPending && (
+        {lastResult && (
           <div
             className={`rounded-xl border p-4 space-y-3 transition-all duration-300 ${
               isIntact
