@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { CheckCircle2, AlertTriangle, Loader2, Play, RefreshCw } from 'lucide-react';
-import type { VerificationResult } from '../../services/mockAuditService';
+import type { VerificationBannerResult as VerificationResult } from '../../services/auditService';
 
 interface StatusBannerProps {
   data: VerificationResult;

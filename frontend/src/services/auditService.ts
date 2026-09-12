@@ -1,19 +1,134 @@
 /**
- * Audit Service — INT-002 / INT-003 / INT-004
+ * Audit Service — INT-002 / INT-003 / INT-004 / LIVE-001
  *
- * Real API calls for the Compliance Auditor Dashboard.
- * Replaces the mock functions in mockAuditService.ts for:
- *   - Audit log listing (GET /api/audit-logs)
- *   - Chain verification  (POST /api/verify)
- *   - Suspicious activity (GET /api/suspicious-activity, POST .../review)
- *
- * mockAuditService.ts is still used for anchor status and chain summary
- * until those real endpoints land in Weeks 7–8.
+ * Real API calls for the Compliance Auditor Dashboard, Live HR Dashboard,
+ * PostgreSQL engine telemetry, and high-concurrency simulation.
  */
 
 import { fetchWithAuth, API_BASE_URL } from '../lib/api';
 
-// ─── Types (mirror api_contract.md §4) ────────────────────────────────────────
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+export type VerificationStatus = 'VERIFIED' | 'TAMPERED' | 'PENDING';
+export type AnchorStoreType = 'local_file' | 'github_repo';
+export type AuditOperation = 'INSERT' | 'UPDATE' | 'DELETE';
+export type Severity = 'low' | 'medium' | 'high' | 'critical';
+export type AuditLogSeverity = 'INFO' | 'WARNING' | 'CRITICAL';
+
+export interface ChainEntry {
+  entry_id: number;
+  hash: string;
+  prev_hash: string | null;
+  table_name: string;
+  operation: AuditOperation;
+  actor_email: string;
+  actor_role: 'hr_admin' | 'compliance_auditor' | 'system';
+  timestamp: string;           // ISO timestamp
+  severity: Severity;
+  old_value: Record<string, unknown> | null;
+  new_value: Record<string, unknown> | null;
+}
+
+export interface AnchorInfo {
+  status: 'ANCHORED' | 'STALE' | 'MISSING';
+  anchor_store: AnchorStoreType;
+  anchor_location: string;
+  last_anchored: string;       // ISO timestamp
+  anchor_hash: string;
+  entries_since_anchor: number;
+}
+
+export interface SuspiciousFlag {
+  flag_id: number;
+  employee_id: number;
+  employee_name: string;
+  reason: string;
+  severity: Severity;
+  flagged_at: string;
+  reviewed: boolean;
+}
+
+export interface VerificationBannerResult {
+  status: 'VERIFIED' | 'TAMPERED' | 'PENDING';
+  last_run: string;
+  duration_ms: number;
+  checked_entries: number;
+  last_checkpoint_id: number;
+  last_checkpoint_hash: string;
+  error_detail: string | null;
+}
+
+export interface DashboardRecentActivity {
+  sequence_id: number;
+  actor_name: string;
+  action: string;
+  table_name: string;
+  created_at: string;
+}
+
+export interface DashboardStats {
+  total_employees: number;
+  active_employees: number;
+  total_audit_events: number;
+  unreviewed_flags: number;
+  recent_activity: DashboardRecentActivity[];
+}
+
+export interface TableStat {
+  table_name: string;
+  seq_scans: number;
+  idx_scans: number;
+  inserts: number;
+  updates: number;
+}
+
+export interface SystemMetrics {
+  security_score: number;
+  security_checks: {
+    role_isolation: boolean;
+    pgcrypto_active: boolean;
+    chain_continuous: boolean;
+    auth_enforced: boolean;
+  };
+  cache_hit_rate: number;
+  db_size: string;
+  audit_log_size: string;
+  total_audit_entries: number;
+  total_checkpoints: number;
+  table_stats: TableStat[];
+}
+
+export interface ConcurrencyLog {
+  tx_id: string;
+  worker_id: number;
+  action: string;
+  status: 'pending' | 'success' | 'error';
+  sequence_id?: number | null;
+  latency_ms: number;
+  timestamp: string;
+}
+
+export interface ConcurrencyResult {
+  workers: number;
+  total_time_ms: number;
+  success_count: number;
+  failed_count: number;
+  logs: ConcurrencyLog[];
+}
+
+export interface DepartmentItem {
+  department_id: number;
+  name: string;
+}
+
+export interface RoleItem {
+  role_id: number;
+  department_id: number;
+  department_name: string;
+  title: string;
+  min_salary: number;
+  max_salary: number;
+}
 
 export interface AuditLogItem {
   sequence_id: number;
@@ -42,6 +157,7 @@ export interface AuditLogFilters {
   action?: 'INSERT' | 'UPDATE' | 'DELETE' | '';
   table_name?: string;
   severity?: 'INFO' | 'WARNING' | 'CRITICAL' | '';
+  national_id_search?: string;
   page?: number;
   limit?: number;
 }
@@ -81,6 +197,7 @@ export async function fetchAuditLogs(
   if (filters.action)     params.set('action',      filters.action);
   if (filters.table_name) params.set('table_name',  filters.table_name);
   if (filters.severity)   params.set('severity',    filters.severity);
+  if (filters.national_id_search) params.set('national_id_search', filters.national_id_search);
   params.set('page',  String(filters.page  ?? 1));
   params.set('limit', String(filters.limit ?? 20));
 
@@ -178,3 +295,101 @@ export async function downloadSignedEvidence(
   a.remove();
   window.URL.revokeObjectURL(url);
 }
+
+// ─── BRIDGE-001 / BRIDGE-002: Live Chain & Anchor Synchronization ───────────
+
+export async function fetchAuditChain(
+  getToken: () => Promise<string | null>,
+  limit = 10,
+): Promise<ChainEntry[]> {
+  return fetchWithAuth(`/audit-logs/chain?limit=${limit}`, {}, getToken);
+}
+
+export async function fetchAnchorStatus(
+  getToken: () => Promise<string | null>,
+): Promise<AnchorInfo> {
+  return fetchWithAuth('/anchor/status', {}, getToken);
+}
+
+// ─── PACK-002 / PACK-003: Portable Evidence Bundle (.arguspack) ─────────────
+
+export async function downloadEvidencePack(
+  getToken: () => Promise<string | null>,
+): Promise<void> {
+  const token = await getToken();
+  const headers = new Headers();
+  if (token) {
+    headers.set('Authorization', `Bearer ${token}`);
+  }
+
+  const response = await fetch(`${API_BASE_URL}/audit-logs/export-pack`, { headers });
+  
+  if (!response.ok) {
+    let errorDetail = 'Failed to export evidence pack';
+    try {
+      const errorData = await response.json();
+      errorDetail = errorData.detail || errorDetail;
+    } catch {
+      // Ignore
+    }
+    throw new Error(errorDetail);
+  }
+
+  const blob = await response.blob();
+  
+  let filename = `audit_evidence_${new Date().toISOString().replace(/[:.]/g, '-')}.arguspack`;
+  const disposition = response.headers.get('Content-Disposition');
+  if (disposition && disposition.indexOf('filename=') !== -1) {
+    const matches = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/.exec(disposition);
+    if (matches != null && matches[1]) {
+      filename = matches[1].replace(/['"]/g, '');
+    }
+  }
+
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.URL.revokeObjectURL(url);
+}
+
+// ─── LIVE-001: Live Telemetry, Dashboard Stats & Real Engine Testing ──────────
+
+export async function fetchDashboardStats(
+  getToken: () => Promise<string | null>,
+): Promise<DashboardStats> {
+  return fetchWithAuth('/dashboard/stats', {}, getToken);
+}
+
+export async function fetchSystemMetrics(
+  getToken: () => Promise<string | null>,
+): Promise<SystemMetrics> {
+  return fetchWithAuth('/analytics/system-metrics', {}, getToken);
+}
+
+export async function runConcurrencyTest(
+  workers: number,
+  getToken: () => Promise<string | null>,
+): Promise<ConcurrencyResult> {
+  return fetchWithAuth('/test/concurrency-run', {
+    method: 'POST',
+    body: JSON.stringify({ workers }),
+  }, getToken);
+}
+
+export async function fetchDepartments(
+  getToken: () => Promise<string | null>,
+): Promise<DepartmentItem[]> {
+  return fetchWithAuth('/departments', {}, getToken);
+}
+
+export async function fetchRoles(
+  getToken: () => Promise<string | null>,
+): Promise<RoleItem[]> {
+  return fetchWithAuth('/roles', {}, getToken);
+}
+
+

@@ -86,3 +86,36 @@ class TimeTravelResponse(BaseModel):
     date_hired: datetime
     is_active: bool
     as_of: datetime
+
+
+# ─── Live Chain & Anchor Status ───────────────────────────────────────────────
+
+class ChainEntry(BaseModel):
+    """One block/node from GET /api/audit-logs/chain."""
+
+    entry_id: int
+    hash: str
+    prev_hash: Optional[str] = None
+    table_name: str
+    operation: str                      # INSERT | UPDATE | DELETE
+    actor_email: str
+    actor_role: str
+    timestamp: datetime
+    severity: str                       # low | medium | high | critical
+    old_value: Optional[Dict[str, Any]] = None
+    new_value: Optional[Dict[str, Any]] = None
+
+    model_config = {"from_attributes": True}
+
+
+class AnchorInfo(BaseModel):
+    """Response from GET /api/anchor/status."""
+
+    status: str                         # ANCHORED | STALE | MISSING
+    anchor_store: str                   # local_file | github_repo
+    anchor_location: str
+    last_anchored: datetime
+    anchor_hash: str
+    entries_since_anchor: int
+
+    model_config = {"from_attributes": True}

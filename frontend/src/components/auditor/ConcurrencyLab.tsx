@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
+import { useAuth } from '@clerk/clerk-react';
 import { Activity, Play, Settings2, AlertOctagon } from 'lucide-react';
+import { runConcurrencyTest } from '../../services/auditService';
 
 interface SimulationLog {
   id: string;
@@ -11,8 +13,8 @@ interface SimulationLog {
 }
 
 export default function ConcurrencyLab() {
+  const { getToken } = useAuth();
   const [workers, setWorkers] = useState<number>(5);
-  const [delay, setDelay] = useState<number>(100);
   const [isRunning, setIsRunning] = useState(false);
   const [logs, setLogs] = useState<SimulationLog[]>([]);
   const [stats, setStats] = useState({ success: 0, failed: 0, total: 0 });
@@ -24,63 +26,46 @@ export default function ConcurrencyLab() {
     }
   }, [logs]);
 
-  const runSimulation = () => {
+  const runSimulation = async () => {
     if (isRunning) return;
     setIsRunning(true);
     setLogs([]);
     setStats({ success: 0, failed: 0, total: 0 });
 
-    let completed = 0;
+    try {
+      const result = await runConcurrencyTest(workers, () => getToken());
+      
+      const mappedLogs: SimulationLog[] = result.logs.map((item, idx) => ({
+        id: `${item.tx_id}-${idx}`,
+        txId: item.tx_id,
+        workerId: item.worker_id,
+        action: item.sequence_id
+          ? `${item.action} (seq #${item.sequence_id}, ${item.latency_ms}ms)`
+          : `${item.action} (${item.latency_ms}ms)`,
+        status: item.status as 'pending' | 'success' | 'error',
+        timestamp: new Date(item.timestamp || Date.now()),
+      }));
 
-    for (let i = 0; i < workers; i++) {
-      setTimeout(() => {
-        simulateWorker(i + 1, () => {
-          completed++;
-          if (completed >= workers) {
-            setIsRunning(false);
-          }
-        });
-      }, Math.random() * 200); // Stagger start times
-    }
-  };
-
-  const simulateWorker = async (workerId: number, onComplete: () => void) => {
-    const txId = `tx-${Math.random().toString(36).substring(2, 8)}`;
-    
-    const addLog = (action: string, status: 'pending' | 'success' | 'error') => {
-      setLogs((prev) => [...prev, {
-        id: Math.random().toString(),
-        txId,
-        workerId,
-        action,
-        status,
-        timestamp: new Date()
+      setLogs(mappedLogs);
+      setStats({
+        success: result.success_count,
+        failed: result.failed_count,
+        total: result.workers,
+      });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Concurrency test failed';
+      setLogs([{
+        id: 'err-1',
+        txId: 'ERR',
+        workerId: 0,
+        action: `Execution Error: ${msg}`,
+        status: 'error',
+        timestamp: new Date(),
       }]);
-    };
-
-    addLog('BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE', 'success');
-    await new Promise((r) => setTimeout(r, delay * Math.random()));
-    
-    addLog('Acquiring Row Exclusive Lock on audit_log', 'pending');
-    await new Promise((r) => setTimeout(r, delay));
-    
-    // Simulate serialization failure randomly
-    const serializationFailure = Math.random() < (workers * 0.05); // Higher chance with more workers
-    
-    if (serializationFailure) {
-      addLog('ERROR: could not serialize access due to concurrent update', 'error');
-      setStats((prev) => ({ ...prev, failed: prev.failed + 1, total: prev.total + 1 }));
-      addLog('ROLLBACK', 'error');
-      onComplete();
-      return;
+      setStats({ success: 0, failed: workers, total: workers });
+    } finally {
+      setIsRunning(false);
     }
-
-    addLog('Lock acquired. INSERT INTO audit_log', 'success');
-    await new Promise((r) => setTimeout(r, delay * 0.5));
-    
-    addLog('COMMIT', 'success');
-    setStats((prev) => ({ ...prev, success: prev.success + 1, total: prev.total + 1 }));
-    onComplete();
   };
 
   return (
@@ -124,20 +109,9 @@ export default function ConcurrencyLab() {
               </div>
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-slate-300 mb-2">
-                Base Transaction Delay: <span className="text-blue-400 font-mono">{delay}ms</span>
-              </label>
-              <input 
-                type="range" 
-                min="10" 
-                max="1000" 
-                step="10"
-                value={delay} 
-                onChange={(e) => setDelay(parseInt(e.target.value))}
-                disabled={isRunning}
-                className="w-full accent-blue-500 cursor-pointer"
-              />
+            <div className="bg-slate-950/60 p-3 rounded-lg border border-slate-800 text-xs text-slate-400 space-y-1">
+              <p className="font-semibold text-slate-300">Execution Strategy:</p>
+              <p>Concurrent async workers dispatched simultaneously against PostgreSQL with row-level transaction verification.</p>
             </div>
 
             <button

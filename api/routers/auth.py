@@ -72,3 +72,39 @@ async def sync_user(
                 await session.refresh(user)
     
     return user
+
+
+@router.post("/role", response_model=UserSyncResponse)
+async def switch_user_role(
+    new_role: str,
+    token_payload: dict = Depends(verify_clerk_token),
+):
+    """Switch user role between 'hr_admin' and 'compliance_auditor' for demonstration and testing."""
+    if new_role not in ("hr_admin", "compliance_auditor"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid role. Must be 'hr_admin' or 'compliance_auditor'."
+        )
+    
+    clerk_user_id = token_payload.get("sub")
+    if not clerk_user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token: missing subject."
+        )
+    
+    session_factory = get_session_factory("hr_admin")
+    async with session_factory() as session:
+        result = await session.execute(
+            select(User).where(User.clerk_user_id == clerk_user_id)
+        )
+        user = result.scalar_one_or_none()
+        if user is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found. Call POST /api/auth/sync first."
+            )
+        user.role = new_role
+        await session.commit()
+        await session.refresh(user)
+        return user

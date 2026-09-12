@@ -1,9 +1,21 @@
-import { Outlet, Link, useLocation } from 'react-router-dom';
-import { UserButton } from '@clerk/clerk-react';
+import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
+import { UserButton, useAuth } from '@clerk/clerk-react';
 import { LayoutDashboard, Users, FileText, Settings, ShieldCheck } from 'lucide-react';
+import { fetchWithAuth } from '../lib/api';
 
 export default function HRAdminLayout() {
   const location = useLocation();
+  const navigate = useNavigate();
+  const { getToken } = useAuth();
+
+  const handleSwitchToAuditor = async () => {
+    try {
+      await fetchWithAuth('/auth/role?new_role=compliance_auditor', { method: 'POST' }, getToken);
+    } catch (e) {
+      console.error(e);
+    }
+    navigate('/auditor/overview');
+  };
 
   const navItems = [
     { name: 'Dashboard', path: '/hr/dashboard', icon: LayoutDashboard },
@@ -58,6 +70,14 @@ export default function HRAdminLayout() {
              </h1>
           </div>
           <div className="flex items-center space-x-4">
+             <button
+               onClick={handleSwitchToAuditor}
+               className="flex items-center px-3 py-1.5 text-xs font-semibold rounded-lg bg-violet-50 text-violet-700 border border-violet-200 hover:bg-violet-100 transition-colors shadow-sm"
+               title="Switch role to compliance_auditor and open Auditor Portal"
+             >
+               <ShieldCheck className="w-3.5 h-3.5 mr-1.5 text-violet-600" />
+               Auditor Portal →
+             </button>
              <div className="h-8 w-8 rounded-full ring-2 ring-indigo-100 flex items-center justify-center overflow-hidden">
                 <UserButton afterSignOutUrl="/" appearance={{ elements: { avatarBox: "w-8 h-8" } }} />
              </div>

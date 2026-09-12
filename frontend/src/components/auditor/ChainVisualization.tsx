@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { ChevronDown, ChevronUp, Hash, ArrowRight } from 'lucide-react';
-import type { ChainEntry, AuditOperation, Severity } from '../../services/mockAuditService';
+import type { ChainEntry, AuditOperation, Severity } from '../../services/auditService';
 
 interface ChainVisualizationProps {
   entries: ChainEntry[];

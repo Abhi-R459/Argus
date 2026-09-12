@@ -23,24 +23,82 @@
  */
 
 -- ---------------------------------------------------------------------------
+-- Helper: compute_blind_index (BLIND-001)
+-- ---------------------------------------------------------------------------
+-- Computes a HMAC-SHA256 blind index over a sensitive text value using a salt.
+-- Returns a 64-character lowercase hexadecimal hash.
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION compute_blind_index(
+    p_val  TEXT,
+    p_salt TEXT
+)
+RETURNS TEXT
+LANGUAGE plpgsql
+IMMUTABLE
+AS $$
+BEGIN
+    IF p_val IS NULL OR p_val = '' THEN
+        RETURN NULL;
+    END IF;
+    RETURN encode(hmac(p_val::bytea, p_salt::bytea, 'sha256'), 'hex');
+END;
+$$;
+
+-- ---------------------------------------------------------------------------
 -- Helper: mask_employee_payload
 -- ---------------------------------------------------------------------------
 -- Removes raw encrypted bytes from a JSONB employee payload by replacing
--- national_id_encrypted and contact_info_encrypted with the literal
--- string '[REDACTED]'.  Operates on a JSONB value built from the row.
+-- national_id_encrypted and contact_info_encrypted with '[REDACTED]'.
+-- Also computes and injects 'national_id_blind_index' via compute_blind_index
+-- using the session salt (or default) so masked records remain searchable.
 -- ---------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION mask_employee_payload(p_payload JSONB)
 RETURNS JSONB
 LANGUAGE plpgsql
 IMMUTABLE
 AS $$
+DECLARE
+    v_salt         TEXT;
+    v_raw_nid      TEXT;
+    v_blind_index  TEXT := NULL;
 BEGIN
+    BEGIN
+        v_salt := current_setting('argus.audit_salt', true);
+    EXCEPTION WHEN OTHERS THEN
+        v_salt := NULL;
+    END;
+    IF v_salt IS NULL OR v_salt = '' THEN
+        v_salt := 'argus_default_blind_index_salt_2026';
+    END IF;
+
+    IF p_payload ? 'national_id' AND p_payload->>'national_id' IS NOT NULL AND p_payload->>'national_id' != '[REDACTED]' THEN
+        v_raw_nid := p_payload->>'national_id';
+    ELSIF p_payload ? 'national_id_encrypted' AND p_payload->>'national_id_encrypted' LIKE '\x%' THEN
+        BEGIN
+            v_raw_nid := convert_from(decode(substring(p_payload->>'national_id_encrypted' from 3), 'hex'), 'UTF8');
+        EXCEPTION WHEN OTHERS THEN
+            v_raw_nid := NULL;
+        END;
+    END IF;
+
+    IF v_raw_nid IS NOT NULL AND v_raw_nid != '' THEN
+        v_blind_index := compute_blind_index(v_raw_nid, v_salt);
+    END IF;
+
     -- Replace sensitive keys with a redaction marker
     p_payload := p_payload - 'national_id_encrypted';
     p_payload := p_payload - 'contact_info_encrypted';
+    p_payload := p_payload - 'national_id';
+    p_payload := p_payload - 'contact_info';
+
     p_payload := p_payload
         || jsonb_build_object('national_id_encrypted', '[REDACTED]')
         || jsonb_build_object('contact_info_encrypted', '[REDACTED]');
+
+    IF v_blind_index IS NOT NULL THEN
+        p_payload := p_payload || jsonb_build_object('national_id_blind_index', v_blind_index);
+    END IF;
+
     RETURN p_payload;
 END;
 $$;

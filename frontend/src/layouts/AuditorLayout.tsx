@@ -1,9 +1,21 @@
-import { Outlet, Link, useLocation } from 'react-router-dom';
-import { UserButton } from '@clerk/clerk-react';
-import { ShieldCheck, Activity, FileSearch, LayoutDashboard, GitBranch, AlertTriangle, History } from 'lucide-react';
+import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
+import { UserButton, useAuth } from '@clerk/clerk-react';
+import { ShieldCheck, Activity, FileSearch, LayoutDashboard, GitBranch, AlertTriangle, History, Users } from 'lucide-react';
+import { fetchWithAuth } from '../lib/api';
 
 export default function AuditorLayout() {
   const location = useLocation();
+  const navigate = useNavigate();
+  const { getToken } = useAuth();
+
+  const handleSwitchToHR = async () => {
+    try {
+      await fetchWithAuth('/auth/role?new_role=hr_admin', { method: 'POST' }, getToken);
+    } catch (e) {
+      console.error(e);
+    }
+    navigate('/hr/dashboard');
+  };
 
   const navItems = [
     { name: 'Overview', path: '/auditor/overview', icon: LayoutDashboard },
@@ -81,6 +93,14 @@ export default function AuditorLayout() {
             </span>
           </div>
           <div className="flex items-center space-x-4">
+            <button
+              onClick={handleSwitchToHR}
+              className="flex items-center px-3 py-1.5 text-xs font-semibold rounded-lg bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 hover:bg-indigo-500/20 transition-colors shadow-sm"
+              title="Switch role to hr_admin and open HR Admin Portal"
+            >
+              <Users className="w-3.5 h-3.5 mr-1.5 text-indigo-400" />
+              ← HR Admin Portal
+            </button>
             <div className="text-xs text-slate-500 font-mono hidden md:block">
               {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
             </div>

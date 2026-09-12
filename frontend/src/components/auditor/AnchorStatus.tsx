@@ -1,5 +1,5 @@
 import { Anchor, ExternalLink, Clock, GitCommit } from 'lucide-react';
-import type { AnchorInfo } from '../../services/mockAuditService';
+import type { AnchorInfo } from '../../services/auditService';
 
 interface AnchorStatusProps {
   data: AnchorInfo;

@@ -2,9 +2,10 @@ import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@clerk/clerk-react';
 import { fetchWithAuth, ApiError } from '../../lib/api';
+import { fetchRoles, type RoleItem } from '../../services/auditService';
 import { X, Loader2 } from 'lucide-react';
 
 const employeeEditSchema = z.object({
@@ -30,6 +31,11 @@ export default function EmployeeEditForm({ employee, onClose }: EmployeeEditForm
   const { getToken } = useAuth();
   const queryClient = useQueryClient();
   const [globalError, setGlobalError] = useState<string | null>(null);
+
+  const { data: roles = [], isLoading: isRolesLoading } = useQuery<RoleItem[]>({
+    queryKey: ['roles'],
+    queryFn: () => fetchRoles(() => getToken()),
+  });
 
   const {
     register,
@@ -132,14 +138,18 @@ export default function EmployeeEditForm({ employee, onClose }: EmployeeEditForm
 
               {/* Role ID */}
               <div className="col-span-2 md:col-span-1">
-                <label className="block text-sm font-medium text-slate-700 mb-1">Update Role ID</label>
-                <input
-                  type="number"
+                <label className="block text-sm font-medium text-slate-700 mb-1">Update Role</label>
+                <select
                   {...register('role_id')}
-                  className={`w-full px-3 py-2 border rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/50 transition-colors ${errors.role_id ? 'border-red-300 focus:border-red-500' : 'border-slate-300 focus:border-indigo-500'}`}
-                  placeholder="Leave blank to keep current"
-                />
-                <p className="mt-1 text-xs text-slate-400">Current: {employee.role_title}</p>
+                  className={`w-full px-3 py-2 border rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/50 transition-colors bg-white ${errors.role_id ? 'border-red-300 focus:border-red-500' : 'border-slate-300 focus:border-indigo-500'}`}
+                >
+                  <option value="">{isRolesLoading ? 'Loading roles...' : `Keep current: ${employee.role_title || 'Unassigned'}`}</option>
+                  {roles.map((r) => (
+                    <option key={r.role_id} value={r.role_id}>
+                      {r.title} ({r.department_name})
+                    </option>
+                  ))}
+                </select>
                 {errors.role_id && <p className="mt-1 text-xs text-red-500">{errors.role_id.message}</p>}
               </div>
 

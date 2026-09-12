@@ -168,6 +168,18 @@ function FilterBar({ filters, onChange }: FilterBarProps) {
         />
       </div>
 
+      {/* Encrypted National ID Blind Search (BLIND-003) */}
+      <div className="relative">
+        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500" />
+        <input
+          type="text"
+          placeholder="Search National ID (Blind Index)…"
+          value={filters.national_id_search ?? ''}
+          onChange={(e) => onChange({ national_id_search: e.target.value, page: 1 })}
+          className="pl-8 pr-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-xs text-slate-300 placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-violet-500/50 focus:border-violet-500/50 w-56 transition-all font-mono"
+        />
+      </div>
+
       {/* Action filter */}
       <select
         value={filters.action ?? ''}
@@ -193,9 +205,9 @@ function FilterBar({ filters, onChange }: FilterBarProps) {
       </select>
 
       {/* Clear */}
-      {(filters.table_name || filters.action || filters.severity) && (
+      {(filters.table_name || filters.action || filters.severity || filters.national_id_search) && (
         <button
-          onClick={() => onChange({ table_name: '', action: '', severity: '', page: 1 })}
+          onClick={() => onChange({ table_name: '', action: '', severity: '', national_id_search: '', page: 1 })}
           className="text-xs text-slate-500 hover:text-slate-300 transition-colors underline underline-offset-2"
         >
           Clear filters
