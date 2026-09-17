@@ -21,12 +21,17 @@ import json
 import math
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import select, func, text, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import get_settings
 from ..dependencies import get_current_user, require_role, get_db_session
+from ..services.blind_index import (
+    compute_blind_index,
+    rate_limiter,
+    audit_logger,
+)
 from ..models.audit_log import AuditLog
 from ..models.department import Department
 from ..models.employee import Employee
@@ -67,11 +72,12 @@ _auditor_only = [Depends(require_role(["compliance_auditor"]))]
     dependencies=_auditor_only,
 )
 async def list_audit_logs(
+    request: Request = None,
     actor_id: Optional[int] = Query(None, description="Filter by actor user_id"),
     action: Optional[str] = Query(None, description="INSERT | UPDATE | DELETE"),
     table_name: Optional[str] = Query(None, description="Filter by table name"),
     severity: Optional[str] = Query(None, description="INFO | WARNING | CRITICAL"),
-    national_id_search: Optional[str] = Query(None, description="Search by National ID via HMAC blind index"),
+    national_id_search: Optional[str] = Query(None, description="Search by National ID via blind index"),
     sequence_id: Optional[int] = Query(None, description="Filter by exact sequence_id"),
     employee_id: Optional[int] = Query(None, description="Filter by employee_id"),
     page: int = Query(1, ge=1),
@@ -119,15 +125,41 @@ async def list_audit_logs(
         query = query.where(AuditLog.sequence_id == sequence_id)
     if employee_id is not None:
         query = query.where(AuditLog.employee_id == employee_id)
+
+    client_ip = (
+        request.client.host
+        if (request is not None and getattr(request, "client", None) is not None)
+        else "127.0.0.1"
+    )
+    blind_index = None
+    clean_nid = None
+
     if national_id_search:
         settings = get_settings()
         clean_nid = national_id_search.strip()
         if clean_nid:
-            blind_index = hmac.new(
-                settings.AUDIT_SALT.encode("utf-8"),
-                clean_nid.encode("utf-8"),
-                hashlib.sha256,
-            ).hexdigest()
+            rate_limit_key = (
+                f"user:{current_user.user_id}"
+                if (current_user and getattr(current_user, "user_id", None))
+                else f"ip:{client_ip}"
+            )
+
+            # Enforce 10 req/min rate limit (HARDEN-009 / Step 11.B.6)
+            allowed, count, retry_after = rate_limiter.check_rate_limit(rate_limit_key)
+            if not allowed:
+                raise HTTPException(
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                    detail="Rate limit exceeded for blind index searches (max 10 requests/minute). Please wait before retrying.",
+                    headers={"Retry-After": str(int(math.ceil(retry_after)))},
+                )
+            rate_limiter.record_request(rate_limit_key)
+
+            blind_index = compute_blind_index(
+                clean_nid,
+                salt=settings.AUDIT_SALT,
+                iterations=settings.BLIND_INDEX_ITERATIONS,
+                mode=settings.BLIND_INDEX_MODE,
+            )
             query = query.where(
                 or_(
                     AuditLog.new_value["national_id_blind_index"].astext == blind_index,
@@ -139,6 +171,16 @@ async def list_audit_logs(
     count_q = select(func.count()).select_from(query.subquery())
     total = await session.scalar(count_q) or 0
     pages = math.ceil(total / limit) if total > 0 else 0
+
+    # Record Audit-the-Auditor forensic security event (Step 11.B.6)
+    if national_id_search and clean_nid and blind_index:
+        audit_logger.log_search(
+            actor_user_id=getattr(current_user, "user_id", 0),
+            actor_email=getattr(current_user, "email", "unknown"),
+            blind_index=blind_index,
+            matches_found=total,
+            client_ip=client_ip,
+        )
 
     # Paginate — newest entries first
     query = (
@@ -169,6 +211,28 @@ async def list_audit_logs(
     ]
 
     return PaginatedResponse(items=items, total=total, page=page, pages=pages)
+
+
+# ─── GET /api/audit-logs/security-events ──────────────────────────────────────
+
+@router.get(
+    "/audit-logs/security-events",
+    dependencies=_auditor_only,
+    summary="List recent blind index search telemetry events (Audit-the-Auditor)",
+)
+async def list_security_events(
+    current_user: User = Depends(get_current_user),
+):
+    """Retrieve security telemetry audit events recording blind index queries.
+
+    Demonstrates compliance with 'Audit-the-Auditor' regulatory controls by logging
+    every search performed on structured identity indices without exposing PII.
+    """
+    events = audit_logger.get_audit_events()
+    return {
+        "total": len(events),
+        "events": events,
+    }
 
 
 # ─── POST /api/verify ─────────────────────────────────────────────────────────

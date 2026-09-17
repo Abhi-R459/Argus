@@ -32,7 +32,11 @@ export default function TimeTravelView() {
   const [queryParams, setQueryParams] = useState<{ id: number; timestamp: string } | null>(null);
 
   // ── Fetch Employee Directory for the Dropdown Selector ─────────────────────
-  const { data: employeeData } = useQuery({
+  const {
+    data: employeeData,
+    isLoading: isEmployeesLoading,
+    isError: isEmployeesError,
+  } = useQuery({
     queryKey: ['employeesDirectory'],
     queryFn: () => fetchEmployees(getToken, 100),
     staleTime: 60000,
@@ -91,6 +95,7 @@ export default function TimeTravelView() {
     },
     enabled: !!queryParams,
     retry: false,
+    refetchInterval: false,
   });
 
   const handleSearch = (e: React.FormEvent) => {
@@ -107,12 +112,55 @@ export default function TimeTravelView() {
     setEmployeeIdInput(idStr);
     if (!idStr) return;
     const id = parseInt(idStr, 10);
-    if (dateInput && timeInput) {
-      const timestamp = `${dateInput}T${timeInput}:00Z`;
+
+    // Auto-populate date & time with current UTC if blank
+    let curDate = dateInput;
+    let curTime = timeInput;
+    if (!curDate || !curTime) {
+      const now = new Date();
+      curDate = now.toISOString().split('T')[0];
+      curTime = now.toISOString().split('T')[1].substring(0, 5);
+      setDateInput(curDate);
+      setTimeInput(curTime);
+    }
+
+    const timestamp = `${curDate}T${curTime}:00Z`;
+    setQueryParams({ id, timestamp });
+    setSearchParams({ emp_id: idStr, as_of: timestamp });
+  };
+
+  const handleSetToNow = () => {
+    const now = new Date();
+    const curDate = now.toISOString().split('T')[0];
+    const curTime = now.toISOString().split('T')[1].substring(0, 5);
+    setDateInput(curDate);
+    setTimeInput(curTime);
+
+    const id = parseInt(employeeIdInput, 10);
+    if (!isNaN(id) && id > 0) {
+      const timestamp = `${curDate}T${curTime}:00Z`;
+      setQueryParams({ id, timestamp });
+      setSearchParams({ emp_id: String(id), as_of: timestamp });
+    }
+  };
+
+  const handleManualIdChange = (idStr: string) => {
+    setEmployeeIdInput(idStr);
+    if (!idStr) return;
+    const id = parseInt(idStr, 10);
+    if (!isNaN(id) && id > 0) {
+      let curDate = dateInput;
+      let curTime = timeInput;
+      if (!curDate || !curTime) {
+        const now = new Date();
+        curDate = now.toISOString().split('T')[0];
+        curTime = now.toISOString().split('T')[1].substring(0, 5);
+        setDateInput(curDate);
+        setTimeInput(curTime);
+      }
+      const timestamp = `${curDate}T${curTime}:00Z`;
       setQueryParams({ id, timestamp });
       setSearchParams({ emp_id: idStr, as_of: timestamp });
-    } else {
-      setSearchParams({ emp_id: idStr });
     }
   };
 
@@ -140,19 +188,19 @@ export default function TimeTravelView() {
   const selectedEmployee = employees.find((e) => e.employee_id === parsedEmpId);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 animate-fade-cascade">
       {/* Header & Controls */}
-      <div className="bg-slate-900/50 backdrop-blur-sm border border-violet-500/10 rounded-xl p-6 shadow-xl relative overflow-hidden">
+      <div className="bg-[#0F172A]/80 backdrop-blur-sm border border-slate-800/80 rounded-2xl p-6 shadow-sm relative overflow-hidden">
         <div className="absolute top-0 right-0 p-8 opacity-5">
           <History className="w-32 h-32" />
         </div>
 
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-2">
-          <h2 className="text-xl font-bold text-white flex items-center">
+          <h2 className="text-xl font-bold text-slate-100 flex items-center">
             <History className="w-5 h-5 mr-2 text-violet-400" />
             Time-Travel State Reconstruction
           </h2>
-          <span className="text-xs font-mono text-violet-300 bg-violet-500/10 border border-violet-500/20 px-3 py-1 rounded-full w-fit">
+          <span className="text-xs font-mono text-violet-300 bg-violet-500/15 border border-violet-500/30 px-3 py-1 rounded-md w-fit">
             O(log N) B-Tree Historical Walk
           </span>
         </div>
@@ -181,14 +229,23 @@ export default function TimeTravelView() {
                 <select
                   value={employeeIdInput}
                   onChange={(e) => handleSelectEmployee(e.target.value)}
-                  className="w-full bg-slate-950/70 border border-slate-800 rounded-lg py-2 pl-10 pr-8 text-sm text-slate-200 focus:outline-none focus:border-violet-500/50 focus:ring-1 focus:ring-violet-500/50 appearance-none cursor-pointer"
+                  disabled={isEmployeesLoading}
+                  className="w-full bg-[#0B0F17] border border-slate-800 rounded-xl py-2 pl-10 pr-8 text-sm text-slate-200 focus:outline-none focus:border-violet-500/50 focus:ring-1 focus:ring-violet-500/50 appearance-none cursor-pointer transition-colors duration-150 disabled:opacity-60"
                 >
-                  <option value="">-- Choose Employee --</option>
-                  {employees.map((emp) => (
-                    <option key={emp.employee_id} value={emp.employee_id}>
-                      {emp.full_name} (#{emp.employee_id}) — {emp.role_title}
-                    </option>
-                  ))}
+                  {isEmployeesLoading ? (
+                    <option value="">Loading employee directory...</option>
+                  ) : isEmployeesError ? (
+                    <option value="">Error loading directory — enter ID manually</option>
+                  ) : (
+                    <>
+                      <option value="">-- Choose Employee ({employees.length} available) --</option>
+                      {employees.map((emp) => (
+                        <option key={emp.employee_id} value={emp.employee_id}>
+                          {emp.full_name} (#{emp.employee_id}) — {emp.role_title}
+                        </option>
+                      ))}
+                    </>
+                  )}
                 </select>
                 <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-500 text-xs">
                   ▼
@@ -204,20 +261,30 @@ export default function TimeTravelView() {
                 required
                 value={dateInput}
                 onChange={(e) => setDateInput(e.target.value)}
-                className="w-full bg-slate-950/70 border border-slate-800 rounded-lg py-2 px-4 text-sm text-slate-200 focus:outline-none focus:border-violet-500/50 focus:ring-1 focus:ring-violet-500/50"
+                className="w-full bg-[#0B0F17] border border-slate-800 rounded-xl py-2 px-4 text-sm text-slate-200 focus:outline-none focus:border-violet-500/50 focus:ring-1 focus:ring-violet-500/50 transition-colors duration-150 font-mono"
               />
             </div>
 
             {/* Target Time Input & Submit */}
             <div className="flex gap-2">
               <div className="flex-1">
-                <label className="block text-xs font-medium text-slate-400 mb-1">Target Time (UTC)</label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-medium text-slate-400">Target Time (UTC)</label>
+                  <button
+                    type="button"
+                    onClick={handleSetToNow}
+                    title="Set target timestamp to current UTC"
+                    className="text-[11px] text-violet-400 hover:text-violet-300 font-mono transition-colors duration-150 cursor-pointer"
+                  >
+                    Set to Now
+                  </button>
+                </div>
                 <input
                   type="time"
                   required
                   value={timeInput}
                   onChange={(e) => setTimeInput(e.target.value)}
-                  className="w-full bg-slate-950/70 border border-slate-800 rounded-lg py-2 px-4 text-sm text-slate-200 focus:outline-none focus:border-violet-500/50 focus:ring-1 focus:ring-violet-500/50"
+                  className="w-full bg-[#0B0F17] border border-slate-800 rounded-xl py-2 px-4 text-sm text-slate-200 focus:outline-none focus:border-violet-500/50 focus:ring-1 focus:ring-violet-500/50 transition-colors duration-150 font-mono"
                 />
               </div>
 
@@ -225,10 +292,10 @@ export default function TimeTravelView() {
                 <button
                   type="submit"
                   disabled={isLoading}
-                  className="h-[38px] px-5 bg-violet-600 hover:bg-violet-500 text-white text-sm font-medium rounded-lg transition-colors flex items-center shadow-lg shadow-violet-900/20 disabled:opacity-50"
+                  className="btn-press h-[38px] px-5 bg-violet-600 hover:bg-violet-500 text-white text-sm font-medium rounded-xl transition-colors duration-150 flex items-center shadow-xs disabled:opacity-50"
                 >
                   {isLoading ? (
-                    <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin mr-2" />
+                    <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-fast-spin mr-2" />
                   ) : (
                     <Search className="w-4 h-4 mr-2" />
                   )}
@@ -247,7 +314,7 @@ export default function TimeTravelView() {
               min="1"
               placeholder="e.g. 13"
               value={employeeIdInput}
-              onChange={(e) => setEmployeeIdInput(e.target.value)}
+              onChange={(e) => handleManualIdChange(e.target.value)}
               className="w-20 bg-slate-950/50 border border-slate-800 rounded px-2 py-1 text-xs text-slate-300 font-mono focus:outline-none focus:border-violet-500/50"
             />
             {selectedEmployee && (
@@ -261,25 +328,25 @@ export default function TimeTravelView() {
 
       {/* Historical Audit Mutation Timeline for Selected Employee */}
       {isValidEmpId && (
-        <div className="bg-slate-900/40 border border-slate-800/80 rounded-xl p-5 shadow-lg">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 mb-3 border-b border-slate-800/60">
+        <div className="bg-[#0F172A]/80 border border-slate-800/80 rounded-2xl p-5 shadow-sm">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 mb-3 border-b border-slate-800/80">
             <div className="flex items-center space-x-2">
               <Clock className="w-4 h-4 text-violet-400" />
-              <h3 className="text-sm font-semibold text-slate-200">
+              <h3 className="text-sm font-semibold text-slate-100">
                 Historical Mutation Timeline for Employee #{parsedEmpId}
               </h3>
               {selectedEmployee && (
                 <span className="text-xs text-slate-400">({selectedEmployee.full_name})</span>
               )}
             </div>
-            <span className="text-xs text-slate-500">
+            <span className="text-xs text-slate-400">
               Click any event below to auto-fill timestamp and reconstruct state
             </span>
           </div>
 
           {isLogsLoading ? (
-            <div className="py-6 text-center text-xs text-slate-500">
-              <div className="w-4 h-4 border-2 border-violet-500/40 border-t-violet-400 rounded-full animate-spin mx-auto mb-2" />
+            <div className="py-6 text-center text-xs text-slate-400">
+              <div className="w-4 h-4 border-2 border-violet-500/40 border-t-violet-400 rounded-full animate-fast-spin mx-auto mb-2" />
               Loading audit mutations...
             </div>
           ) : employeeLogs.length === 0 ? (
@@ -292,20 +359,20 @@ export default function TimeTravelView() {
                 const isActionInsert = log.action === 'INSERT';
                 const isActionDelete = log.action === 'DELETE';
                 const actionBadgeClass = isActionInsert
-                  ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                  ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
                   : isActionDelete
-                  ? 'bg-red-500/10 text-red-400 border-red-500/30'
-                  : 'bg-amber-500/10 text-amber-400 border-amber-500/30';
+                  ? 'bg-rose-500/15 text-rose-400 border-rose-500/30'
+                  : 'bg-amber-500/15 text-amber-400 border-amber-500/30';
 
                 return (
                   <div
                     key={log.sequence_id}
                     onClick={() => handleJumpToMutation(log.created_at)}
-                    className="group bg-slate-950/60 hover:bg-slate-800/50 border border-slate-800/80 hover:border-violet-500/40 rounded-lg p-3 transition-all cursor-pointer flex flex-col justify-between space-y-2 relative overflow-hidden"
+                    className="btn-press-sm group bg-[#0B0F17] hover:bg-[#0B0F17]/80 border border-slate-800/80 hover:border-violet-500/40 rounded-xl p-3 transition-colors duration-150 cursor-pointer flex flex-col justify-between space-y-2 relative overflow-hidden"
                   >
                     <div className="flex items-center justify-between">
                       <div className="flex items-center space-x-2">
-                        <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded border ${actionBadgeClass}`}>
+                        <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-md border ${actionBadgeClass}`}>
                           {log.action}
                         </span>
                         <span className="text-xs font-mono text-slate-400 group-hover:text-slate-200">
@@ -327,20 +394,20 @@ export default function TimeTravelView() {
                     <div className="pt-2 border-t border-slate-900 flex items-center justify-between">
                       <span className="text-[11px] text-violet-400 flex items-center group-hover:underline">
                         Reconstruct as of this change
-                        <ArrowRight className="w-3 h-3 ml-1 group-hover:translate-x-0.5 transition-transform" />
+                        <ArrowRight className="w-3 h-3 ml-1 group-hover:translate-x-0.5 transition-transform duration-150" />
                       </span>
                       <div className="flex items-center space-x-2" onClick={(e) => e.stopPropagation()}>
                         <Link
                           to={`/auditor/chain?seq=${log.sequence_id}`}
                           title="Inspect in Chain Explorer"
-                          className="text-slate-500 hover:text-violet-300 p-1"
+                          className="btn-press-sm text-slate-500 hover:text-violet-300 p-1"
                         >
                           <GitCommit className="w-3.5 h-3.5" />
                         </Link>
                         <Link
                           to={`/auditor/log?seq=${log.sequence_id}`}
                           title="View in Audit Log"
-                          className="text-slate-500 hover:text-violet-300 p-1"
+                          className="btn-press-sm text-slate-500 hover:text-violet-300 p-1"
                         >
                           <ExternalLink className="w-3.5 h-3.5" />
                         </Link>
@@ -356,11 +423,11 @@ export default function TimeTravelView() {
 
       {/* Results Area */}
       {isError && (
-        <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4 flex items-start text-red-400 animate-in fade-in">
+        <div className="bg-rose-500/10 border border-rose-500/25 rounded-xl p-4 flex items-start text-rose-400 animate-fade-cascade">
           <XCircle className="w-5 h-5 mr-3 mt-0.5 shrink-0" />
           <div>
-            <h3 className="font-medium">Reconstruction Failed</h3>
-            <p className="text-sm opacity-80 mt-1">
+            <h3 className="font-medium text-rose-300">Reconstruction Failed</h3>
+            <p className="text-sm opacity-80 mt-1 text-rose-400/90">
               {error instanceof Error ? error.message : 'The requested record could not be reconstructed for the given timestamp.'}
             </p>
           </div>
@@ -368,15 +435,15 @@ export default function TimeTravelView() {
       )}
 
       {record && !isLoading && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-in slide-in-from-bottom-4">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-fade-cascade">
           {/* Formatted View */}
-          <div className="lg:col-span-2 bg-slate-900/50 backdrop-blur-sm border border-violet-500/10 rounded-xl shadow-xl overflow-hidden">
-            <div className="bg-slate-800/30 px-6 py-4 border-b border-slate-800/50 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-              <h3 className="font-semibold text-slate-200 flex items-center">
+          <div className="lg:col-span-2 bg-[#0F172A]/80 backdrop-blur-sm border border-slate-800/80 rounded-2xl shadow-sm overflow-hidden">
+            <div className="bg-[#0B0F17]/50 px-6 py-4 border-b border-slate-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <h3 className="font-semibold text-slate-100 flex items-center">
                 <CheckCircle2 className="w-4 h-4 mr-2 text-emerald-400" />
                 State Reconstructed Successfully
               </h3>
-              <div className="flex items-center text-xs font-mono text-violet-300 bg-violet-500/10 px-3 py-1 rounded-full border border-violet-500/20">
+              <div className="flex items-center text-xs font-mono text-violet-300 bg-violet-500/15 px-3 py-1 rounded-md border border-violet-500/30">
                 <CalendarClock className="w-3 h-3 mr-2" />
                 AS OF {new Date(record.as_of).toLocaleString()}
               </div>
@@ -385,18 +452,18 @@ export default function TimeTravelView() {
             <div className="p-6">
               <div className="grid grid-cols-2 gap-x-12 gap-y-6">
                 <div>
-                  <div className="text-xs font-medium text-slate-500 mb-1 uppercase tracking-wider">Employee ID</div>
-                  <div className="text-lg font-mono text-slate-200">#{record.employee_id}</div>
+                  <div className="text-xs font-medium text-slate-400 mb-1 uppercase tracking-wider">Employee ID</div>
+                  <div className="text-lg font-mono text-slate-100">#{record.employee_id}</div>
                 </div>
                 <div>
-                  <div className="text-xs font-medium text-slate-500 mb-1 uppercase tracking-wider">Status</div>
+                  <div className="text-xs font-medium text-slate-400 mb-1 uppercase tracking-wider">Status</div>
                   <div>
                     {record.is_active ? (
-                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
                         Active
                       </span>
                     ) : (
-                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-500/10 text-red-400 border border-red-500/20">
+                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-rose-500/15 text-rose-400 border border-rose-500/30">
                         Inactive
                       </span>
                     )}
@@ -404,28 +471,28 @@ export default function TimeTravelView() {
                 </div>
 
                 <div>
-                  <div className="text-xs font-medium text-slate-500 mb-1 uppercase tracking-wider">Full Name</div>
-                  <div className="text-base text-slate-200 font-medium">{record.full_name}</div>
+                  <div className="text-xs font-medium text-slate-400 mb-1 uppercase tracking-wider">Full Name</div>
+                  <div className="text-base text-slate-100 font-medium">{record.full_name}</div>
                 </div>
                 <div>
-                  <div className="text-xs font-medium text-slate-500 mb-1 uppercase tracking-wider">Email</div>
+                  <div className="text-xs font-medium text-slate-400 mb-1 uppercase tracking-wider">Email</div>
                   <div className="text-base text-slate-300">{record.email}</div>
                 </div>
 
                 <div>
-                  <div className="text-xs font-medium text-slate-500 mb-1 uppercase tracking-wider">Role & Dept</div>
-                  <div className="text-base text-slate-200">{record.role_title}</div>
+                  <div className="text-xs font-medium text-slate-400 mb-1 uppercase tracking-wider">Role & Dept</div>
+                  <div className="text-base text-slate-100">{record.role_title}</div>
                   <div className="text-sm text-slate-400">{record.department_name}</div>
                 </div>
                 <div>
-                  <div className="text-xs font-medium text-slate-500 mb-1 uppercase tracking-wider">Compensation</div>
-                  <div className="text-base font-mono text-slate-200">
+                  <div className="text-xs font-medium text-slate-400 mb-1 uppercase tracking-wider">Compensation</div>
+                  <div className="text-base font-mono text-slate-100">
                     {new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(record.salary)}
                   </div>
                 </div>
 
                 <div className="col-span-2">
-                  <div className="text-xs font-medium text-slate-500 mb-1 uppercase tracking-wider">Date Hired</div>
+                  <div className="text-xs font-medium text-slate-400 mb-1 uppercase tracking-wider">Date Hired</div>
                   <div className="text-base text-slate-300">{new Date(record.date_hired).toLocaleDateString()}</div>
                 </div>
               </div>
@@ -433,10 +500,10 @@ export default function TimeTravelView() {
           </div>
 
           {/* Raw JSON View */}
-          <div className="bg-slate-950 border border-slate-800 rounded-xl shadow-xl overflow-hidden flex flex-col">
-            <div className="bg-slate-900 px-4 py-3 border-b border-slate-800 flex items-center justify-between">
+          <div className="bg-[#0B0F17] border border-slate-800/80 rounded-2xl shadow-sm overflow-hidden flex flex-col">
+            <div className="bg-[#0F172A] px-4 py-3 border-b border-slate-800/80 flex items-center justify-between">
               <span className="text-xs font-mono text-slate-400">reconstructed_state.json</span>
-              <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded bg-violet-500/10 text-violet-400">
+              <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-md bg-violet-500/15 text-violet-300 border border-violet-500/30">
                 O(log N) RECONSTRUCT
               </span>
             </div>

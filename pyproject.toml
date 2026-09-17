@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "argus"
+version = "1.1.0"
+description = "PostgreSQL-native tamper-evident audit trail with cryptographic verification"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "alembic>=1.13.0",
+    "psycopg2-binary>=2.9.9",
+    "sqlalchemy>=2.0.0",
+    "cryptography>=42.0.0",
+    "python-dotenv>=1.0.0",
+]
+
+[project.optional-dependencies]
+kms = [
+    "boto3>=1.28.0",
+    "hvac>=1.1.0",
+]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-benchmark>=4.0.0",
+]

@@ -46,10 +46,11 @@ export default function EmployeeTable() {
   const { data, isLoading, isError } = useQuery<PaginatedResponse>({
     queryKey: ['employees', page, debouncedSearch],
     queryFn: () => fetchWithAuth(`/employees?page=${page}&limit=${limit}${debouncedSearch ? `&search=${encodeURIComponent(debouncedSearch)}` : ''}`, {}, getToken),
+    refetchInterval: 3000,
   });
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden relative">
+    <div className="bg-white rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.04),0_1px_2px_rgba(0,0,0,0.02)] border border-slate-200/90 overflow-hidden relative">
       {editingEmployee && (
         <EmployeeEditForm employee={editingEmployee} onClose={() => setEditingEmployee(null)} />
       )}
@@ -59,76 +60,114 @@ export default function EmployeeTable() {
       )}
       
       {/* Table Header & Search */}
-      <div className="p-5 border-b border-slate-200 flex justify-between items-center bg-slate-50/50">
-        <h2 className="text-lg font-semibold text-slate-800">Employee Directory</h2>
-        <div className="relative">
-          <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+      <div className="p-5 border-b border-slate-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-50/60">
+        <div>
+          <h2 className="text-base font-bold text-slate-900 tracking-tight">Registered Personnel</h2>
+          <p className="text-xs text-slate-500 mt-0.5">Encrypted PII columns masked via PostgreSQL pgcrypto</p>
+        </div>
+        <div className="relative w-full sm:w-80">
+          <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
             <Search className="h-4 w-4 text-slate-400" />
           </div>
           <input
             type="text"
-            className="block w-full pl-10 pr-3 py-2 border border-slate-300 rounded-lg leading-5 bg-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm transition-all"
+            className="block w-full pl-10 pr-12 py-2 border border-slate-200 rounded-xl text-sm bg-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-900/10 focus:border-slate-900 transition-colors shadow-2xs"
             placeholder="Search by name or email..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
+          <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
+            {search ? (
+              <button
+                type="button"
+                onClick={() => setSearch('')}
+                className="pointer-events-auto text-xs text-slate-400 hover:text-slate-600 font-bold"
+              >
+                ×
+              </button>
+            ) : (
+              <kbd className="text-[10px] font-mono text-slate-400 bg-slate-100 border border-slate-200/80 px-1.5 py-0.5 rounded shadow-2xs">
+                /
+              </kbd>
+            )}
+          </div>
         </div>
       </div>
 
       {/* Table Content */}
       <div className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-slate-200">
-          <thead className="bg-slate-50">
+        <table className="min-w-full divide-y divide-slate-200/80">
+          <thead className="bg-slate-50/80">
             <tr>
-              <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Employee</th>
-              <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Role & Dept</th>
-              <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</th>
-              <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Hired</th>
-              <th scope="col" className="relative px-6 py-3"><span className="sr-only">Actions</span></th>
+              <th scope="col" className="px-6 py-3.5 text-left text-[11px] font-bold text-slate-500 uppercase tracking-wider font-mono">Employee</th>
+              <th scope="col" className="px-6 py-3.5 text-left text-[11px] font-bold text-slate-500 uppercase tracking-wider font-mono">Role & Dept</th>
+              <th scope="col" className="px-6 py-3.5 text-left text-[11px] font-bold text-slate-500 uppercase tracking-wider font-mono">Status</th>
+              <th scope="col" className="px-6 py-3.5 text-left text-[11px] font-bold text-slate-500 uppercase tracking-wider font-mono">Hired</th>
+              <th scope="col" className="relative px-6 py-3.5 text-right text-[11px] font-bold text-slate-500 uppercase tracking-wider font-mono">Actions</th>
             </tr>
           </thead>
-          <tbody className="bg-white divide-y divide-slate-200">
+          <tbody className="bg-white divide-y divide-slate-100">
             {isLoading ? (
-              <tr><td colSpan={5} className="px-6 py-12 text-center text-slate-500">Loading directory...</td></tr>
+              <tr><td colSpan={5} className="px-6 py-12 text-center text-slate-400 text-sm font-medium">Loading directory from PostgreSQL…</td></tr>
             ) : isError ? (
-              <tr><td colSpan={5} className="px-6 py-12 text-center text-red-500">Failed to load employees. Check network tab.</td></tr>
+              <tr><td colSpan={5} className="px-6 py-12 text-center text-rose-500 text-sm font-medium">Failed to load employees. Check network tab.</td></tr>
             ) : data?.items.length === 0 ? (
-              <tr><td colSpan={5} className="px-6 py-12 text-center text-slate-500">No employees found matching your criteria.</td></tr>
+              <tr><td colSpan={5} className="px-6 py-12 text-center text-slate-400 text-sm font-medium">No employees found matching your criteria.</td></tr>
             ) : (
-              data?.items.map((emp) => (
-                <tr key={emp.employee_id} className="hover:bg-slate-50/50 transition-colors">
+              data?.items.map((emp, idx) => (
+                <tr
+                  key={emp.employee_id}
+                  style={{ animationDelay: `${idx * 25}ms` }}
+                  className="animate-fade-cascade hover:bg-slate-50/80 transition-colors duration-150 group"
+                >
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="flex items-center">
-                      <div className="flex-shrink-0 h-10 w-10 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold">
+                      <div className="flex-shrink-0 h-9 w-9 rounded-xl bg-gradient-to-tr from-indigo-50 to-indigo-100/80 border border-indigo-200/80 flex items-center justify-center text-indigo-700 font-bold text-xs shadow-2xs font-mono">
                         {emp.full_name.charAt(0)}
                       </div>
-                      <div className="ml-4">
-                        <div className="text-sm font-medium text-slate-900">{emp.full_name}</div>
-                        <div className="text-sm text-slate-500">{emp.email}</div>
+                      <div className="ml-3.5">
+                        <div className="text-sm font-bold text-slate-900 tracking-tight">{emp.full_name}</div>
+                        <div className="text-xs text-slate-500 font-mono">{emp.email}</div>
                       </div>
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-slate-900">{emp.role_title}</div>
-                    <div className="text-sm text-slate-500">{emp.department_name}</div>
+                    <div className="text-sm font-semibold text-slate-800">{emp.role_title}</div>
+                    <div className="text-xs text-slate-500">{emp.department_name}</div>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`px-2.5 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${emp.is_active ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' : 'bg-slate-100 text-slate-800 border border-slate-200'}`}>
-                      {emp.is_active ? 'Active' : 'Inactive'}
+                  <td className="px-6 py-3.5 whitespace-nowrap">
+                    <span className={`px-2.5 py-0.5 inline-flex items-center space-x-1.5 text-xs font-semibold rounded-full border ${
+                      emp.is_active
+                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200/80'
+                        : 'bg-slate-100 text-slate-700 border-slate-200'
+                    }`}>
+                      <span className={`w-1.5 h-1.5 rounded-full ${emp.is_active ? 'bg-emerald-500' : 'bg-slate-400'}`} />
+                      <span>{emp.is_active ? 'Active' : 'Inactive'}</span>
                     </span>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500">
+                  <td className="px-6 py-3.5 whitespace-nowrap text-xs text-slate-500">
                     {new Date(emp.date_hired).toLocaleDateString()}
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                    <div className="flex justify-end space-x-2">
-                       <button onClick={() => setSalaryEmployee(emp)} title="Update Salary" className="text-emerald-500 hover:text-emerald-700 transition-colors p-1 rounded-md hover:bg-emerald-50">
+                  <td className="px-6 py-3.5 whitespace-nowrap text-right text-sm font-medium">
+                    <div className="flex justify-end space-x-1.5">
+                       <button
+                         onClick={() => setSalaryEmployee(emp)}
+                         title="Adjust Salary"
+                         className="btn-press-sm text-emerald-600 hover:text-emerald-700 p-1.5 rounded-md hover:bg-emerald-50 border border-transparent hover:border-emerald-200/60"
+                       >
                          <DollarSign className="w-4 h-4" />
                        </button>
-                       <button onClick={() => setEditingEmployee(emp)} title="Edit Employee" className="text-slate-400 hover:text-indigo-600 transition-colors p-1 rounded-md hover:bg-slate-100">
+                       <button
+                         onClick={() => setEditingEmployee(emp)}
+                         title="Edit Details"
+                         className="btn-press-sm text-slate-500 hover:text-indigo-600 p-1.5 rounded-md hover:bg-indigo-50 border border-transparent hover:border-indigo-200/60"
+                       >
                          <Edit2 className="w-4 h-4" />
                        </button>
-                       <button title="Delete/Deactivate" className="text-slate-400 hover:text-red-600 transition-colors p-1 rounded-md hover:bg-slate-100">
+                       <button
+                         title="Deactivate / Manage"
+                         className="btn-press-sm text-slate-400 hover:text-rose-600 p-1.5 rounded-md hover:bg-rose-50 border border-transparent hover:border-rose-200/60"
+                       >
                          <Trash2 className="w-4 h-4" />
                        </button>
                     </div>
@@ -142,30 +181,30 @@ export default function EmployeeTable() {
 
       {/* Pagination */}
       {data && data.pages > 1 && (
-        <div className="bg-white px-6 py-4 border-t border-slate-200 flex items-center justify-between sm:px-6">
+        <div className="bg-white px-6 py-3.5 border-t border-slate-200/80 flex items-center justify-between sm:px-6">
           <div className="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
             <div>
-              <p className="text-sm text-slate-700">
-                Showing <span className="font-medium">{((page - 1) * limit) + 1}</span> to <span className="font-medium">{Math.min(page * limit, data.total)}</span> of <span className="font-medium">{data.total}</span> results
+              <p className="text-xs text-slate-500">
+                Showing <span className="font-semibold text-slate-700">{((page - 1) * limit) + 1}</span> to <span className="font-semibold text-slate-700">{Math.min(page * limit, data.total)}</span> of <span className="font-semibold text-slate-700">{data.total}</span> records
               </p>
             </div>
             <div>
-              <nav className="relative z-0 inline-flex rounded-md shadow-sm -space-x-px" aria-label="Pagination">
+              <nav className="inline-flex rounded-lg shadow-2xs space-x-1" aria-label="Pagination">
                 <button
                   onClick={() => setPage(p => Math.max(1, p - 1))}
                   disabled={page === 1}
-                  className="relative inline-flex items-center px-2 py-2 rounded-l-md border border-slate-300 bg-white text-sm font-medium text-slate-500 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="btn-press-sm inline-flex items-center px-2.5 py-1.5 rounded-md border border-slate-200 bg-white text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
                 >
-                  <span className="sr-only">Previous</span>
-                  <ChevronLeft className="h-5 w-5" aria-hidden="true" />
+                  <ChevronLeft className="h-4 w-4 mr-1" aria-hidden="true" />
+                  <span>Previous</span>
                 </button>
                 <button
                   onClick={() => setPage(p => Math.min(data.pages, p + 1))}
                   disabled={page === data.pages}
-                  className="relative inline-flex items-center px-2 py-2 rounded-r-md border border-slate-300 bg-white text-sm font-medium text-slate-500 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="btn-press-sm inline-flex items-center px-2.5 py-1.5 rounded-md border border-slate-200 bg-white text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
                 >
-                  <span className="sr-only">Next</span>
-                  <ChevronRight className="h-5 w-5" aria-hidden="true" />
+                  <span>Next</span>
+                  <ChevronRight className="h-4 w-4 ml-1" aria-hidden="true" />
                 </button>
               </nav>
             </div>
@@ -175,3 +214,4 @@ export default function EmployeeTable() {
     </div>
   );
 }
+

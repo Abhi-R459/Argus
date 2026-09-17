@@ -77,9 +77,13 @@ def seed_data(pg_conn):
         cur.execute(
             "INSERT INTO users (clerk_user_id, full_name, email, role) "
             "VALUES ('clerk_test_001', 'Test HR Admin', 'hradmin@test.com', 'hr_admin') "
-            "RETURNING user_id"
+            "ON CONFLICT (clerk_user_id) DO NOTHING RETURNING user_id"
         )
-        user_id = cur.fetchone()[0]
+        row = cur.fetchone()
+        user_id = row[0] if row else None
+        if user_id is None:
+            cur.execute("SELECT user_id FROM users WHERE clerk_user_id='clerk_test_001'")
+            user_id = cur.fetchone()[0]
         pg_conn.commit()
 
     return {"dept_id": dept_id, "role_id": role_id, "user_id": user_id}
@@ -147,7 +151,6 @@ def test_hash_chain_links_correctly(pg_conn, seed_data):
             """
             SELECT sequence_id, entry_hash, previous_hash
             FROM   audit_log
-            WHERE  table_name = 'employees'
             ORDER  BY sequence_id
             """
         )

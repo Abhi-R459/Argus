@@ -36,7 +36,7 @@ export default function AuditorOverview() {
         getToken,
         tamperedSeqId ? { around_seq: tamperedSeqId, limit: 12 } : { limit: 10 }
       ),
-    refetchInterval: 10000,
+    refetchInterval: 2500,
   });
 
   const {
@@ -45,46 +45,52 @@ export default function AuditorOverview() {
   } = useQuery({
     queryKey: ['anchor-status'],
     queryFn: () => fetchAnchorStatus(getToken),
-    refetchInterval: 15000,
+    refetchInterval: 4000,
   });
 
   return (
-    <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 space-y-6">
+    <div className="space-y-6">
 
       {/* Top row: VerificationControl, AnchorStatus, and ExportControl */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <VerificationControl onResult={(res) => setTamperedSeqId(res.tampered_sequence_id)} />
+        <div className="animate-fade-cascade stagger-1">
+          <VerificationControl onResult={(res) => setTamperedSeqId(res.tampered_sequence_id)} />
+        </div>
         {isAnchorLoading ? (
-          <div className="rounded-2xl border border-slate-700/50 bg-slate-900/50 p-5 flex flex-col items-center justify-center min-h-[220px]">
-            <Loader2 className="w-6 h-6 text-violet-400 animate-spin mb-2" />
-            <span className="text-xs text-slate-500 font-mono">Syncing anchor status...</span>
+          <div className="animate-fade-cascade stagger-2 rounded-2xl border border-slate-800/80 bg-[#0F172A]/80 p-5 flex flex-col items-center justify-center min-h-[220px]">
+            <Loader2 className="w-6 h-6 text-violet-400 animate-fast-spin mb-2" />
+            <span className="text-xs text-slate-400 font-mono">Syncing anchor status...</span>
           </div>
         ) : (
-          <AnchorStatus data={anchorData ?? DEFAULT_ANCHOR} />
+          <div className="animate-fade-cascade stagger-2">
+            <AnchorStatus data={anchorData ?? DEFAULT_ANCHOR} />
+          </div>
         )}
-        <ExportControl />
+        <div className="animate-fade-cascade stagger-3">
+          <ExportControl />
+        </div>
       </div>
 
       {/* Main content: Chain view + suspicious flags */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
         {/* Chain visualization — 2/3 width */}
-        <div className="xl:col-span-2 space-y-2">
+        <div className="xl:col-span-2 space-y-2 animate-fade-cascade stagger-4">
           <div className="flex items-center justify-between px-1">
             <span className="text-xs font-mono font-medium text-slate-400">
               {tamperedSeqId ? `Focused window around violation #${tamperedSeqId}` : 'Recent Chain Blocks (Tail)'}
             </span>
             <Link
               to={`/auditor/chain${tamperedSeqId ? `?seq=${tamperedSeqId}` : ''}`}
-              className="text-xs text-violet-400 hover:text-violet-300 flex items-center space-x-1 font-medium transition-colors group"
+              className="btn-press-sm text-xs text-violet-400 hover:text-violet-300 flex items-center space-x-1 font-medium transition-colors duration-150 group"
             >
               <span>Full Chain Explorer</span>
-              <ArrowRight className="w-3.5 h-3.5 transition-transform group-hover:translate-x-0.5" />
+              <ArrowRight className="w-3.5 h-3.5 transition-transform duration-150 group-hover:translate-x-0.5" />
             </Link>
           </div>
           {isChainLoading && chainEntries.length === 0 ? (
-            <div className="bg-slate-900/50 border border-slate-700/50 rounded-2xl p-12 flex flex-col items-center justify-center">
-              <Loader2 className="w-6 h-6 text-violet-400 animate-spin mb-2" />
-              <span className="text-xs text-slate-500 font-mono">Loading hash chain...</span>
+            <div className="bg-[#0F172A]/80 border border-slate-800/80 rounded-2xl p-12 flex flex-col items-center justify-center">
+              <Loader2 className="w-6 h-6 text-violet-400 animate-fast-spin mb-2" />
+              <span className="text-xs text-slate-400 font-mono">Loading hash chain...</span>
             </div>
           ) : (
             <ChainVisualization entries={chainEntries} tamperedSequenceId={tamperedSeqId} />
@@ -92,16 +98,16 @@ export default function AuditorOverview() {
         </div>
 
         {/* Suspicious flags link panel — 1/3 */}
-        <div className="bg-slate-900/50 border border-slate-700/50 rounded-2xl overflow-hidden flex flex-col justify-center items-center p-8 text-center relative group">
+        <div className="animate-fade-cascade stagger-5 bg-[#0F172A]/80 border border-slate-800/80 rounded-2xl overflow-hidden flex flex-col justify-center items-center p-8 text-center relative group shadow-sm">
           <div className="absolute inset-0 bg-gradient-to-br from-violet-600/5 to-transparent pointer-events-none" />
-          <AlertTriangle className="w-12 h-12 text-violet-400/80 mb-4 group-hover:text-violet-400 transition-colors" />
-          <h3 className="text-lg font-semibold text-slate-200">Activity & Risk</h3>
+          <AlertTriangle className="w-12 h-12 text-violet-400/80 mb-4 group-hover:text-violet-400 transition-colors duration-150" />
+          <h3 className="text-lg font-semibold text-slate-100">Activity & Risk</h3>
           <p className="text-sm text-slate-400 mt-2 mb-6">
             Review automatically flagged events and compliance violations.
           </p>
           <Link
             to="/auditor/activity"
-            className="inline-flex items-center space-x-2 bg-violet-600 hover:bg-violet-500 text-white font-medium px-5 py-2.5 rounded-lg transition-all shadow-[0_0_15px_rgba(124,58,237,0.3)] hover:shadow-[0_0_20px_rgba(124,58,237,0.5)]"
+            className="btn-press inline-flex items-center space-x-2 bg-violet-600 hover:bg-violet-500 text-white font-medium px-5 py-2.5 rounded-lg transition-colors duration-150 shadow-[0_0_15px_rgba(124,58,237,0.3)]"
           >
             <span>Open Risk Panel</span>
             <ArrowRight className="w-4 h-4" />

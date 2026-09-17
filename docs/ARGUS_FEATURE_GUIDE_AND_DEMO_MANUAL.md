@@ -162,9 +162,9 @@ Argus neutralizes this through **Asymmetric Ed25519 Checkpointing and External A
   .\.venv\Scripts\python.exe -m db.cli.verify_standalone
   ```
 
-### Real-World Benefit & Regulatory Compliance
-- **Non-Repudiation (ISO 27001 & FIPS 186-5):** Ed25519 asymmetric cryptography provides mathematical proof of authenticity that cannot be forged even by the database administrator.
-- **Out-of-Band Integrity:** Satisfies strict regulatory requirements for off-site tamper-proof log archival.
+### Real-World Benefit & Regulatory Control Support
+- **Non-Repudiation (ISO/IEC 27001 & NIST FIPS 186-5 algorithms):** Ed25519 asymmetric cryptography (RFC 8032; implemented in software) provides mathematical proof of authenticity that cannot be forged even by the database administrator.
+- **Out-of-Band Integrity:** Supports regulatory objectives for independent, off-site tamper-evident log verification.
 
 ### How to Explain and Demonstrate It (Viva & Presentation)
 - **Explanation Script:**
@@ -175,10 +175,10 @@ Argus neutralizes this through **Asymmetric Ed25519 Checkpointing and External A
 ## 5. AES-256 Encryption & HMAC-SHA256 Blind Indexing
 
 ### What It Is For
-Regulations like GDPR, HIPAA, and CCPA require sensitive personal data (National IDs, SSNs, medical phone numbers) to be encrypted at rest. However, standard AES-256 encryption generates different ciphertexts each time (due to random IVs), making SQL queries like `WHERE national_id = '...'` impossible without decrypting the entire table into memory (an $O(N)$ CPU disaster).
+Data protection frameworks such as GDPR and privacy statutes require sensitive personal identifiers (such as national IDs and employee contact details) to be protected at rest. (Note: While HIPAA Security Rule §164.312 mandates analogous controls, HIPAA specifically governs Protected Health Information; for enterprise employee personnel records, the primary frameworks are GDPR and state privacy statutes). However, standard AES-256 encryption generates different ciphertexts each time (due to random IVs), making SQL queries like `WHERE national_id = '...'` impossible without decrypting the entire table into memory (an $O(N)$ CPU disaster).
 
 Argus implements **HMAC-SHA256 Blind Indexing**:
-1. The plaintext National ID is encrypted using AES-256 (`pgp_sym_encrypt` in `pgcrypto`) and stored in `national_id_encrypted`.
+1. The plaintext National ID is encrypted using the NIST-approved AES-256 cipher (`pgp_sym_encrypt` in `pgcrypto`) and stored in `national_id_encrypted`. (Note: `pgcrypto` is an open-source software implementation, not a NIST CMVP-validated cryptographic module under FIPS 140-2/3).
 2. Simultaneously, a deterministic keyed hash is calculated using HMAC-SHA256 with an isolated audit salt:
    $$\text{BlindIndex} = \text{HMAC-SHA256}(K_{\text{salt}}, \text{Plaintext})$$
 3. The blind index is stored in the database and audit logs, allowing $O(1)$ exact-match lookups without ever decrypting sensitive data or exposing plaintext.
@@ -188,9 +188,9 @@ Argus implements **HMAC-SHA256 Blind Indexing**:
 2. Enter a National ID in the **"National ID Search (Blind Index)"** field.
 3. The API hashes the query with `AUDIT_SALT` and retrieves matching historical records with zero plaintext decryption overhead.
 
-### Real-World Benefit & Regulatory Compliance
-- **GDPR Article 17 ("Right to be Forgotten") & Article 32 ("Security of Processing"):** Encrypts confidential data while maintaining verifiable audit records.
-- **Protection Against Memory Dumps & Disk Theft:** Even if raw database files (`.mdf`/`.ibd`/PostgreSQL data clusters) are stolen, sensitive employee credentials remain encrypted with AES-256.
+### Real-World Benefit & Regulatory Control Support
+- **GDPR Article 25 ("Data Protection by Design") & Article 32 ("Security of Processing"):** Encrypts confidential data while maintaining verifiable, pseudonymized audit search capability.
+- **Protection Against Memory Dumps & Disk Theft:** Even if raw database files or physical backup dumps are exfiltrated, sensitive employee credentials remain encrypted with AES-256.
 
 ---
 

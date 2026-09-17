@@ -213,7 +213,7 @@ def test_delete_audit_row_and_heal_cycle(db_conn, isolated_snapshot):
         assert post_verify.is_valid is True
 
 
-def test_adversary_cli_subprocess():
+def test_adversary_cli_subprocess(db_conn):
     """Verify adversary CLI executes cleanly in a separate process."""
     # Test status command
     proc = subprocess.run(

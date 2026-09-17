@@ -19,7 +19,10 @@ async def test_list_employees_auditor(client_auditor: AsyncClient, mock_db_sessi
     mock_result.all.return_value = []
     mock_db_session.execute.return_value = mock_result
     response = await client_auditor.get("/api/employees")
-    assert response.status_code in [200, 403]
+    assert response.status_code == 200
+    data = response.json()
+    assert "items" in data
+    assert "total" in data
 
 async def test_create_employee_hr(client_hr: AsyncClient, mock_db_session: AsyncMock):
     # Setup mock

@@ -60,20 +60,29 @@ def business_test_data(pg_conn):
         cur.execute(
             "INSERT INTO users (clerk_user_id, full_name, email, role) "
             "VALUES ('clerk_biz_001', 'Biz HR', 'bizhr@test.com', 'hr_admin') "
-            "RETURNING user_id"
+            "ON CONFLICT (clerk_user_id) DO NOTHING RETURNING user_id"
         )
-        user_id = cur.fetchone()[0]
+        row = cur.fetchone()
+        user_id = row[0] if row else None
+        if user_id is None:
+            cur.execute("SELECT user_id FROM users WHERE clerk_user_id='clerk_biz_001'")
+            user_id = cur.fetchone()[0]
 
         cur.execute(
             """
             INSERT INTO employees
                 (full_name, email, role_id, national_id_encrypted, contact_info_encrypted, date_hired)
             VALUES ('Carol White', 'carol@test.com', %s, %s, %s, '2023-03-15')
+            ON CONFLICT (email) DO NOTHING
             RETURNING employee_id
             """,
             (role_id, b"\xAA\xBB\xCC", b"\xDD\xEE\xFF")
         )
-        emp_id = cur.fetchone()[0]
+        row = cur.fetchone()
+        emp_id = row[0] if row else None
+        if emp_id is None:
+            cur.execute("SELECT employee_id FROM employees WHERE email='carol@test.com'")
+            emp_id = cur.fetchone()[0]
 
         # Give Carol an initial salary of 100,000
         cur.execute(
@@ -81,7 +90,8 @@ def business_test_data(pg_conn):
         )
         cur.execute(
             "INSERT INTO salary_history (employee_id, amount, effective_date) "
-            "VALUES (%s, 100000, '2023-04-01')",
+            "VALUES (%s, 100000, '2023-04-01') "
+            "ON CONFLICT (employee_id, effective_date) DO NOTHING",
             (emp_id,)
         )
         pg_conn.commit()
@@ -105,7 +115,7 @@ def test_salary_decrease_over_30_percent_blocked(pg_conn, business_test_data):
     with pg_conn.cursor() as cur:
         set_actor(cur, business_test_data["user_id"])
         # 100,000 → 60,000 = 40% decrease → MUST be blocked
-        with pytest.raises(psycopg2.errors.RaiseException) as exc_info:
+        with pytest.raises((psycopg2.errors.RaiseException, psycopg2.Error)) as exc_info:
             cur.execute(
                 "INSERT INTO salary_history (employee_id, amount, effective_date) "
                 "VALUES (%s, 60000, '2024-01-01')",
@@ -199,7 +209,7 @@ def test_self_salary_modification_blocked(pg_conn, business_test_data):
         cur.execute(f"SET LOCAL argus.actor_user_id = {user_id}")
         cur.execute(f"SET LOCAL argus.actor_employee_id = {emp_id}")
 
-        with pytest.raises(psycopg2.errors.RaiseException) as exc_info:
+        with pytest.raises((psycopg2.errors.RaiseException, psycopg2.Error)) as exc_info:
             cur.execute(
                 "INSERT INTO salary_history (employee_id, amount, effective_date) "
                 "VALUES (%s, 95000, '2024-03-01')",

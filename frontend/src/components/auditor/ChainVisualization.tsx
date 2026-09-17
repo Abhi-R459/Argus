@@ -29,8 +29,11 @@ const SEVERITY_ROW_GLOW: Record<Severity, string> = {
 
 function formatTimestamp(isoString: string): string {
   const date = new Date(isoString);
-  const diff = Date.now() - date.getTime();
-  const minutes = Math.floor(diff / 60000);
+  const diff = Math.max(0, Date.now() - date.getTime());
+  const seconds = Math.floor(diff / 1000);
+  if (seconds < 5) return 'just now';
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.floor(seconds / 60);
   if (minutes < 60) return `${minutes}m ago`;
   const hours = Math.floor(minutes / 60);
   if (hours < 24) return `${hours}h ago`;
@@ -257,29 +260,29 @@ function ChainRow({ entry, isFirst, isTampered }: ChainRowProps) {
 
 export default function ChainVisualization({ entries, tamperedSequenceId }: ChainVisualizationProps) {
   return (
-    <div className="bg-slate-900/50 border border-slate-700/50 rounded-2xl overflow-hidden">
+    <div className="bg-[#0F172A]/80 border border-slate-800/80 rounded-2xl overflow-hidden shadow-sm">
       {/* Header */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-slate-700/50 bg-slate-900/30">
+      <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800/80 bg-[#0B0F17]/50">
         <div className="flex items-center space-x-3">
           <Hash className="w-5 h-5 text-violet-400" />
-          <h3 className="text-sm font-semibold text-slate-200">Audit Hash Chain</h3>
-          <span className="text-xs text-slate-500 bg-slate-800 px-2 py-0.5 rounded border border-slate-700">
+          <h3 className="text-sm font-semibold text-slate-100">Audit Hash Chain</h3>
+          <span className="text-xs text-slate-400 bg-slate-800/80 px-2 py-0.5 rounded border border-slate-700">
             {entries.length} entries
           </span>
           {tamperedSequenceId && (
-            <span className="text-xs text-red-400 bg-red-500/15 border border-red-500/30 px-2.5 py-0.5 rounded-full font-mono animate-pulse flex items-center space-x-1.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
+            <span className="text-xs text-rose-300 bg-rose-500/15 border border-rose-500/30 px-2.5 py-0.5 rounded-full font-mono animate-pulse flex items-center space-x-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
               <span>Violation at #{tamperedSequenceId}</span>
             </span>
           )}
         </div>
-        <span className="text-xs text-slate-600 italic">Click any row to expand diff</span>
+        <span className="text-xs text-slate-400 italic">Click any row to expand diff</span>
       </div>
 
       {/* Table */}
       <div className="overflow-x-auto">
         <table className="min-w-full">
-          <thead className="bg-slate-900/60">
+          <thead className="bg-[#0B0F17]/80">
             <tr>
               {['Entry', 'Hash', 'Op', 'Table', 'Actor', 'When', 'Severity', ''].map((h) => (
                 <th

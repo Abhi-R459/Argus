@@ -7,9 +7,13 @@ interface AnchorStatusProps {
 
 function formatTimestamp(isoString: string): string {
   const date = new Date(isoString);
-  const diff = Date.now() - date.getTime();
-  const hours = Math.floor(diff / 3600000);
-  if (hours < 1) return 'Less than 1h ago';
+  const diff = Math.max(0, Date.now() - date.getTime());
+  const seconds = Math.floor(diff / 1000);
+  if (seconds < 5) return 'just now';
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
   if (hours < 24) return `${hours}h ago`;
   const days = Math.floor(hours / 24);
   return `${days}d ago`;
@@ -17,36 +21,36 @@ function formatTimestamp(isoString: string): string {
 
 const STATUS_STYLES = {
   ANCHORED: {
-    border: 'border-emerald-500/25',
-    bg: 'bg-emerald-500/5',
-    pillBg: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/25',
-    dot: 'bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.7)]',
+    border: 'border-emerald-500/30',
+    bg: 'bg-[#0F172A]/80',
+    pillBg: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
+    dot: 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]',
     icon: 'text-emerald-400',
-    glow: 'shadow-[0_0_30px_rgba(52,211,153,0.06)]',
+    glow: 'shadow-[0_0_24px_rgba(52,211,153,0.06)]',
   },
   STALE: {
-    border: 'border-amber-500/25',
-    bg: 'bg-amber-500/5',
-    pillBg: 'bg-amber-500/15 text-amber-300 border-amber-500/25',
-    dot: 'bg-amber-400',
+    border: 'border-amber-500/30',
+    bg: 'bg-[#0F172A]/80',
+    pillBg: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
+    dot: 'bg-amber-400 shadow-[0_0_6px_rgba(245,158,11,0.6)]',
     icon: 'text-amber-400',
     glow: '',
   },
   MISSING: {
-    border: 'border-red-500/30',
-    bg: 'bg-red-500/5',
-    pillBg: 'bg-red-500/15 text-red-300 border-red-500/30',
-    dot: 'bg-red-500 animate-pulse',
-    icon: 'text-red-400',
+    border: 'border-rose-500/35',
+    bg: 'bg-[#0F172A]/80',
+    pillBg: 'bg-rose-500/15 text-rose-300 border-rose-500/35',
+    dot: 'bg-rose-500 animate-pulse',
+    icon: 'text-rose-400',
     glow: '',
   },
   MISMATCH: {
-    border: 'border-red-500/50',
-    bg: 'bg-red-500/10',
-    pillBg: 'bg-red-500/25 text-red-200 border-red-500/50',
-    dot: 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.9)] animate-ping',
-    icon: 'text-red-400',
-    glow: 'shadow-[0_0_30px_rgba(239,68,68,0.15)]',
+    border: 'border-rose-500/50',
+    bg: 'bg-rose-950/20',
+    pillBg: 'bg-rose-500/25 text-rose-200 border-rose-500/50',
+    dot: 'bg-rose-500 shadow-[0_0_10px_rgba(244,63,94,0.9)] animate-ping',
+    icon: 'text-rose-400',
+    glow: 'shadow-[0_0_30px_rgba(244,63,94,0.18)]',
   },
 };
 
@@ -55,7 +59,7 @@ export default function AnchorStatus({ data }: AnchorStatusProps) {
 
   return (
     <div
-      className={`rounded-2xl border p-5 flex flex-col space-y-4 ${style.border} ${style.bg} ${style.glow} transition-all duration-300`}
+      className={`rounded-2xl border p-5 flex flex-col space-y-4 ${style.border} ${style.bg} ${style.glow} transition-[border-color,background-color] duration-150 shadow-sm`}
     >
       {/* Header */}
       <div className="flex items-center justify-between">

@@ -41,8 +41,9 @@ class TestAttackDemos:
         with open(roles_sql_path, "r", encoding="utf-8") as f:
             sql = f.read()
 
-        # Check that REVOKE UPDATE, DELETE is explicitly present
-        assert "REVOKE UPDATE, DELETE ON audit_log" in sql
+        # Check that REVOKE on audit_log is explicitly present
+        assert ("REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON audit_log" in sql or
+                "REVOKE UPDATE, DELETE ON audit_log" in sql)
         assert "GRANT SELECT ON v_compliance_overview TO compliance_auditor" in sql
 
     def test_demo_2_superuser_audit_log_tamper_detection(self):

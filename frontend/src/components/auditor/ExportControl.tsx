@@ -33,10 +33,10 @@ export default function ExportControl() {
   };
 
   return (
-    <div className="bg-slate-900/50 border border-slate-700/50 rounded-2xl p-6 flex flex-col justify-center items-center text-center relative overflow-hidden">
+    <div className="bg-[#0F172A]/80 border border-slate-800/80 rounded-2xl p-6 flex flex-col justify-center items-center text-center relative overflow-hidden shadow-sm">
       <div className="absolute inset-0 bg-gradient-to-br from-emerald-600/5 to-transparent pointer-events-none" />
       
-      <div className="bg-emerald-500/10 p-3 rounded-full mb-3">
+      <div className="bg-emerald-500/10 p-3 rounded-full mb-3 border border-emerald-500/20">
         {format === 'arguspack' ? (
           <Package className="w-8 h-8 text-emerald-400" />
         ) : (
@@ -44,16 +44,16 @@ export default function ExportControl() {
         )}
       </div>
       
-      <h3 className="text-lg font-semibold text-slate-200">Export Cryptographic Evidence</h3>
+      <h3 className="text-lg font-semibold text-slate-100">Export Cryptographic Evidence</h3>
       
       {/* Format Selector */}
-      <div className="mt-3 mb-4 inline-flex p-1 bg-slate-950/60 rounded-xl border border-slate-800 text-xs font-medium">
+      <div className="mt-3 mb-4 inline-flex p-1 bg-[#0B0F17] rounded-xl border border-slate-800 text-xs font-medium">
         <button
           type="button"
           onClick={() => setFormat('arguspack')}
-          className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg transition-all ${
+          className={`btn-press-sm flex items-center space-x-1.5 px-3 py-1.5 rounded-lg transition-colors duration-150 ${
             format === 'arguspack'
-              ? 'bg-emerald-600 text-white shadow-sm'
+              ? 'bg-emerald-600 text-white shadow-xs'
               : 'text-slate-400 hover:text-slate-200'
           }`}
         >
@@ -65,9 +65,9 @@ export default function ExportControl() {
         <button
           type="button"
           onClick={() => setFormat('json')}
-          className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg transition-all ${
+          className={`btn-press-sm flex items-center space-x-1.5 px-3 py-1.5 rounded-lg transition-colors duration-150 ${
             format === 'json'
-              ? 'bg-emerald-600 text-white shadow-sm'
+              ? 'bg-emerald-600 text-white shadow-xs'
               : 'text-slate-400 hover:text-slate-200'
           }`}
         >
@@ -85,19 +85,19 @@ export default function ExportControl() {
       <button
         onClick={handleExport}
         disabled={status === 'loading'}
-        className={`inline-flex items-center space-x-2 px-6 py-2.5 rounded-lg font-medium transition-all ${
+        className={`btn-press inline-flex items-center space-x-2 px-6 py-2.5 rounded-lg font-medium transition-colors duration-150 ${
           status === 'loading'
-            ? 'bg-slate-800 text-slate-400 cursor-not-allowed'
+            ? 'bg-slate-800 text-slate-500 cursor-not-allowed'
             : status === 'success'
             ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/30'
             : status === 'error'
-            ? 'bg-red-600 hover:bg-red-500 text-white shadow-[0_0_15px_rgba(220,38,38,0.3)]'
-            : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-[0_0_15px_rgba(5,150,105,0.3)] hover:shadow-[0_0_20px_rgba(5,150,105,0.5)]'
+            ? 'bg-rose-600 hover:bg-rose-500 text-white shadow-[0_0_15px_rgba(225,29,72,0.3)]'
+            : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-[0_0_15px_rgba(5,150,105,0.3)]'
         }`}
       >
         {status === 'loading' ? (
           <>
-            <Loader2 className="w-5 h-5 animate-spin" />
+            <Loader2 className="w-5 h-5 animate-fast-spin" />
             <span>Generating {format === 'arguspack' ? '.arguspack Bundle' : 'JSON Package'}...</span>
           </>
         ) : status === 'success' ? (
@@ -120,7 +120,7 @@ export default function ExportControl() {
       </button>
 
       {status === 'error' && (
-        <div className="mt-4 flex items-center space-x-2 text-red-400 text-sm">
+        <div className="mt-4 flex items-center space-x-2 text-rose-400 text-sm">
           <AlertCircle className="w-4 h-4" />
           <span>{errorMessage}</span>
         </div>

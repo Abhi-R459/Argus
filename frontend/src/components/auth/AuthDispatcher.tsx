@@ -11,6 +11,7 @@ export default function AuthDispatcher() {
     queryFn: () => fetchMyProfile(() => getToken()),
     enabled: isLoaded,
     staleTime: 60000,
+    refetchInterval: false,
   });
 
   if (!isLoaded || isLoading) {

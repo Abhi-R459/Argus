@@ -360,19 +360,19 @@ export function useIncidentStatus(): IncidentState {
   const verificationQuery = useQuery({
     queryKey: ['chain-verification'],
     queryFn: () => runVerification(getToken),
-    refetchInterval: 10000,
+    refetchInterval: 3000,
   });
 
   const anchorQuery = useQuery({
     queryKey: ['anchor-status'],
     queryFn: () => fetchAnchorStatus(getToken),
-    refetchInterval: 15000,
+    refetchInterval: 4000,
   });
 
   const flagsQuery = useQuery({
     queryKey: ['suspicious-flags'],
     queryFn: () => fetchSuspiciousFlags(getToken),
-    refetchInterval: 15000,
+    refetchInterval: 3000,
   });
 
   const isVerificationTampered = verificationQuery.data?.status === 'tampered';

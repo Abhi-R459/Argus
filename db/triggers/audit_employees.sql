@@ -23,24 +23,57 @@
  */
 
 -- ---------------------------------------------------------------------------
--- Helper: compute_blind_index (BLIND-001)
+-- Helper: compute_blind_index (BLIND-001 & HARDEN-009)
 -- ---------------------------------------------------------------------------
--- Computes a HMAC-SHA256 blind index over a sensitive text value using a salt.
+-- Computes a tunable PBKDF2-HMAC-SHA256 blind index (NIST SP 800-132) over a
+-- sensitive text value using a salt and work factor iteration count.
+-- If p_iterations <= 1, falls back to single-round HMAC-SHA256.
 -- Returns a 64-character lowercase hexadecimal hash.
 -- ---------------------------------------------------------------------------
+DROP FUNCTION IF EXISTS compute_blind_index(TEXT, TEXT);
+
 CREATE OR REPLACE FUNCTION compute_blind_index(
-    p_val  TEXT,
-    p_salt TEXT
+    p_val        TEXT,
+    p_salt       TEXT,
+    p_iterations INT DEFAULT 1000
 )
 RETURNS TEXT
 LANGUAGE plpgsql
 IMMUTABLE
 AS $$
+DECLARE
+    v_u     BYTEA;
+    v_t     BYTEA;
+    i       INT;
+    j       INT;
+    b_t     INT;
+    b_u     INT;
+    v_iters INT;
 BEGIN
     IF p_val IS NULL OR p_val = '' THEN
         RETURN NULL;
     END IF;
-    RETURN encode(hmac(p_val::bytea, p_salt::bytea, 'sha256'), 'hex');
+
+    v_iters := COALESCE(p_iterations, 1000);
+    IF v_iters <= 1 THEN
+        RETURN encode(hmac(p_val::bytea, p_salt::bytea, 'sha256'), 'hex');
+    END IF;
+
+    -- PBKDF2-HMAC-SHA256 (NIST SP 800-132 / RFC 8018)
+    -- U_1 = HMAC(salt || 0x00000001, key=val)
+    v_u := hmac(p_salt::bytea || decode('00000001', 'hex'), p_val::bytea, 'sha256');
+    v_t := v_u;
+
+    FOR i IN 2..v_iters LOOP
+        v_u := hmac(v_u, p_val::bytea, 'sha256');
+        FOR j IN 0..31 LOOP
+            b_t := get_byte(v_t, j);
+            b_u := get_byte(v_u, j);
+            v_t := set_byte(v_t, j, b_t # b_u);
+        END LOOP;
+    END LOOP;
+
+    RETURN encode(v_t, 'hex');
 END;
 $$;
 
@@ -61,6 +94,8 @@ DECLARE
     v_salt         TEXT;
     v_raw_nid      TEXT;
     v_blind_index  TEXT := NULL;
+    v_iters_str    TEXT;
+    v_iters        INT := 1000;
 BEGIN
     BEGIN
         v_salt := current_setting('argus.audit_salt', true);
@@ -69,6 +104,16 @@ BEGIN
     END;
     IF v_salt IS NULL OR v_salt = '' THEN
         v_salt := 'argus_default_blind_index_salt_2026';
+    END IF;
+
+    BEGIN
+        v_iters_str := current_setting('argus.blind_index_iterations', true);
+        v_iters := v_iters_str::INT;
+    EXCEPTION WHEN OTHERS THEN
+        v_iters := 1000;
+    END;
+    IF v_iters IS NULL OR v_iters < 1 THEN
+        v_iters := 1000;
     END IF;
 
     IF p_payload ? 'national_id' AND p_payload->>'national_id' IS NOT NULL AND p_payload->>'national_id' != '[REDACTED]' THEN
@@ -82,7 +127,7 @@ BEGIN
     END IF;
 
     IF v_raw_nid IS NOT NULL AND v_raw_nid != '' THEN
-        v_blind_index := compute_blind_index(v_raw_nid, v_salt);
+        v_blind_index := compute_blind_index(v_raw_nid, v_salt, v_iters);
     END IF;
 
     -- Replace sensitive keys with a redaction marker

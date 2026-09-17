@@ -16,6 +16,7 @@ export default function RoleGuard({ allowedRole, children }: RoleGuardProps) {
     queryFn: () => fetchMyProfile(() => getToken()),
     enabled: isLoaded,
     staleTime: 60000,
+    refetchInterval: false,
   });
 
   if (!isLoaded || isLoading) {

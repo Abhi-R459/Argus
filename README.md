@@ -54,7 +54,7 @@ Traditional relational audit logs are stored in standard database tables. A mali
 - **Trigger-Enforced Cryptographic Hash Chaining**: Every `INSERT`, `UPDATE`, or `DELETE` on monitored tables fires an `AFTER` trigger. The trigger serializes the change, computes a canonical SHA-256 digest linked to the preceding entry's hash, and appends the immutable log row.
 - **Mathematical Tamper Evidence**: Modifying, deleting, inserting, or reordering any historical audit entry permanently invalidates the cryptographic hash chain for all subsequent entries.
 - **Strict Least-Privilege Separation**:
-  - `hr_admin`: Manages employees and compensation; read-only to audit logs; strictly denied `UPDATE` or `DELETE` privileges on audit logs.
+  - `hr_admin`: Manages employees and compensation; read-only to audit logs; strictly denied direct `INSERT`, `UPDATE`, `DELETE`, or `TRUNCATE` privileges on audit logs (all audit records append exclusively via `SECURITY DEFINER` triggers).
   - `compliance_auditor`: Read-only access to audit logs, views, and integrity verification; denied write access and raw PII access.
 - **Zero-Gap Concurrency Guarantee**: Row-level locking on `chain_state` serializes concurrent transactions without deadlocks, ensuring zero sequence ID gaps.
 - **Ed25519 Checkpoint Signing & Multi-Target Anchoring**: Snapshots of the chain tail are cryptographically signed with Ed25519 keys and anchored outside the database (local disk or GitHub repository).
@@ -112,6 +112,14 @@ Traditional relational audit logs are stored in standard database tables. A mali
 │  - External Anchor Storage Adapter (Local File & GitHub)               │
 └────────────────────────────────────────────────────────────────────────┘
 ```
+
+### Regulatory Control Support & Standards Scoping
+
+> [!NOTE]
+> **Defensible Compliance & Module Boundaries:**
+> - **Control Support vs. Compliance Certification:** Regulatory compliance (SOC 2 Type II, SOX 404, GDPR, HIPAA) is an organizational, policy, and audit outcome attested by accredited third-party assessors. Argus provides technical controls that **support organizations in satisfying control objectives** (e.g., SOC 2 CC6.8 audit immutability, SOX 404 internal accounting controls, GDPR Art. 25 data protection by design).
+> - **NIST Approved Algorithms:** Argus implements NIST-approved cryptographic primitives: AES-256 (NIST FIPS 197), SHA-256 (NIST FIPS 180-4), and Ed25519 (NIST FIPS 186-5, RFC 8032). Standard PostgreSQL `pgcrypto` and Python `cryptography` distributions are software libraries and are **not** CMVP-validated cryptographic modules under FIPS 140-2 / FIPS 140-3.
+> - **HIPAA Scope:** HIPAA specifically governs Protected Health Information (ePHI). Argus implements technical safeguards analogous to HIPAA Security Rule §164.312(b) (Audit Controls) on enterprise Human Resource (HR) personnel records (PII).
 
 ---
 
@@ -640,6 +648,14 @@ Generated charts are saved to `db/bench/results/plots/`:
 
 Full analysis is published in [`db/bench/results/benchmark_report.md`](db/bench/results/benchmark_report.md).
 
+### Benchmark Methodology & Environmental Context (HARDEN-004)
+
+All reported benchmarks adhere to transparent, reproducible protocols:
+- **Test Environment:** AMD Ryzen 7 7840HS (8 cores / 16 threads, 3.8 GHz base, up to 5.1 GHz boost), 32 GB LPDDR5-5600 RAM, PCIe 4.0 NVMe SSD, Dockerized PostgreSQL 15.8 (WSL2 Ubuntu 22.04), Python 3.12.10.
+- **Statistical Rigor:** All metrics report the arithmetic mean across $N=5$ consecutive runs with 5-second thermal cooldowns. Parallel verification achieved **$6.19\text{x} \pm 0.24\text{x}$ speedup** on 8 workers ($54,054 \pm 2,398\text{ entries/sec}$; baseline $11.45\text{s} \pm 0.38\text{s}$, 8-worker $1.85\text{s} \pm 0.08\text{s}$).
+- **Host Contention:** PostgreSQL and the verifier process pool were co-located on the same host, competing for CPU and memory bandwidth; efficiency ($77.4\%$) represents a conservative co-located baseline.
+- **Buffer State:** Warm cache condition verified via pre-benchmark count queries; single-threaded baseline uses identical keyset-paginated cursor logic without artificial degradation.
+
 ---
 
 ## Running Automated Tests
@@ -719,6 +735,7 @@ api\tests\test_live_telemetry.py ......                                  [100%]
 
 - **Evaluator Demonstration Manual:** [`docs/Adversary_Simulation_Guide.md`](docs/Adversary_Simulation_Guide.md) (Step-by-step side-by-side terminal rehearsal script).
 - **Academic Research Paper:** [`docs/Final_Paper.md`](docs/Final_Paper.md) (Complete unified Section 16 research paper).
+- **Key Custody & Secrets Inventory:** [`docs/KEY_CUSTODY_AND_SECRETS_INVENTORY.md`](docs/KEY_CUSTODY_AND_SECRETS_INVENTORY.md) (NIST SP 800-57 secrets mapping, process boundaries, and rotation protocol).
 - **Formal Algorithm & Invariants:** [`docs/16.4_Formal_Algorithm.md`](docs/16.4_Formal_Algorithm.md)
 - **Threat Model & Taxonomy:** [`docs/16.2_Threat_Model.md`](docs/16.2_Threat_Model.md)
 - **Complexity Analysis:** [`docs/16.5_Complexity_Analysis.md`](docs/16.5_Complexity_Analysis.md)
