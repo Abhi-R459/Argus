@@ -16,8 +16,8 @@ export default function AuthDispatcher() {
 
   if (!isLoaded || isLoading) {
     return (
-      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-4 text-slate-300">
-        <div className="w-10 h-10 border-4 border-violet-500/30 border-t-violet-500 rounded-full animate-spin mb-4" />
+      <div className="min-h-screen bg-linear-canvas flex flex-col items-center justify-center p-4 text-linear-ink">
+        <div className="w-10 h-10 border-4 border-linear-primary/20 border-t-linear-primary rounded-full animate-spin mb-4" />
         <p className="text-sm font-medium tracking-wide">Resolving portal credentials...</p>
       </div>
     );

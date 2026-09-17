@@ -38,14 +38,14 @@ export default function RealtimeClock({
     <div className={`inline-flex items-center space-x-2 font-mono ${className}`}>
       {showLiveDot && (
         <span className="relative flex h-2 w-2 shrink-0">
-          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-          <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-linear-success/75 opacity-75" />
+          <span className="relative inline-flex rounded-full h-2 w-2 bg-linear-success" />
         </span>
       )}
       {showDate && (
         <>
-          <span className="text-slate-400">{dateString}</span>
-          <span className="text-slate-600">·</span>
+          <span className="text-linear-ink-subtle">{dateString}</span>
+          <span className="opacity-40">·</span>
         </>
       )}
       <span className="tabular-nums tracking-wider">{timeString}</span>

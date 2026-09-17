@@ -29,7 +29,7 @@ export default function DiffViewer({ oldValue, newValue, operation }: DiffViewer
 
   if (allKeys.length === 0) {
     return (
-      <p className="text-xs text-slate-600 italic py-2">No field-level diff available.</p>
+      <p className="text-xs text-linear-ink-muted italic py-2">No field-level diff available.</p>
     );
   }
 
@@ -50,7 +50,7 @@ export default function DiffViewer({ oldValue, newValue, operation }: DiffViewer
     <div className="space-y-2">
       {/* Header */}
       <div className="flex items-center justify-between mb-1">
-        <span className="text-[10px] uppercase tracking-wider font-semibold text-slate-600">
+        <span className="text-[10px] uppercase tracking-wider font-semibold text-linear-ink-muted">
           {operation === 'INSERT'
             ? 'New record'
             : operation === 'DELETE'
@@ -60,34 +60,34 @@ export default function DiffViewer({ oldValue, newValue, operation }: DiffViewer
         <div className="flex items-center space-x-3 text-[10px]">
           {oldValue !== null && (
             <span className="flex items-center space-x-1">
-              <span className="w-2 h-2 rounded-sm bg-red-500/40 border border-red-500/60" />
-              <span className="text-slate-600">Before</span>
+              <span className="w-2 h-2 rounded-sm bg-grafana-orange/30 border border-grafana-orange/60" />
+              <span className="text-linear-ink-muted">Before</span>
             </span>
           )}
           {newValue !== null && (
             <span className="flex items-center space-x-1">
-              <span className="w-2 h-2 rounded-sm bg-emerald-500/40 border border-emerald-500/60" />
-              <span className="text-slate-600">After</span>
+              <span className="w-2 h-2 rounded-sm bg-linear-success/30 border border-linear-success/60" />
+              <span className="text-linear-ink-muted">After</span>
             </span>
           )}
         </div>
       </div>
 
       {/* Table */}
-      <div className="overflow-x-auto rounded-lg border border-slate-700/40">
+      <div className="overflow-x-auto rounded-lg border border-linear-hairline bg-linear-surface-1">
         <table className="min-w-full text-xs font-mono">
           <thead>
-            <tr className="border-b border-slate-700/40 bg-slate-900/40">
-              <th className="py-1.5 px-3 text-left text-[10px] uppercase tracking-wider text-slate-600 font-semibold w-32">
+            <tr className="border-b border-linear-hairline bg-linear-surface-2/60">
+              <th className="py-1.5 px-3 text-left text-[10px] uppercase tracking-wider text-linear-ink-muted font-semibold w-32">
                 Field
               </th>
               {oldValue !== null && (
-                <th className="py-1.5 px-3 text-left text-[10px] uppercase tracking-wider text-red-500/60 font-semibold">
+                <th className="py-1.5 px-3 text-left text-[10px] uppercase tracking-wider text-grafana-orange/80 font-semibold">
                   Before
                 </th>
               )}
               {newValue !== null && (
-                <th className="py-1.5 px-3 text-left text-[10px] uppercase tracking-wider text-emerald-500/60 font-semibold">
+                <th className="py-1.5 px-3 text-left text-[10px] uppercase tracking-wider text-linear-success/80 font-semibold">
                   After
                 </th>
               )}
@@ -97,11 +97,11 @@ export default function DiffViewer({ oldValue, newValue, operation }: DiffViewer
             {fields.map((field) => (
               <tr
                 key={field.key}
-                className={`border-b border-slate-800/50 last:border-0 ${
-                  field.changed ? 'bg-amber-500/3' : ''
+                className={`border-b border-linear-hairline/60 last:border-0 ${
+                  field.changed ? 'bg-grafana-orange/5' : ''
                 }`}
               >
-                <td className="py-1.5 px-3 text-slate-500 align-top whitespace-nowrap">
+                <td className="py-1.5 px-3 text-linear-ink-muted align-top whitespace-nowrap">
                   {field.key}
                 </td>
                 {oldValue !== null && (
@@ -109,8 +109,8 @@ export default function DiffViewer({ oldValue, newValue, operation }: DiffViewer
                     <span
                       className={
                         field.changed
-                          ? 'text-red-400/80 line-through decoration-red-500/40'
-                          : 'text-slate-500'
+                          ? 'text-grafana-orange/90 line-through decoration-grafana-orange/50'
+                          : 'text-linear-ink-muted'
                       }
                     >
                       {renderValue(field.oldVal)}
@@ -122,8 +122,8 @@ export default function DiffViewer({ oldValue, newValue, operation }: DiffViewer
                     <span
                       className={
                         field.changed
-                          ? 'text-emerald-400 font-semibold'
-                          : 'text-slate-500'
+                          ? 'text-linear-success font-semibold'
+                          : 'text-linear-ink-muted'
                       }
                     >
                       {renderValue(field.newVal)}

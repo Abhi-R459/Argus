@@ -127,6 +127,8 @@ async def list_roles(
             department_name=r[3],
             salary_band_min=r[4],
             salary_band_max=r[5],
+            min_salary=r[4],
+            max_salary=r[5],
         )
         for r in res.all()
     ]

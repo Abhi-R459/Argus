@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { CheckCircle2, AlertTriangle, Loader2, Play, RefreshCw } from 'lucide-react';
+import { Button } from '../common/Button';
 import type { VerificationBannerResult as VerificationResult } from '../../services/auditService';
 
 interface StatusBannerProps {
@@ -40,22 +41,22 @@ export default function StatusBanner({ data, onRunVerification }: StatusBannerPr
 
   return (
     <div
-      className={`relative rounded-2xl border overflow-hidden transition-all duration-500 ${
+      className={`relative rounded-xl border overflow-hidden transition-all duration-300 ${
         isVerified
-          ? 'border-emerald-500/30 bg-emerald-500/5 shadow-[0_0_40px_rgba(52,211,153,0.08)]'
+          ? 'border-linear-success/30 bg-linear-success/5 shadow-xs'
           : isTampered
-          ? 'border-red-500/40 bg-red-500/8 shadow-[0_0_50px_rgba(239,68,68,0.15)] animate-pulse'
-          : 'border-amber-500/30 bg-amber-500/5 shadow-[0_0_30px_rgba(245,158,11,0.08)]'
+          ? 'border-grafana-orange/40 bg-grafana-orange/10 shadow-xs'
+          : 'border-linear-hairline bg-linear-surface-1 shadow-xs'
       }`}
     >
-      {/* Background gradient overlay */}
+      {/* Subtle tint */}
       <div
-        className={`absolute inset-0 opacity-30 pointer-events-none ${
+        className={`absolute inset-0 opacity-20 pointer-events-none ${
           isVerified
-            ? 'bg-gradient-to-r from-emerald-950/50 to-transparent'
+            ? 'bg-linear-success/10'
             : isTampered
-            ? 'bg-gradient-to-r from-red-950/60 to-transparent'
-            : 'bg-gradient-to-r from-amber-950/50 to-transparent'
+            ? 'bg-grafana-orange/15'
+            : 'bg-transparent'
         }`}
       />
 
@@ -64,22 +65,22 @@ export default function StatusBanner({ data, onRunVerification }: StatusBannerPr
           {/* Left: status icon + headline */}
           <div className="flex items-start space-x-4">
             <div
-              className={`flex-shrink-0 w-12 h-12 rounded-xl flex items-center justify-center ${
+              className={`flex-shrink-0 w-11 h-11 rounded-xl flex items-center justify-center ${
                 isVerified
-                  ? 'bg-emerald-500/15 border border-emerald-500/25'
+                  ? 'bg-linear-success/15 border border-linear-success/25'
                   : isTampered
-                  ? 'bg-red-500/20 border border-red-500/35'
-                  : 'bg-amber-500/15 border border-amber-500/25'
+                  ? 'bg-grafana-orange/20 border border-grafana-orange/35'
+                  : 'bg-linear-surface-2 border border-linear-hairline'
               }`}
             >
               {isVerified && (
-                <CheckCircle2 className="w-6 h-6 text-emerald-400 drop-shadow-[0_0_8px_rgba(52,211,153,0.8)]" />
+                <CheckCircle2 className="w-5 h-5 text-linear-success" />
               )}
               {isTampered && (
-                <AlertTriangle className="w-6 h-6 text-red-400 drop-shadow-[0_0_10px_rgba(239,68,68,0.9)] animate-bounce" />
+                <AlertTriangle className="w-5 h-5 text-grafana-orange" />
               )}
               {isPending && (
-                <Loader2 className="w-6 h-6 text-amber-400 animate-spin" />
+                <Loader2 className="w-5 h-5 text-linear-primary animate-spin" />
               )}
             </div>
 
@@ -87,7 +88,7 @@ export default function StatusBanner({ data, onRunVerification }: StatusBannerPr
               <div className="flex items-center space-x-2">
                 <h2
                   className={`text-xl font-bold tracking-tight ${
-                    isVerified ? 'text-emerald-300' : isTampered ? 'text-red-300' : 'text-amber-300'
+                    isVerified ? 'text-linear-success' : isTampered ? 'text-grafana-orange' : 'text-linear-ink'
                   }`}
                 >
                   {isVerified && 'Chain Integrity: Verified'}
@@ -97,16 +98,16 @@ export default function StatusBanner({ data, onRunVerification }: StatusBannerPr
                 <span
                   className={`text-[10px] uppercase font-bold tracking-widest px-2 py-0.5 rounded-full border ${
                     isVerified
-                      ? 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10'
+                      ? 'text-linear-success border-linear-success/30 bg-linear-success/10'
                       : isTampered
-                      ? 'text-red-400 border-red-500/40 bg-red-500/15'
-                      : 'text-amber-400 border-amber-500/30 bg-amber-500/10'
+                      ? 'text-white border-grafana-orange/50 bg-grafana-orange'
+                      : 'text-linear-ink-subtle border-linear-hairline bg-linear-surface-2'
                   }`}
                 >
                   {data.status}
                 </span>
               </div>
-              <p className="text-sm text-slate-400 mt-1">
+              <p className="text-sm text-linear-ink-subtle mt-1">
                 {isVerified &&
                   `All ${data.checked_entries.toLocaleString()} entries verified in ${data.duration_ms}ms · Last checkpoint #${data.last_checkpoint_id}`}
                 {isTampered &&
@@ -116,12 +117,12 @@ export default function StatusBanner({ data, onRunVerification }: StatusBannerPr
 
               {/* Metadata row */}
               <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-3">
-                <span className="text-xs text-slate-500 font-mono">
-                  Last run: <span className="text-slate-300">{formatRelativeTime(data.last_run)}</span>
+                <span className="text-xs text-linear-ink-subtle font-mono">
+                  Last run: <span className="text-linear-ink-muted">{formatRelativeTime(data.last_run)}</span>
                 </span>
-                <span className="text-xs text-slate-500 font-mono hidden md:inline">
+                <span className="text-xs text-linear-ink-subtle font-mono hidden md:inline">
                   Checkpoint hash:{' '}
-                  <span className="text-slate-300">{truncateHash(data.last_checkpoint_hash)}</span>
+                  <span className="text-linear-ink-muted">{truncateHash(data.last_checkpoint_hash)}</span>
                 </span>
               </div>
             </div>
@@ -129,34 +130,18 @@ export default function StatusBanner({ data, onRunVerification }: StatusBannerPr
 
           {/* Right: action button */}
           <div className="flex-shrink-0 flex items-center space-x-2">
-            <button
-              id="run-verification-btn"
+            <Button
+              id="status-banner-verify-btn"
+              variant={isVerified ? 'success' : isTampered ? 'danger' : 'secondary'}
+              size="md"
+              portalTheme="auditor"
               onClick={handleRun}
               disabled={isRunning}
-              className={`inline-flex items-center px-4 py-2.5 rounded-xl text-sm font-semibold border transition-all duration-200 disabled:opacity-60 disabled:cursor-not-allowed ${
-                isVerified
-                  ? 'text-emerald-300 border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 hover:border-emerald-500/50'
-                  : isTampered
-                  ? 'text-red-300 border-red-500/40 bg-red-500/15 hover:bg-red-500/25'
-                  : 'text-amber-300 border-amber-500/30 bg-amber-500/10 hover:bg-amber-500/20'
-              }`}
+              loading={isRunning}
+              leftIcon={isVerified ? <RefreshCw className="w-4 h-4" /> : <Play className="w-4 h-4" />}
             >
-              {isRunning ? (
-                <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Verifying…
-                </>
-              ) : (
-                <>
-                  {isVerified ? (
-                    <RefreshCw className="w-4 h-4 mr-2" />
-                  ) : (
-                    <Play className="w-4 h-4 mr-2" />
-                  )}
-                  Run Verification
-                </>
-              )}
-            </button>
+              Run Verification
+            </Button>
           </div>
         </div>
       </div>

@@ -1,21 +1,24 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@clerk/clerk-react';
-import { Search, ChevronLeft, ChevronRight, Edit2, Trash2, DollarSign } from 'lucide-react';
+import {
+  Search,
+  ChevronLeft,
+  ChevronRight,
+  Edit3,
+  DollarSign,
+  User,
+  ShieldCheck,
+  Building2,
+} from 'lucide-react';
 import { fetchWithAuth } from '../lib/api';
-import EmployeeEditForm from './forms/EmployeeEditForm';
-import SalaryForm from './forms/SalaryForm';
-
-interface Employee {
-  employee_id: number;
-  full_name: string;
-  email: string;
-  role_title: string;
-  department_name: string;
-  salary: number | null;
-  date_hired: string;
-  is_active: boolean;
-}
+import { fetchDepartments, type DepartmentItem } from '../services/auditService';
+import { DataTable } from './common/DataTable';
+import { FilterBar, type ActiveFilterItem } from './common/FilterBar';
+import { Button } from './common/Button';
+import { SkeletonRows } from './common/SkeletonRows';
+import { useKeyboardNav } from '../hooks/useKeyboardNav';
+import { EmployeeSheet, type Employee } from './hr/EmployeeSheet';
 
 interface PaginatedResponse {
   items: Employee[];
@@ -26,192 +29,425 @@ interface PaginatedResponse {
 
 export default function EmployeeTable() {
   const { getToken } = useAuth();
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
-  const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
-  const [salaryEmployee, setSalaryEmployee] = useState<Employee | null>(null);
+  const [selectedDept, setSelectedDept] = useState<string>('all');
+  const [selectedStatus, setSelectedStatus] = useState<'all' | 'active' | 'inactive'>('all');
 
-  // Simple debounce
+  // Sheet inspector state
+  const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
+  const [isSheetOpen, setIsSheetOpen] = useState(false);
+  const [sheetTab, setSheetTab] = useState<'overview' | 'edit' | 'salary'>('overview');
+  const [focusedRowIndex, setFocusedRowIndex] = useState<number>(0);
+
+  // Debounce search query
   useEffect(() => {
     const handler = setTimeout(() => {
       setDebouncedSearch(search);
-      setPage(1); // Reset page on new search
-    }, 400);
+      setPage(1);
+    }, 350);
     return () => clearTimeout(handler);
   }, [search]);
 
-  const limit = 10;
+  const limit = 12;
 
-  const { data, isLoading, isError } = useQuery<PaginatedResponse>({
+  // Query employees
+  const { data, isLoading, isError, isFetching } = useQuery<PaginatedResponse>({
     queryKey: ['employees', page, debouncedSearch],
-    queryFn: () => fetchWithAuth(`/employees?page=${page}&limit=${limit}${debouncedSearch ? `&search=${encodeURIComponent(debouncedSearch)}` : ''}`, {}, getToken),
+    queryFn: () =>
+      fetchWithAuth(
+        `/employees?page=${page}&limit=${limit}${
+          debouncedSearch ? `&search=${encodeURIComponent(debouncedSearch)}` : ''
+        }`,
+        {},
+        getToken
+      ),
+    placeholderData: (prev) => prev,
     refetchInterval: 3000,
   });
 
+  // Query departments for filtering
+  const { data: departments = [] } = useQuery<DepartmentItem[]>({
+    queryKey: ['departments'],
+    queryFn: () => fetchDepartments(() => getToken()),
+    staleTime: 300000,
+  });
+
+  const rawItems = data?.items ?? [];
+
+  // Filter client-side by department and status
+  const filteredItems = rawItems.filter((emp) => {
+    if (selectedDept !== 'all' && emp.department_name !== selectedDept) return false;
+    if (selectedStatus === 'active' && !emp.is_active) return false;
+    if (selectedStatus === 'inactive' && emp.is_active) return false;
+    return true;
+  });
+
+  // Active filters list for FilterBar
+  const activeFilters: ActiveFilterItem[] = [];
+  if (search) {
+    activeFilters.push({
+      id: 'search',
+      label: 'Search',
+      value: search,
+      onRemove: () => {
+        setSearch('');
+        setDebouncedSearch('');
+      },
+    });
+  }
+  if (selectedDept !== 'all') {
+    activeFilters.push({
+      id: 'dept',
+      label: 'Department',
+      value: selectedDept,
+      onRemove: () => setSelectedDept('all'),
+    });
+  }
+  if (selectedStatus !== 'all') {
+    activeFilters.push({
+      id: 'status',
+      label: 'Status',
+      value: selectedStatus === 'active' ? 'Active' : 'Deactivated',
+      onRemove: () => setSelectedStatus('all'),
+    });
+  }
+
+  const handleClearAll = () => {
+    setSearch('');
+    setDebouncedSearch('');
+    setSelectedDept('all');
+    setSelectedStatus('all');
+    setPage(1);
+  };
+
+  // Keyboard navigation
+  useKeyboardNav({
+    itemCount: filteredItems.length,
+    selectedIndex: focusedRowIndex,
+    onSelectIndex: (idx) => setFocusedRowIndex(idx),
+    onPeek: (idx) => {
+      const emp = filteredItems[idx];
+      if (emp) {
+        setSelectedEmployee(emp);
+        setSheetTab('overview');
+        setIsSheetOpen(true);
+      }
+    },
+    onDismiss: () => setIsSheetOpen(false),
+    searchInputRef,
+    enabled: true,
+  });
+
+  const openSheet = (emp: Employee, tab: 'overview' | 'edit' | 'salary' = 'overview') => {
+    setSelectedEmployee(emp);
+    setSheetTab(tab);
+    setIsSheetOpen(true);
+  };
+
   return (
-    <div className="bg-white rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.04),0_1px_2px_rgba(0,0,0,0.02)] border border-slate-200/90 overflow-hidden relative">
-      {editingEmployee && (
-        <EmployeeEditForm employee={editingEmployee} onClose={() => setEditingEmployee(null)} />
-      )}
-      
-      {salaryEmployee && (
-        <SalaryForm employee={salaryEmployee} onClose={() => setSalaryEmployee(null)} />
-      )}
-      
-      {/* Table Header & Search */}
-      <div className="p-5 border-b border-slate-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-50/60">
-        <div>
-          <h2 className="text-base font-bold text-slate-900 tracking-tight">Registered Personnel</h2>
-          <p className="text-xs text-slate-500 mt-0.5">Encrypted PII columns masked via PostgreSQL pgcrypto</p>
-        </div>
-        <div className="relative w-full sm:w-80">
-          <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
-            <Search className="h-4 w-4 text-slate-400" />
-          </div>
-          <input
-            type="text"
-            className="block w-full pl-10 pr-12 py-2 border border-slate-200 rounded-xl text-sm bg-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-900/10 focus:border-slate-900 transition-colors shadow-2xs"
-            placeholder="Search by name or email..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-          <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
-            {search ? (
+    <div className="space-y-3">
+      {/* Faceted Filter Toolbar */}
+      <FilterBar activeFilters={activeFilters} onClearAll={handleClearAll} portalTheme="hr">
+        <div className="flex flex-wrap items-center gap-2.5 flex-1">
+          {/* Quick Search */}
+          <div className="relative min-w-[220px] max-w-sm flex-1">
+            <Search className="w-3.5 h-3.5 text-grafana-neutral absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <input
+              ref={searchInputRef}
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search personnel by name or email... (/)"
+              className="w-full pl-8 pr-7 py-1.5 bg-white border border-grafana-border rounded-md text-xs text-grafana-ink placeholder-grafana-neutral focus:outline-none focus:border-grafana-orange focus:ring-1 focus:ring-grafana-orange/20 transition-colors shadow-2xs"
+            />
+            {search && (
               <button
                 type="button"
                 onClick={() => setSearch('')}
-                className="pointer-events-auto text-xs text-slate-400 hover:text-slate-600 font-bold"
+                aria-label="Clear search input"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-grafana-neutral hover:text-grafana-ink p-1 rounded focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-grafana-orange"
               >
                 ×
               </button>
-            ) : (
-              <kbd className="text-[10px] font-mono text-slate-400 bg-slate-100 border border-slate-200/80 px-1.5 py-0.5 rounded shadow-2xs">
-                /
-              </kbd>
             )}
           </div>
-        </div>
-      </div>
 
-      {/* Table Content */}
-      <div className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-slate-200/80">
-          <thead className="bg-slate-50/80">
+          {/* Department Filter */}
+          <div className="relative flex items-center">
+            <Building2 className="w-3.5 h-3.5 text-grafana-neutral absolute left-2 pointer-events-none" />
+            <select
+              value={selectedDept}
+              onChange={(e) => setSelectedDept(e.target.value)}
+              className="pl-7 pr-6 py-1.5 bg-white border border-grafana-border rounded-md text-xs text-grafana-ink focus:outline-none focus:border-grafana-orange cursor-pointer shadow-2xs"
+            >
+              <option value="all">All Departments</option>
+              {departments.map((dept) => (
+                <option key={dept.department_id} value={dept.name}>
+                  {dept.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Status Filter */}
+          <div className="flex items-center rounded-md border border-grafana-border p-0.5 bg-grafana-surface shadow-2xs text-xs">
+            <button
+              type="button"
+              onClick={() => setSelectedStatus('all')}
+              className={`px-2.5 py-1 rounded font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-grafana-orange ${
+                selectedStatus === 'all'
+                  ? 'bg-white text-grafana-ink shadow-2xs font-semibold'
+                  : 'text-grafana-neutral hover:text-grafana-ink'
+              }`}
+            >
+              All
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelectedStatus('active')}
+              className={`px-2.5 py-1 rounded font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-grafana-orange ${
+                selectedStatus === 'active'
+                  ? 'bg-white text-linear-success shadow-2xs font-semibold'
+                  : 'text-grafana-neutral hover:text-grafana-ink'
+              }`}
+            >
+              Active
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelectedStatus('inactive')}
+              className={`px-2.5 py-1 rounded font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-grafana-orange ${
+                selectedStatus === 'inactive'
+                  ? 'bg-white text-grafana-orange shadow-2xs font-semibold'
+                  : 'text-grafana-neutral hover:text-grafana-ink'
+              }`}
+            >
+              Deactivated
+            </button>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 text-xs text-grafana-neutral font-mono">
+          {isFetching && <span className="text-[10px] text-grafana-orange animate-pulse">syncing…</span>}
+          <span>{filteredItems.length} records</span>
+        </div>
+      </FilterBar>
+
+      {/* Main Table Container */}
+      <DataTable.Root portalTheme="hr">
+        <DataTable.Header portalTheme="hr">
+          <DataTable.HeadCell className="w-[30%]">
+            Employee Profile
+          </DataTable.HeadCell>
+          <DataTable.HeadCell className="w-[24%]">
+            Role & Department
+          </DataTable.HeadCell>
+          <DataTable.HeadCell className="w-[16%]">
+            Annual Compensation
+          </DataTable.HeadCell>
+          <DataTable.HeadCell className="w-[14%]">
+            Security & Status
+          </DataTable.HeadCell>
+          <DataTable.HeadCell className="w-[16%] text-right">
+            Actions
+          </DataTable.HeadCell>
+        </DataTable.Header>
+
+        <DataTable.Body portalTheme="hr">
+          {isLoading ? (
+            <SkeletonRows rowCount={8} columnCount={5} portalTheme="hr" />
+          ) : isError ? (
             <tr>
-              <th scope="col" className="px-6 py-3.5 text-left text-[11px] font-bold text-slate-500 uppercase tracking-wider font-mono">Employee</th>
-              <th scope="col" className="px-6 py-3.5 text-left text-[11px] font-bold text-slate-500 uppercase tracking-wider font-mono">Role & Dept</th>
-              <th scope="col" className="px-6 py-3.5 text-left text-[11px] font-bold text-slate-500 uppercase tracking-wider font-mono">Status</th>
-              <th scope="col" className="px-6 py-3.5 text-left text-[11px] font-bold text-slate-500 uppercase tracking-wider font-mono">Hired</th>
-              <th scope="col" className="relative px-6 py-3.5 text-right text-[11px] font-bold text-slate-500 uppercase tracking-wider font-mono">Actions</th>
+              <td colSpan={5} className="py-12 text-center text-xs text-grafana-orange font-mono">
+                Failed to query employee directory from PostgreSQL engine.
+              </td>
             </tr>
-          </thead>
-          <tbody className="bg-white divide-y divide-slate-100">
-            {isLoading ? (
-              <tr><td colSpan={5} className="px-6 py-12 text-center text-slate-400 text-sm font-medium">Loading directory from PostgreSQL…</td></tr>
-            ) : isError ? (
-              <tr><td colSpan={5} className="px-6 py-12 text-center text-rose-500 text-sm font-medium">Failed to load employees. Check network tab.</td></tr>
-            ) : data?.items.length === 0 ? (
-              <tr><td colSpan={5} className="px-6 py-12 text-center text-slate-400 text-sm font-medium">No employees found matching your criteria.</td></tr>
-            ) : (
-              data?.items.map((emp, idx) => (
-                <tr
+          ) : filteredItems.length === 0 ? (
+            <tr>
+              <td colSpan={5} className="py-12 text-center text-xs text-grafana-neutral">
+                No employees found matching the specified parameters.
+              </td>
+            </tr>
+          ) : (
+            filteredItems.map((emp, idx) => {
+              const isSelected = selectedEmployee?.employee_id === emp.employee_id;
+              const isKeyboardFocused = focusedRowIndex === idx;
+
+              return (
+                <DataTable.Row
                   key={emp.employee_id}
-                  style={{ animationDelay: `${idx * 25}ms` }}
-                  className="animate-fade-cascade hover:bg-slate-50/80 transition-colors duration-150 group"
+                  portalTheme="hr"
+                  isSelected={isSelected}
+                  className={`${isKeyboardFocused ? 'ring-1 ring-inset ring-grafana-orange/40' : ''}`}
+                  onClick={() => openSheet(emp, 'overview')}
                 >
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="flex items-center">
-                      <div className="flex-shrink-0 h-9 w-9 rounded-xl bg-gradient-to-tr from-indigo-50 to-indigo-100/80 border border-indigo-200/80 flex items-center justify-center text-indigo-700 font-bold text-xs shadow-2xs font-mono">
+                  {/* Name & Email */}
+                  <DataTable.Cell>
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-lg bg-grafana-blue/10 border border-grafana-blue/20 flex items-center justify-center text-grafana-blue font-bold text-xs font-mono shrink-0">
                         {emp.full_name.charAt(0)}
                       </div>
-                      <div className="ml-3.5">
-                        <div className="text-sm font-bold text-slate-900 tracking-tight">{emp.full_name}</div>
-                        <div className="text-xs text-slate-500 font-mono">{emp.email}</div>
+                      <div className="min-w-0">
+                        <div className="font-bold text-grafana-ink truncate flex items-center gap-1.5">
+                          <span>{emp.full_name}</span>
+                          <span className="font-mono text-[10px] text-grafana-neutral font-normal">
+                            #{emp.employee_id}
+                          </span>
+                        </div>
+                        <div className="text-[11px] text-grafana-neutral font-mono truncate">
+                          {emp.email}
+                        </div>
                       </div>
                     </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-semibold text-slate-800">{emp.role_title}</div>
-                    <div className="text-xs text-slate-500">{emp.department_name}</div>
-                  </td>
-                  <td className="px-6 py-3.5 whitespace-nowrap">
-                    <span className={`px-2.5 py-0.5 inline-flex items-center space-x-1.5 text-xs font-semibold rounded-full border ${
-                      emp.is_active
-                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200/80'
-                        : 'bg-slate-100 text-slate-700 border-slate-200'
-                    }`}>
-                      <span className={`w-1.5 h-1.5 rounded-full ${emp.is_active ? 'bg-emerald-500' : 'bg-slate-400'}`} />
-                      <span>{emp.is_active ? 'Active' : 'Inactive'}</span>
-                    </span>
-                  </td>
-                  <td className="px-6 py-3.5 whitespace-nowrap text-xs text-slate-500">
-                    {new Date(emp.date_hired).toLocaleDateString()}
-                  </td>
-                  <td className="px-6 py-3.5 whitespace-nowrap text-right text-sm font-medium">
-                    <div className="flex justify-end space-x-1.5">
-                       <button
-                         onClick={() => setSalaryEmployee(emp)}
-                         title="Adjust Salary"
-                         className="btn-press-sm text-emerald-600 hover:text-emerald-700 p-1.5 rounded-md hover:bg-emerald-50 border border-transparent hover:border-emerald-200/60"
-                       >
-                         <DollarSign className="w-4 h-4" />
-                       </button>
-                       <button
-                         onClick={() => setEditingEmployee(emp)}
-                         title="Edit Details"
-                         className="btn-press-sm text-slate-500 hover:text-indigo-600 p-1.5 rounded-md hover:bg-indigo-50 border border-transparent hover:border-indigo-200/60"
-                       >
-                         <Edit2 className="w-4 h-4" />
-                       </button>
-                       <button
-                         title="Deactivate / Manage"
-                         className="btn-press-sm text-slate-400 hover:text-rose-600 p-1.5 rounded-md hover:bg-rose-50 border border-transparent hover:border-rose-200/60"
-                       >
-                         <Trash2 className="w-4 h-4" />
-                       </button>
-                    </div>
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
+                  </DataTable.Cell>
 
-      {/* Pagination */}
+                  {/* Role & Dept */}
+                  <DataTable.Cell>
+                    <div className="min-w-0">
+                      <div className="font-semibold text-grafana-ink truncate text-xs">
+                        {emp.role_title}
+                      </div>
+                      <div className="text-[11px] text-grafana-neutral truncate flex items-center gap-1 mt-0.5">
+                        <Building2 className="w-3 h-3 text-grafana-neutral shrink-0" />
+                        {emp.department_name}
+                      </div>
+                    </div>
+                  </DataTable.Cell>
+
+                  {/* Compensation */}
+                  <DataTable.Cell tabularNums mono>
+                    <div className="text-xs font-bold text-linear-success">
+                      {emp.salary
+                        ? new Intl.NumberFormat('en-IN', {
+                            style: 'currency',
+                            currency: 'INR',
+                            maximumFractionDigits: 0,
+                          }).format(emp.salary)
+                        : '—'}
+                    </div>
+                    <div className="text-[10px] text-grafana-neutral font-mono font-normal">
+                      Hired: {new Date(emp.date_hired).toLocaleDateString()}
+                    </div>
+                  </DataTable.Cell>
+
+                  {/* Status & Security */}
+                  <DataTable.Cell>
+                    <div className="flex flex-col gap-1 items-start">
+                      <span
+                        className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold border ${
+                          emp.is_active
+                            ? 'bg-linear-success/10 text-linear-success border-linear-success/20'
+                            : 'bg-grafana-surface text-grafana-neutral border-grafana-border'
+                        }`}
+                      >
+                        <span
+                          className={`w-1.5 h-1.5 rounded-full ${
+                            emp.is_active ? 'bg-linear-success' : 'bg-grafana-neutral/50'
+                          }`}
+                        />
+                        {emp.is_active ? 'Active' : 'Deactivated'}
+                      </span>
+                      <span className="text-[10px] font-mono text-grafana-neutral flex items-center gap-1">
+                        <ShieldCheck className="w-3 h-3 text-linear-success" />
+                        PII Encrypted
+                      </span>
+                    </div>
+                  </DataTable.Cell>
+
+                  {/* Row Actions */}
+                  <DataTable.Cell align="right">
+                    <div
+                      className="flex items-center justify-end gap-1.5"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <Button
+                        size="icon-xs"
+                        variant="ghost"
+                        portalTheme="hr"
+                        onClick={() => openSheet(emp, 'salary')}
+                        title="Adjust Compensation"
+                        aria-label={`Adjust compensation for ${emp.full_name}`}
+                        className="text-linear-success hover:bg-linear-success/10 hover:border-linear-success/20"
+                        leftIcon={<DollarSign className="w-3.5 h-3.5" />}
+                      />
+                      <Button
+                        size="icon-xs"
+                        variant="ghost"
+                        portalTheme="hr"
+                        onClick={() => openSheet(emp, 'edit')}
+                        title="Edit Profile"
+                        aria-label={`Edit profile for ${emp.full_name}`}
+                        className="text-grafana-neutral hover:text-grafana-blue hover:bg-grafana-blue/10 hover:border-grafana-blue/20"
+                        leftIcon={<Edit3 className="w-3.5 h-3.5" />}
+                      />
+                      <Button
+                        size="icon-xs"
+                        variant="secondary"
+                        portalTheme="hr"
+                        onClick={() => openSheet(emp, 'overview')}
+                        title="Inspect Record Details"
+                        aria-label={`Inspect record details for ${emp.full_name}`}
+                        className="text-grafana-neutral hover:text-black"
+                        leftIcon={<User className="w-3.5 h-3.5" />}
+                      />
+                    </div>
+                  </DataTable.Cell>
+                </DataTable.Row>
+              );
+            })
+          )}
+        </DataTable.Body>
+      </DataTable.Root>
+
+      {/* Pagination Footer */}
       {data && data.pages > 1 && (
-        <div className="bg-white px-6 py-3.5 border-t border-slate-200/80 flex items-center justify-between sm:px-6">
-          <div className="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
-            <div>
-              <p className="text-xs text-slate-500">
-                Showing <span className="font-semibold text-slate-700">{((page - 1) * limit) + 1}</span> to <span className="font-semibold text-slate-700">{Math.min(page * limit, data.total)}</span> of <span className="font-semibold text-slate-700">{data.total}</span> records
-              </p>
-            </div>
-            <div>
-              <nav className="inline-flex rounded-lg shadow-2xs space-x-1" aria-label="Pagination">
-                <button
-                  onClick={() => setPage(p => Math.max(1, p - 1))}
-                  disabled={page === 1}
-                  className="btn-press-sm inline-flex items-center px-2.5 py-1.5 rounded-md border border-slate-200 bg-white text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-                >
-                  <ChevronLeft className="h-4 w-4 mr-1" aria-hidden="true" />
-                  <span>Previous</span>
-                </button>
-                <button
-                  onClick={() => setPage(p => Math.min(data.pages, p + 1))}
-                  disabled={page === data.pages}
-                  className="btn-press-sm inline-flex items-center px-2.5 py-1.5 rounded-md border border-slate-200 bg-white text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-                >
-                  <span>Next</span>
-                  <ChevronRight className="h-4 w-4 ml-1" aria-hidden="true" />
-                </button>
-              </nav>
-            </div>
+        <div className="bg-white px-4 py-3 rounded-lg border border-grafana-border flex items-center justify-between shadow-2xs">
+          <div className="text-xs text-grafana-neutral font-mono">
+            Showing <span className="font-bold text-grafana-ink">{(page - 1) * limit + 1}</span>–
+            <span className="font-bold text-grafana-ink">
+              {Math.min(page * limit, data.total)}
+            </span>{' '}
+            of <span className="font-bold text-grafana-ink">{data.total}</span> employees
+          </div>
+          <div className="flex items-center gap-1.5">
+            <Button
+              variant="secondary"
+              size="sm"
+              portalTheme="hr"
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page === 1}
+              leftIcon={<ChevronLeft className="h-3.5 w-3.5" />}
+            >
+              Prev
+            </Button>
+            <span className="px-2.5 py-1 text-xs font-mono text-grafana-neutral">
+              Page {page} / {data.pages}
+            </span>
+            <Button
+              variant="secondary"
+              size="sm"
+              portalTheme="hr"
+              onClick={() => setPage((p) => Math.min(data.pages, p + 1))}
+              disabled={page === data.pages}
+              rightIcon={<ChevronRight className="h-3.5 w-3.5" />}
+            >
+              Next
+            </Button>
           </div>
         </div>
       )}
+
+      {/* Slide-Over Inspector */}
+      <EmployeeSheet
+        employee={selectedEmployee}
+        isOpen={isSheetOpen}
+        initialTab={sheetTab}
+        onClose={() => setIsSheetOpen(false)}
+      />
     </div>
   );
 }
-

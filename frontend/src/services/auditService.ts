@@ -147,6 +147,8 @@ export interface RoleItem {
   department_id: number;
   department_name: string;
   title: string;
+  salary_band_min: number;
+  salary_band_max: number;
   min_salary: number;
   max_salary: number;
 }
@@ -482,7 +484,21 @@ export async function fetchDepartments(
 export async function fetchRoles(
   getToken: () => Promise<string | null>,
 ): Promise<RoleItem[]> {
-  return fetchWithAuth('/roles', {}, getToken);
+  const data = (await fetchWithAuth('/roles', {}, getToken)) as any[];
+  return (data || []).map((r: any) => {
+    const minVal = Number(r.salary_band_min ?? r.min_salary ?? 0);
+    const maxVal = Number(r.salary_band_max ?? r.max_salary ?? 0);
+    return {
+      role_id: r.role_id,
+      department_id: r.department_id,
+      department_name: r.department_name || '',
+      title: r.title || '',
+      salary_band_min: minVal,
+      salary_band_max: maxVal,
+      min_salary: minVal,
+      max_salary: maxVal,
+    };
+  });
 }
 
 export async function fetchEmployees(

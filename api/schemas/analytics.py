@@ -33,6 +33,8 @@ class RoleItem(BaseModel):
     department_name: Optional[str] = None
     salary_band_min: Decimal
     salary_band_max: Decimal
+    min_salary: Optional[Decimal] = None
+    max_salary: Optional[Decimal] = None
 
 
 class TableStatItem(BaseModel):
