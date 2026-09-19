@@ -71,48 +71,48 @@ export default function QueryPanel() {
 
       {/* Table Stats */}
       <div className="overflow-x-auto">
-        <table className="w-full text-sm text-left">
-          <thead className="bg-linear-surface-2/80 text-xs text-linear-ink-muted uppercase tracking-wider border-b border-linear-hairline">
+        <table className="w-full text-xs text-left">
+          <thead className="bg-linear-surface-2/80 text-[11px] text-linear-ink-muted uppercase tracking-wider border-b border-linear-hairline">
             <tr>
-              <th className="px-6 py-3 font-medium">Table Name</th>
-              <th className="px-6 py-3 font-medium">Seq Scans</th>
-              <th className="px-6 py-3 font-medium">Index Scans</th>
-              <th className="px-6 py-3 font-medium">Inserts (Tuples)</th>
-              <th className="px-6 py-3 font-medium">Updates (Tuples)</th>
+              <th className="px-4 py-2.5 font-medium">Table</th>
+              <th className="px-4 py-2.5 font-medium">Seq Scans</th>
+              <th className="px-4 py-2.5 font-medium">Index Scans</th>
+              <th className="px-4 py-2.5 font-medium">Inserts</th>
+              <th className="px-4 py-2.5 font-medium">Updates</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-linear-hairline/60">
             {isLoading ? (
               <tr>
-                <td colSpan={5} className="px-6 py-8 text-center text-linear-ink-muted">
+                <td colSpan={5} className="px-4 py-8 text-center text-linear-ink-muted">
                   <Loader2 className="w-5 h-5 text-linear-ink-muted animate-fast-spin inline mr-2" />
                   Reading pg_stat_user_tables...
                 </td>
               </tr>
             ) : isError || !data?.table_stats || data.table_stats.length === 0 ? (
               <tr>
-                <td colSpan={5} className="px-6 py-8 text-center text-linear-ink-subtle">
+                <td colSpan={5} className="px-4 py-8 text-center text-linear-ink-subtle">
                   No table statistics available.
                 </td>
               </tr>
             ) : (
               data.table_stats.map((stat) => (
                 <tr key={stat.table_name} className="hover:bg-linear-surface-2/40 transition-colors group">
-                  <td className="px-6 py-3.5 font-mono text-xs text-linear-ink">
+                  <td className="px-4 py-2.5 font-mono text-xs text-linear-ink">
                     <code className="text-linear-primary bg-linear-primary/10 border border-linear-primary/20 px-1.5 py-0.5 rounded">
                       {stat.table_name}
                     </code>
                   </td>
-                  <td className="px-6 py-3.5 text-linear-ink-muted font-mono text-xs">
+                  <td className="px-4 py-2.5 text-linear-ink-muted font-mono text-xs">
                     {stat.seq_scans.toLocaleString()}
                   </td>
-                  <td className="px-6 py-3.5 text-linear-ink font-mono text-xs">
+                  <td className="px-4 py-2.5 text-linear-ink font-mono text-xs">
                     <span className="text-linear-success">{stat.idx_scans.toLocaleString()}</span>
                   </td>
-                  <td className="px-6 py-3.5 text-linear-ink font-mono text-xs">
+                  <td className="px-4 py-2.5 text-linear-ink font-mono text-xs">
                     {stat.inserts.toLocaleString()}
                   </td>
-                  <td className="px-6 py-3.5 text-linear-ink font-mono text-xs">
+                  <td className="px-4 py-2.5 text-linear-ink font-mono text-xs">
                     {stat.updates.toLocaleString()}
                   </td>
                 </tr>

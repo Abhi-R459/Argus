@@ -54,37 +54,39 @@ export function DetailSheet({
   const isAuditor = portalTheme === 'auditor';
 
   const containerThemeClasses = isAuditor
-    ? 'bg-linear-surface-1 text-linear-ink border-linear-hairline'
-    : 'bg-white text-grafana-ink border-grafana-border';
+    ? 'bg-linear-surface-1 text-linear-ink border-linear-hairline shadow-lg'
+    : 'bg-white text-slate-900 border-slate-200 shadow-xl';
 
   const headerBg = isAuditor
-    ? 'bg-linear-surface-2/70 border-b border-linear-hairline'
-    : 'bg-grafana-surface border-b border-grafana-border';
+    ? 'bg-linear-surface-2/80 border-b border-linear-hairline backdrop-blur-md'
+    : 'bg-slate-50 border-b border-slate-200';
 
   const footerBg = isAuditor
-    ? 'bg-linear-surface-2/60 border-t border-linear-hairline'
-    : 'bg-gray-50 border-t border-grafana-border';
+    ? 'bg-linear-surface-2/70 border-t border-linear-hairline backdrop-blur-md'
+    : 'bg-slate-50/80 border-t border-slate-200 backdrop-blur-sm';
+
+  const subtitleColor = isAuditor ? 'text-linear-ink-muted' : 'text-slate-500';
 
   const closeButtonClasses = isAuditor
     ? 'p-1.5 rounded-lg text-linear-ink-muted hover:text-linear-ink hover:bg-linear-surface-3 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-linear-primary'
-    : 'p-1.5 rounded-lg text-grafana-neutral hover:text-grafana-ink hover:bg-gray-100 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-grafana-orange';
+    : 'p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400';
 
   // Responsive mode: Fixed overlay on mobile, docked inline on desktop
   if (mode === 'docked') {
     return (
       <aside
-        className={`shrink-0 flex flex-col h-full border-l overflow-hidden ${widthClass} ${containerThemeClasses} ${className}`}
+        className={`shrink-0 flex flex-col sticky top-6 self-start max-h-[calc(100dvh-3.5rem)] border rounded-2xl overflow-hidden ${widthClass} ${containerThemeClasses} ${className}`}
         aria-label="Detail Inspector"
       >
         {/* Pinned Header */}
         <div className={`px-4 py-3 shrink-0 flex items-center justify-between gap-2 ${headerBg}`}>
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
-              <h3 className="text-sm font-semibold truncate">{title}</h3>
+              <h3 className="text-sm font-semibold truncate tracking-tight">{title}</h3>
               {headerBadge}
             </div>
             {subtitle && (
-              <div className="text-xs text-linear-ink-muted truncate mt-0.5">
+              <div className={`text-xs ${subtitleColor} truncate mt-0.5 font-normal`}>
                 {subtitle}
               </div>
             )}
@@ -120,25 +122,25 @@ export function DetailSheet({
   // Drawer (fixed right overlay)
   if (mode === 'drawer') {
     return (
-      <div className="fixed inset-0 z-50 flex justify-end bg-black/40 backdrop-blur-xs animate-in fade-in duration-150">
+      <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/45 backdrop-blur-xs animate-in fade-in duration-200">
         <div
           className="fixed inset-0"
           onClick={onClose}
           aria-hidden="true"
         />
         <aside
-          className={`relative z-10 flex flex-col h-full shadow-2xl border-l overflow-hidden ${widthClass} ${containerThemeClasses} ${className}`}
+          className={`relative z-10 flex flex-col h-full shadow-2xl border-l animate-in slide-in-from-right duration-240 overflow-hidden ${widthClass} ${containerThemeClasses} ${className}`}
           aria-label="Detail Sheet"
         >
           {/* Pinned Header */}
           <div className={`px-5 py-3.5 shrink-0 flex items-center justify-between gap-2 ${headerBg}`}>
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
-                <h3 className="text-sm font-semibold truncate">{title}</h3>
+                <h3 className="text-sm font-semibold truncate tracking-tight">{title}</h3>
                 {headerBadge}
               </div>
               {subtitle && (
-                <div className="text-xs text-linear-ink-muted truncate mt-0.5">
+                <div className={`text-xs ${subtitleColor} truncate mt-0.5 font-normal`}>
                   {subtitle}
                 </div>
               )}
@@ -176,19 +178,19 @@ export function DetailSheet({
   return (
     <>
       {/* Mobile drawer overlay */}
-      <div className="lg:hidden fixed inset-0 z-50 flex justify-end bg-black/40 backdrop-blur-xs">
+      <div className="lg:hidden fixed inset-0 z-50 flex justify-end bg-slate-950/45 backdrop-blur-xs animate-in fade-in duration-200">
         <div className="fixed inset-0" onClick={onClose} aria-hidden="true" />
         <aside
-          className={`relative z-10 flex flex-col h-full w-full max-w-md shadow-2xl border-l overflow-hidden ${containerThemeClasses}`}
+          className={`relative z-10 flex flex-col h-full w-full max-w-md shadow-2xl border-l animate-in slide-in-from-right duration-240 overflow-hidden ${containerThemeClasses}`}
         >
           <div className={`px-4 py-3 shrink-0 flex items-center justify-between gap-2 ${headerBg}`}>
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
-                <h3 className="text-sm font-semibold truncate">{title}</h3>
+                <h3 className="text-sm font-semibold truncate tracking-tight">{title}</h3>
                 {headerBadge}
               </div>
               {subtitle && (
-                <div className="text-xs text-linear-ink-muted truncate mt-0.5">{subtitle}</div>
+                <div className={`text-xs ${subtitleColor} truncate mt-0.5 font-normal`}>{subtitle}</div>
               )}
             </div>
             <button
@@ -212,17 +214,17 @@ export function DetailSheet({
 
       {/* Desktop docked pane */}
       <aside
-        className={`hidden lg:flex shrink-0 flex-col h-full border-l overflow-hidden ${widthClass} ${containerThemeClasses} ${className}`}
+        className={`hidden lg:flex shrink-0 flex-col sticky top-6 self-start max-h-[calc(100dvh-3.5rem)] border rounded-2xl overflow-hidden ${widthClass} ${containerThemeClasses} ${className}`}
         aria-label="Detail Inspector"
       >
         <div className={`px-4 py-3 shrink-0 flex items-center justify-between gap-2 ${headerBg}`}>
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
-              <h3 className="text-sm font-semibold truncate">{title}</h3>
+              <h3 className="text-sm font-semibold truncate tracking-tight">{title}</h3>
               {headerBadge}
             </div>
             {subtitle && (
-              <div className="text-xs text-linear-ink-muted truncate mt-0.5">{subtitle}</div>
+              <div className={`text-xs ${subtitleColor} truncate mt-0.5 font-normal`}>{subtitle}</div>
             )}
           </div>
           <button

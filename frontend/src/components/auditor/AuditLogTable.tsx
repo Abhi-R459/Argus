@@ -348,10 +348,10 @@ export default function AuditLogTable() {
             <input
               ref={searchInputRef}
               type="text"
-              placeholder="Filter table (/)..."
+              placeholder="Table (/)..."
               value={filters.table_name ?? ''}
               onChange={(e) => handleFilterChange({ table_name: e.target.value || undefined, page: 1 })}
-              className="pl-8 pr-2.5 py-1.5 bg-linear-canvas border border-linear-hairline rounded-lg text-xs text-linear-ink placeholder-linear-ink-subtle focus:outline-none focus:border-linear-primary w-36 font-mono"
+              className="pl-8 pr-2.5 py-1.5 bg-linear-canvas border border-linear-hairline rounded-lg text-xs text-linear-ink placeholder-linear-ink-subtle focus:outline-none focus:border-linear-primary w-32 sm:w-36 font-mono"
             />
           </div>
 
@@ -375,10 +375,11 @@ export default function AuditLogTable() {
             <Search className="w-3.5 h-3.5 text-linear-ink-subtle absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
               type="text"
-              placeholder="Blind National ID search..."
+              placeholder="Blind ID..."
+              title="HMAC-SHA256 blind index query for encrypted National ID"
               value={filters.national_id_search ?? ''}
               onChange={(e) => handleFilterChange({ national_id_search: e.target.value || undefined, page: 1 })}
-              className="pl-8 pr-2.5 py-1.5 bg-linear-canvas border border-linear-hairline rounded-lg text-xs text-linear-ink placeholder-linear-ink-subtle focus:outline-none focus:border-linear-primary w-48 font-mono"
+              className="pl-8 pr-2.5 py-1.5 bg-linear-canvas border border-linear-hairline rounded-lg text-xs text-linear-ink placeholder-linear-ink-subtle focus:outline-none focus:border-linear-primary w-32 sm:w-40 font-mono"
             />
           </div>
 

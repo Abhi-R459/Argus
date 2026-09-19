@@ -49,3 +49,25 @@ async def test_create_employee_hr(client_hr: AsyncClient, mock_db_session: Async
     
     response = await client_hr.post("/api/employees", json=payload)
     assert response.status_code in [201, 500, 409], f"Failed with {response.status_code}: {response.text}"
+
+
+async def test_list_employees_search_id(client_auditor: AsyncClient, mock_db_session: AsyncMock):
+    from unittest.mock import MagicMock
+    mock_result = MagicMock()
+    mock_result.all.return_value = []
+    mock_db_session.execute.return_value = mock_result
+    response = await client_auditor.get("/api/employees?search=%231")
+    assert response.status_code == 200
+    data = response.json()
+    assert "items" in data
+
+
+async def test_list_employees_search_emp_prefix(client_auditor: AsyncClient, mock_db_session: AsyncMock):
+    from unittest.mock import MagicMock
+    mock_result = MagicMock()
+    mock_result.all.return_value = []
+    mock_db_session.execute.return_value = mock_result
+    response = await client_auditor.get("/api/employees?search=EMP-0001")
+    assert response.status_code == 200
+    data = response.json()
+    assert "items" in data

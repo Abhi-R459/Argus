@@ -4,7 +4,6 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@clerk/clerk-react';
-import { useNavigate } from 'react-router-dom';
 import {
   User,
   DollarSign,
@@ -15,7 +14,6 @@ import {
   Building2,
   Briefcase,
   Lock,
-  ArrowUpRight,
   CheckCircle2,
   AlertCircle,
   Clock,
@@ -74,7 +72,6 @@ export function EmployeeSheet({
 }: EmployeeSheetProps) {
   const { getToken } = useAuth();
   const queryClient = useQueryClient();
-  const navigate = useNavigate();
 
   const [activeTab, setActiveTab] = useState<'overview' | 'edit' | 'salary'>(initialTab);
   const [feedbackMessage, setFeedbackMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
@@ -247,38 +244,38 @@ export function EmployeeSheet({
       onClose={onClose}
       portalTheme="hr"
       mode="drawer"
-      widthClass="w-full sm:w-[500px] lg:w-[540px]"
+      widthClass="w-full sm:w-[520px] lg:w-[580px]"
       title={employee.full_name}
       subtitle={`EMP-${employee.employee_id.toString().padStart(4, '0')} • ${employee.role_title}`}
       headerBadge={
         <span
-          className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold border ${
+          className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium border ${
             employee.is_active
-              ? 'bg-linear-success/10 text-linear-success border-linear-success/20'
-              : 'bg-grafana-surface text-grafana-neutral border-grafana-border'
+              ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+              : 'bg-slate-100 text-slate-600 border-slate-200'
           }`}
         >
           <span
             className={`w-1.5 h-1.5 rounded-full ${
-              employee.is_active ? 'bg-linear-success' : 'bg-grafana-neutral/50'
+              employee.is_active ? 'bg-emerald-500' : 'bg-slate-400'
             }`}
           />
           {employee.is_active ? 'Active' : 'Deactivated'}
         </span>
       }
     >
-      {/* Tab Navigation */}
-      <div className="flex border-b border-grafana-border pb-3 gap-2">
+      {/* Modern Segmented Tab Switcher */}
+      <div className="flex bg-slate-100/90 p-1 rounded-xl gap-1 border border-slate-200/70">
         <button
           type="button"
           onClick={() => {
             setActiveTab('overview');
             setFeedbackMessage(null);
           }}
-          className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors duration-150 flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-grafana-orange ${
+          className={`flex-1 py-1.5 px-3 text-xs font-medium rounded-lg transition-all flex items-center justify-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 ${
             activeTab === 'overview'
-              ? 'bg-black text-white shadow-2xs'
-              : 'text-grafana-neutral hover:text-grafana-ink hover:bg-grafana-surface'
+              ? 'bg-white text-slate-900 shadow-2xs font-semibold'
+              : 'text-slate-600 hover:text-slate-900'
           }`}
         >
           <User className="w-3.5 h-3.5" />
@@ -290,10 +287,10 @@ export function EmployeeSheet({
             setActiveTab('edit');
             setFeedbackMessage(null);
           }}
-          className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors duration-150 flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-grafana-orange ${
+          className={`flex-1 py-1.5 px-3 text-xs font-medium rounded-lg transition-all flex items-center justify-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 ${
             activeTab === 'edit'
-              ? 'bg-black text-white shadow-2xs'
-              : 'text-grafana-neutral hover:text-grafana-ink hover:bg-grafana-surface'
+              ? 'bg-white text-slate-900 shadow-2xs font-semibold'
+              : 'text-slate-600 hover:text-slate-900'
           }`}
         >
           <Edit3 className="w-3.5 h-3.5" />
@@ -305,10 +302,10 @@ export function EmployeeSheet({
             setActiveTab('salary');
             setFeedbackMessage(null);
           }}
-          className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors duration-150 flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-grafana-orange ${
+          className={`flex-1 py-1.5 px-3 text-xs font-medium rounded-lg transition-all flex items-center justify-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 ${
             activeTab === 'salary'
-              ? 'bg-black text-white shadow-2xs'
-              : 'text-grafana-neutral hover:text-grafana-ink hover:bg-grafana-surface'
+              ? 'bg-white text-slate-900 shadow-2xs font-semibold'
+              : 'text-slate-600 hover:text-slate-900'
           }`}
         >
           <DollarSign className="w-3.5 h-3.5" />
@@ -319,16 +316,16 @@ export function EmployeeSheet({
       {/* Feedback Banner */}
       {feedbackMessage && (
         <div
-          className={`p-3 rounded-lg border text-xs flex items-start gap-2 animate-in fade-in duration-150 ${
+          className={`p-3.5 rounded-xl border text-xs flex items-start gap-2.5 animate-in fade-in duration-150 ${
             feedbackMessage.type === 'success'
-              ? 'bg-linear-success/10 text-linear-success border-linear-success/30'
-              : 'bg-grafana-orange/10 text-grafana-orange border-grafana-orange/30'
+              ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+              : 'bg-rose-50 text-rose-700 border-rose-200'
           }`}
         >
           {feedbackMessage.type === 'success' ? (
-            <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
+            <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-emerald-600" />
           ) : (
-            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-rose-600" />
           )}
           <span className="font-medium">{feedbackMessage.text}</span>
         </div>
@@ -338,50 +335,50 @@ export function EmployeeSheet({
       {activeTab === 'overview' && (
         <div className="space-y-4">
           {/* Identity & Core Information */}
-          <div className="bg-grafana-surface/60 rounded-xl border border-grafana-border p-4 space-y-3">
-            <h4 className="text-xs font-bold text-grafana-neutral uppercase tracking-wider font-mono">
-              Personnel Details
+          <div className="bg-slate-50/70 rounded-2xl border border-slate-200/80 p-4.5 space-y-3.5">
+            <h4 className="text-xs font-semibold text-slate-900 tracking-tight">
+              Personnel information
             </h4>
-            <div className="grid grid-cols-2 gap-3 text-xs">
+            <div className="grid grid-cols-2 gap-3.5 text-xs">
               <div>
-                <span className="text-grafana-neutral block">Full Name</span>
-                <span className="font-bold text-grafana-ink">{employee.full_name}</span>
+                <span className="text-slate-500 block text-[11px]">Full name</span>
+                <span className="font-semibold text-slate-900 mt-0.5 block">{employee.full_name}</span>
               </div>
               <div>
-                <span className="text-grafana-neutral block">System Identifier</span>
-                <span className="font-mono font-bold text-grafana-ink">#{employee.employee_id}</span>
+                <span className="text-slate-500 block text-[11px]">System identifier</span>
+                <span className="font-mono font-medium text-slate-900 mt-0.5 block">#{employee.employee_id}</span>
               </div>
               <div className="col-span-2">
-                <span className="text-grafana-neutral block">Official Email</span>
-                <span className="font-mono font-medium text-grafana-ink flex items-center gap-1.5 mt-0.5">
-                  <Mail className="w-3.5 h-3.5 text-grafana-neutral" />
+                <span className="text-slate-500 block text-[11px]">Official corporate email</span>
+                <span className="font-mono font-medium text-slate-900 flex items-center gap-1.5 mt-0.5">
+                  <Mail className="w-3.5 h-3.5 text-slate-400" />
                   {employee.email}
                 </span>
               </div>
               <div>
-                <span className="text-grafana-neutral block">Assigned Role</span>
-                <span className="font-semibold text-grafana-ink flex items-center gap-1 mt-0.5">
-                  <Briefcase className="w-3.5 h-3.5 text-grafana-neutral" />
+                <span className="text-slate-500 block text-[11px]">Assigned position</span>
+                <span className="font-semibold text-slate-900 flex items-center gap-1 mt-0.5">
+                  <Briefcase className="w-3.5 h-3.5 text-slate-400" />
                   {employee.role_title}
                 </span>
               </div>
               <div>
-                <span className="text-grafana-neutral block">Department</span>
-                <span className="font-semibold text-grafana-ink flex items-center gap-1 mt-0.5">
-                  <Building2 className="w-3.5 h-3.5 text-grafana-neutral" />
+                <span className="text-slate-500 block text-[11px]">Department</span>
+                <span className="font-semibold text-slate-900 flex items-center gap-1 mt-0.5">
+                  <Building2 className="w-3.5 h-3.5 text-slate-400" />
                   {employee.department_name}
                 </span>
               </div>
               <div>
-                <span className="text-grafana-neutral block">Date Onboarded</span>
-                <span className="font-mono text-grafana-ink flex items-center gap-1 mt-0.5">
-                  <Calendar className="w-3.5 h-3.5 text-grafana-neutral" />
+                <span className="text-slate-500 block text-[11px]">Date onboarded</span>
+                <span className="font-mono text-slate-900 flex items-center gap-1 mt-0.5">
+                  <Calendar className="w-3.5 h-3.5 text-slate-400" />
                   {new Date(employee.date_hired).toLocaleDateString()}
                 </span>
               </div>
               <div>
-                <span className="text-grafana-neutral block">Current Compensation</span>
-                <span className="font-mono font-bold text-linear-success mt-0.5 block">
+                <span className="text-slate-500 block text-[11px]">Current compensation</span>
+                <span className="font-mono font-bold text-emerald-600 mt-0.5 block text-sm">
                   {formattedSalary}
                 </span>
               </div>
@@ -389,68 +386,61 @@ export function EmployeeSheet({
           </div>
 
           {/* Cryptographic Shield & PII Protection */}
-          <div className="bg-white rounded-xl border border-grafana-border p-4 space-y-3">
+          <div className="bg-white rounded-2xl border border-slate-200/80 p-4.5 space-y-3 shadow-2xs">
             <div className="flex items-center justify-between">
-              <h4 className="text-xs font-bold text-grafana-neutral uppercase tracking-wider font-mono flex items-center gap-1.5">
-                <ShieldCheck className="w-3.5 h-3.5 text-linear-success" />
-                PII Encryption & Shielding
+              <h4 className="text-xs font-semibold text-slate-900 tracking-tight flex items-center gap-1.5">
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                PII encryption & shielding
               </h4>
-              <span className="text-[10px] font-mono font-bold text-linear-success bg-linear-success/10 border border-linear-success/20 px-2 py-0.5 rounded">
-                pgcrypto
+              <span className="text-[10px] font-mono font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
+                pgcrypto active
               </span>
             </div>
             <div className="space-y-2 text-xs">
-              <div className="flex items-center justify-between p-2.5 rounded-lg bg-grafana-surface border border-grafana-border/70">
-                <span className="text-grafana-neutral font-medium flex items-center gap-1.5">
-                  <Lock className="w-3 h-3 text-grafana-neutral" />
-                  National ID (Aadhar/SSN)
+              <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 border border-slate-200/60">
+                <span className="text-slate-600 font-medium flex items-center gap-1.5">
+                  <Lock className="w-3 h-3 text-slate-400" />
+                  National ID (Aadhaar / SSN)
                 </span>
-                <span className="font-mono text-xs text-grafana-neutral tracking-widest">
+                <span className="font-mono text-xs text-slate-400 tracking-widest">
                   •••• •••• ••••
                 </span>
               </div>
-              <div className="flex items-center justify-between p-2.5 rounded-lg bg-grafana-surface border border-grafana-border/70">
-                <span className="text-grafana-neutral font-medium flex items-center gap-1.5">
-                  <Lock className="w-3 h-3 text-grafana-neutral" />
-                  Contact Credentials
+              <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 border border-slate-200/60">
+                <span className="text-slate-600 font-medium flex items-center gap-1.5">
+                  <Lock className="w-3 h-3 text-slate-400" />
+                  Contact credentials
                 </span>
-                <span className="font-mono text-[11px] text-grafana-neutral">
-                  Symmetric AES Encrypted
+                <span className="font-mono text-[11px] text-slate-500">
+                  AES-256 Symmetric
                 </span>
               </div>
             </div>
-            <p className="text-[11px] text-grafana-neutral leading-relaxed">
-              PII attributes are encrypted at rest using PostgreSQL <code className="font-mono text-black">pgp_sym_encrypt</code> and never returned in plaintext to unauthorized endpoints.
+            <p className="text-[11px] text-slate-500 leading-relaxed">
+              PII attributes are encrypted at rest using PostgreSQL <code className="font-mono text-slate-800 bg-slate-100 px-1 py-0.5 rounded">pgp_sym_encrypt</code> and shielded from unauthorized query endpoints.
             </p>
           </div>
 
           {/* Audit Chain Link */}
-          <div className="bg-white rounded-xl border border-grafana-border p-4 space-y-3">
+          <div className="bg-white rounded-2xl border border-slate-200/80 p-4.5 space-y-3 shadow-2xs">
             <div className="flex items-center justify-between">
-              <h4 className="text-xs font-bold text-grafana-neutral uppercase tracking-wider font-mono flex items-center gap-1.5">
-                <Clock className="w-3.5 h-3.5 text-grafana-blue" />
-                Forensic Audit Trail
+              <h4 className="text-xs font-semibold text-slate-900 tracking-tight flex items-center gap-1.5">
+                <Clock className="w-3.5 h-3.5 text-slate-700" />
+                Immutable Audit Trail
               </h4>
-              <span className="text-[10px] font-mono text-grafana-neutral bg-grafana-surface border border-grafana-border px-2 py-0.5 rounded">
-                Immutable SHA-256
+              <span className="text-[10px] font-mono font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
+                SHA-256 Chained
               </span>
             </div>
-            <p className="text-xs text-grafana-neutral leading-relaxed">
-              Every insert, update, or compensation adjustment on this employee is sealed into the SHA-256 tamper-evident chain by automated database triggers.
+            <p className="text-xs text-slate-500 leading-relaxed">
+              Every insert, profile update, or compensation adjustment on this employee is sealed into the SHA-256 tamper-evident chain by automated database triggers.
             </p>
-            <Button
-              variant="secondary"
-              size="sm"
-              portalTheme="hr"
-              onClick={() => {
-                onClose();
-                navigate(`/auditor/time-travel?emp_id=${employee.employee_id}`);
-              }}
-              rightIcon={<ArrowUpRight className="w-3.5 h-3.5 text-grafana-neutral" />}
-              className="w-full justify-between"
-            >
-              <span>Inspect Time-Travel History</span>
-            </Button>
+            <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 border border-slate-200/60 text-xs">
+              <span className="text-slate-600 font-medium">Forensic Governance</span>
+              <span className="text-[11px] font-medium text-slate-600">
+                Independent Auditor Monitored
+              </span>
+            </div>
           </div>
 
           {/* Quick Actions */}
@@ -463,7 +453,7 @@ export function EmployeeSheet({
                 setActiveTab('salary');
                 setFeedbackMessage(null);
               }}
-              className="flex-1"
+              className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white shadow-2xs"
             >
               Adjust Salary
             </Button>
@@ -509,87 +499,81 @@ export function EmployeeSheet({
           })}
           className="space-y-4"
         >
-          <div className="space-y-3.5">
+          <div className="space-y-4">
             <div>
-              <label className="block text-xs font-bold text-grafana-ink uppercase tracking-wider font-mono mb-1.5">
-                Full Name
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                Full legal name
               </label>
               <input
                 type="text"
                 {...registerProfile('full_name')}
                 placeholder="Full Name"
-                className="w-full px-3 py-2 border border-grafana-border rounded-lg text-sm bg-white text-grafana-ink focus:outline-none focus:ring-2 focus:ring-grafana-orange/20 focus:border-grafana-orange transition-colors"
+                className="w-full px-3.5 py-2 bg-slate-50/60 hover:bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 focus:bg-white focus:outline-none focus:ring-4 focus:ring-slate-900/5 focus:border-slate-900 transition-all shadow-2xs"
               />
               {profileErrors.full_name && (
-                <p className="mt-1 text-xs text-grafana-orange">{profileErrors.full_name.message}</p>
+                <p className="mt-1 text-xs text-rose-600 font-medium">{profileErrors.full_name.message}</p>
               )}
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-grafana-ink uppercase tracking-wider font-mono mb-1.5">
-                Email Address
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                Corporate email address
               </label>
               <input
                 type="email"
                 {...registerProfile('email')}
                 placeholder="workforce@example.com"
-                className="w-full px-3 py-2 border border-grafana-border rounded-lg text-sm bg-white text-grafana-ink focus:outline-none focus:ring-2 focus:ring-grafana-orange/20 focus:border-grafana-orange transition-colors font-mono"
+                className="w-full px-3.5 py-2 bg-slate-50/60 hover:bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 font-mono focus:bg-white focus:outline-none focus:ring-4 focus:ring-slate-900/5 focus:border-slate-900 transition-all shadow-2xs"
               />
               {profileErrors.email && (
-                <p className="mt-1 text-xs text-grafana-orange">{profileErrors.email.message}</p>
+                <p className="mt-1 text-xs text-rose-600 font-medium">{profileErrors.email.message}</p>
               )}
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-grafana-ink uppercase tracking-wider font-mono mb-1.5">
-                Role & Department Assignment
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                Role & department assignment
               </label>
               <select
                 {...registerProfile('role_id')}
-                className="w-full px-3 py-2 border border-grafana-border rounded-lg text-sm bg-white text-grafana-ink focus:outline-none focus:ring-2 focus:ring-grafana-orange/20 focus:border-grafana-orange transition-colors"
+                className="w-full px-3.5 py-2 bg-slate-50/60 hover:bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 focus:bg-white focus:outline-none focus:ring-4 focus:ring-slate-900/5 focus:border-slate-900 transition-all shadow-2xs cursor-pointer"
               >
                 <option value="">
                   {isRolesLoading ? 'Loading roles from database…' : `Keep Current: ${employee.role_title || 'Unassigned'} (${employee.department_name || 'General'})`}
                 </option>
-                {roles.map((r) => {
-                  const minSal = Number(r.min_salary ?? r.salary_band_min ?? 0);
-                  const maxSal = Number(r.max_salary ?? r.salary_band_max ?? 0);
-                  const bandStr = (minSal > 0 || maxSal > 0)
-                    ? ` (₹${minSal.toLocaleString('en-IN')} – ₹${maxSal.toLocaleString('en-IN')})`
-                    : '';
-                  return (
-                    <option key={r.role_id} value={r.role_id}>
-                      {r.title} — {r.department_name}{bandStr}
-                    </option>
-                  );
-                })}
+                {roles.map((r) => (
+                  <option key={r.role_id} value={r.role_id}>
+                    {r.title} — {r.department_name}
+                  </option>
+                ))}
               </select>
               {profileErrors.role_id && (
-                <p className="mt-1 text-xs text-grafana-orange">{profileErrors.role_id.message}</p>
+                <p className="mt-1 text-xs text-rose-600 font-medium">{profileErrors.role_id.message}</p>
               )}
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-grafana-ink uppercase tracking-wider font-mono mb-1.5">
-                Contact Information (Encrypted)
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5 flex items-center justify-between">
+                <span>Contact information</span>
+                <span className="text-[11px] text-slate-500 font-normal">Encrypted payload</span>
               </label>
               <textarea
                 {...registerProfile('contact_info')}
                 rows={3}
                 placeholder="Enter new contact details to update encrypted payload (leave blank to retain current)..."
-                className="w-full px-3 py-2 border border-grafana-border rounded-lg text-sm bg-white text-grafana-ink focus:outline-none focus:ring-2 focus:ring-grafana-orange/20 focus:border-grafana-orange transition-colors"
+                className="w-full px-3.5 py-2 bg-slate-50/60 hover:bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 focus:bg-white focus:outline-none focus:ring-4 focus:ring-slate-900/5 focus:border-slate-900 transition-all shadow-2xs"
               />
-              <p className="mt-1 text-[11px] text-grafana-neutral flex items-center gap-1">
-                <Lock className="w-3 h-3 text-linear-success" />
+              <p className="mt-1.5 text-[11px] text-slate-500 flex items-center gap-1">
+                <Lock className="w-3 h-3 text-emerald-600 shrink-0" />
                 Payload is symmetrically encrypted via PostgreSQL pgcrypto before storage.
               </p>
               {profileErrors.contact_info && (
-                <p className="mt-1 text-xs text-grafana-orange">{profileErrors.contact_info.message}</p>
+                <p className="mt-1 text-xs text-rose-600 font-medium">{profileErrors.contact_info.message}</p>
               )}
             </div>
           </div>
 
-          <div className="pt-3 border-t border-grafana-border flex items-center justify-end gap-2">
+          <div className="pt-3 border-t border-slate-200 flex items-center justify-end gap-2.5">
             <Button
               variant="secondary"
               size="sm"
@@ -609,6 +593,7 @@ export function EmployeeSheet({
               portalTheme="hr"
               disabled={isProfileSubmitting || !isProfileDirty}
               loading={isProfileSubmitting}
+              className="bg-slate-900 hover:bg-slate-800 text-white font-medium shadow-xs"
             >
               Save Profile Changes
             </Button>
@@ -626,28 +611,28 @@ export function EmployeeSheet({
           className="space-y-4"
         >
           {/* Current Compensation Card */}
-          <div className="bg-grafana-surface/60 rounded-xl border border-grafana-border p-4 space-y-2">
-            <span className="text-xs font-bold text-grafana-neutral uppercase tracking-wider font-mono">
-              Current Compensation
+          <div className="bg-slate-50/70 rounded-2xl border border-slate-200/80 p-4.5 space-y-1.5">
+            <span className="text-xs font-semibold text-slate-500 tracking-tight">
+              Current annual compensation
             </span>
             <div className="flex items-baseline gap-2">
-              <span className="text-2xl font-extrabold text-grafana-ink font-mono tabular-nums">
+              <span className="text-2xl font-bold text-slate-900 font-mono tabular-nums">
                 {formattedSalary}
               </span>
-              <span className="text-xs text-grafana-neutral">per annum</span>
+              <span className="text-xs text-slate-500">per annum</span>
             </div>
-            <p className="text-[11px] text-grafana-neutral">
-              Validated against role range for <span className="font-semibold text-black">{employee.role_title}</span>.
+            <p className="text-[11px] text-slate-500">
+              Validated against role benchmarks for <span className="font-semibold text-slate-900">{employee.role_title}</span>.
             </p>
           </div>
 
-          <div className="space-y-3.5">
+          <div className="space-y-4">
             <div>
-              <label className="block text-xs font-bold text-grafana-ink uppercase tracking-wider font-mono mb-1.5">
-                New Annual Salary (INR)
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                New annual compensation (INR)
               </label>
               <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-sm font-semibold text-grafana-neutral">
+                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-sm font-semibold text-slate-400">
                   ₹
                 </div>
                 <input
@@ -655,42 +640,42 @@ export function EmployeeSheet({
                   step="1"
                   {...registerSalary('amount')}
                   placeholder="e.g. 95000"
-                  className="w-full pl-8 pr-3 py-2 border border-grafana-border rounded-lg text-sm bg-white text-grafana-ink font-mono focus:outline-none focus:ring-2 focus:ring-linear-success/20 focus:border-linear-success transition-colors tabular-nums"
+                  className="w-full pl-8 pr-3.5 py-2 bg-slate-50/60 hover:bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 font-mono focus:bg-white focus:outline-none focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-600 transition-all tabular-nums shadow-2xs"
                 />
               </div>
               {salaryErrors.amount && (
-                <p className="mt-1 text-xs text-grafana-orange">{salaryErrors.amount.message}</p>
+                <p className="mt-1 text-xs text-rose-600 font-medium">{salaryErrors.amount.message}</p>
               )}
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-grafana-ink uppercase tracking-wider font-mono mb-1.5">
-                Effective Date
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                Effective adjustment date
               </label>
               <div className="relative">
                 <input
                   type="date"
                   {...registerSalary('effective_date')}
-                  className="w-full px-3 py-2 border border-grafana-border rounded-lg text-sm bg-white text-grafana-ink font-mono focus:outline-none focus:ring-2 focus:ring-linear-success/20 focus:border-linear-success transition-colors"
+                  className="w-full px-3.5 py-2 bg-slate-50/60 hover:bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 font-mono focus:bg-white focus:outline-none focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-600 transition-all shadow-2xs"
                 />
               </div>
               {salaryErrors.effective_date && (
-                <p className="mt-1 text-xs text-grafana-orange">{salaryErrors.effective_date.message}</p>
+                <p className="mt-1 text-xs text-rose-600 font-medium">{salaryErrors.effective_date.message}</p>
               )}
             </div>
           </div>
 
-          <div className="p-3.5 rounded-lg bg-linear-success/5 border border-linear-success/20 text-xs text-grafana-ink space-y-1">
-            <span className="font-semibold flex items-center gap-1.5 text-linear-success font-mono uppercase tracking-wider text-[10px]">
-              <ShieldCheck className="w-3.5 h-3.5" />
+          <div className="p-3.5 rounded-xl bg-emerald-50/70 border border-emerald-200/80 text-xs text-slate-700 space-y-1">
+            <span className="font-semibold flex items-center gap-1.5 text-emerald-800 text-[11px]">
+              <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
               Automated Checkpoint Trigger
             </span>
-            <p className="text-grafana-neutral text-[11px] leading-relaxed">
-              Recording this adjustment creates an entry in <code className="font-mono text-black">salary_history</code> and triggers an automatic SHA-256 block creation in <code className="font-mono text-black">audit_log</code>.
+            <p className="text-slate-600 text-[11px] leading-relaxed">
+              Recording this adjustment creates an immutable row in <code className="font-mono text-slate-900 bg-white/70 px-1 py-0.2 rounded">salary_history</code> and triggers an automatic SHA-256 block in <code className="font-mono text-slate-900 bg-white/70 px-1 py-0.2 rounded">audit_log</code>.
             </p>
           </div>
 
-          <div className="pt-3 border-t border-grafana-border flex items-center justify-end gap-2">
+          <div className="pt-3 border-t border-slate-200 flex items-center justify-end gap-2.5">
             <Button
               variant="secondary"
               size="sm"
@@ -710,7 +695,7 @@ export function EmployeeSheet({
               portalTheme="hr"
               disabled={isSalarySubmitting}
               loading={isSalarySubmitting}
-              className="bg-linear-success hover:bg-linear-success-hover text-white"
+              className="bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs font-medium"
             >
               Record Salary Adjustment
             </Button>

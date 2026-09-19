@@ -41,17 +41,17 @@ export function FilterChip({
   // HR light theme
   return (
     <span
-      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs bg-gray-100 border border-grafana-border text-grafana-ink ${className}`}
+      className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs bg-slate-100 border border-slate-200 text-slate-900 ${className}`}
     >
-      <span className="text-grafana-neutral font-normal">{label}:</span>
-      <span className="font-medium text-grafana-ink">{value}</span>
+      <span className="text-slate-500 font-normal">{label}:</span>
+      <span className="font-medium text-slate-900">{value}</span>
       <button
         type="button"
         onClick={(e) => {
           e.stopPropagation();
           onRemove();
         }}
-        className="ml-0.5 p-0.5 rounded hover:bg-gray-200 text-grafana-neutral hover:text-grafana-ink transition-colors duration-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-grafana-orange"
+        className="ml-0.5 p-0.5 rounded hover:bg-slate-200 text-slate-400 hover:text-slate-700 transition-colors duration-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-slate-900/20"
         title={`Remove ${label} filter`}
         aria-label={`Remove ${label} filter`}
       >

@@ -133,32 +133,19 @@ export default function VerificationControl({ onResult }: VerificationControlPro
                 : 'border-grafana-orange/40 bg-grafana-orange/10'
             }`}
           >
-            {/* Status headline with Re-run action */}
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-3">
-                {isIntact ? (
-                  <CheckCircle2 className="w-5 h-5 text-linear-success flex-shrink-0" />
-                ) : (
-                  <AlertTriangle className="w-5 h-5 text-grafana-orange flex-shrink-0" />
-                )}
-                <div>
-                  <p className={`font-bold text-base ${isIntact ? 'text-linear-success' : 'text-grafana-orange'}`}>
-                    {isIntact ? 'Chain Intact' : '⚠ Tampering Detected'}
-                  </p>
-                  <p className="text-xs text-linear-ink-subtle mt-0.5">{lastResult.details}</p>
-                </div>
+            {/* Status headline */}
+            <div className="flex items-center space-x-3">
+              {isIntact ? (
+                <CheckCircle2 className="w-5 h-5 text-linear-success flex-shrink-0" />
+              ) : (
+                <AlertTriangle className="w-5 h-5 text-grafana-orange flex-shrink-0" />
+              )}
+              <div>
+                <p className={`font-bold text-base ${isIntact ? 'text-linear-success' : 'text-grafana-orange'}`}>
+                  {isIntact ? 'Chain Intact' : '⚠ Tampering Detected'}
+                </p>
+                <p className="text-xs text-linear-ink-subtle mt-0.5">{lastResult.details}</p>
               </div>
-              <Button
-                variant="secondary"
-                size="sm"
-                portalTheme="auditor"
-                onClick={() => refetch()}
-                disabled={isFetching}
-                loading={isFetching}
-                leftIcon={<Play className="w-3 h-3" />}
-              >
-                Re-run
-              </Button>
             </div>
 
             {/* Stats grid */}

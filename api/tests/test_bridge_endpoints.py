@@ -1,3 +1,5 @@
+import json
+import os
 import pytest
 from datetime import datetime, timezone
 from httpx import AsyncClient
@@ -161,12 +163,20 @@ async def test_anchor_status_stale(client_auditor: AsyncClient, mock_db_session:
 async def test_anchor_status_mismatch(client_auditor: AsyncClient, mock_db_session: AsyncMock, tmp_path, monkeypatch):
     """Assert /api/anchor/status returns MISMATCH when external anchor differs from DB checkpoint."""
     now = datetime.now(timezone.utc)
+    seq_id = 50
+    if os.path.exists("anchor/2.json"):
+        try:
+            with open("anchor/2.json", "r", encoding="utf-8") as f:
+                seq_id = json.load(f).get("sequence_id", 50)
+        except Exception:
+            pass
+
     chk_mock = MagicMock()
-    # Sequence 47 matches anchor/2.json, but has a tampered hash in DB
-    chk_mock.first.return_value = (47, "bad" * 21 + "b", now)
+    # Sequence matches anchor/2.json, but has a tampered hash in DB
+    chk_mock.first.return_value = (seq_id, "bad" * 21 + "b", now)
 
     state_mock = MagicMock()
-    state_mock.first.return_value = (48,)
+    state_mock.first.return_value = (seq_id + 1,)
 
     mock_db_session.execute.side_effect = [chk_mock, state_mock]
 

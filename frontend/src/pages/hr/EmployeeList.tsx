@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { UserPlus, Database } from 'lucide-react';
+import { UserPlus } from 'lucide-react';
 import EmployeeTable from '../../components/EmployeeTable';
 import EmployeeForm from '../../components/forms/EmployeeForm';
 import { Button } from '../../components/common/Button';
@@ -12,16 +12,10 @@ export default function EmployeeList() {
       {/* Header Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-1">
         <div>
-          <div className="flex items-center gap-2.5">
-            <h1 className="text-xl font-bold text-grafana-ink tracking-tight">
-              Workforce Directory
-            </h1>
-            <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-mono font-semibold bg-grafana-surface border border-grafana-border text-grafana-neutral">
-              <Database className="w-3 h-3 text-grafana-neutral" />
-              PostgreSQL pgcrypto
-            </span>
-          </div>
-          <p className="text-grafana-neutral text-xs mt-1">
+          <h1 className="text-xl font-bold text-slate-900 tracking-tight">
+            Workforce Directory
+          </h1>
+          <p className="text-slate-500 text-xs mt-1">
             Institutional personnel records, role assignments, encrypted credentials, and compensation history.
           </p>
         </div>

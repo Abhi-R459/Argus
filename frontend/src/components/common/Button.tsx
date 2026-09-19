@@ -49,18 +49,18 @@ const VARIANT_MAP: Record<PortalTheme, Record<ButtonVariant, string>> = {
   },
   hr: {
     primary:
-      'bg-grafana-orange hover:bg-grafana-orange-hover active:bg-grafana-orange-pressed text-white border border-transparent shadow-xs',
+      'bg-slate-900 hover:bg-slate-800 active:bg-black text-white border border-transparent shadow-xs font-medium',
     secondary:
-      'bg-white hover:bg-grafana-surface active:bg-gray-100 border border-grafana-border text-grafana-ink shadow-2xs',
+      'bg-white hover:bg-slate-50 active:bg-slate-100 border border-slate-200 text-slate-800 shadow-2xs font-medium',
     ghost:
-      'bg-transparent hover:bg-grafana-surface active:bg-gray-100 text-grafana-neutral hover:text-grafana-ink border border-transparent',
+      'bg-transparent hover:bg-slate-100/80 active:bg-slate-200/60 text-slate-600 hover:text-slate-900 border border-transparent',
     danger:
       'bg-rose-50 hover:bg-rose-100 active:bg-rose-200 border border-rose-200 text-rose-700',
     success:
       'bg-emerald-50 hover:bg-emerald-100 active:bg-emerald-200 border border-emerald-200 text-emerald-700',
     outline:
-      'bg-transparent hover:bg-grafana-surface active:bg-gray-100 border border-grafana-border text-grafana-ink',
-    link: 'bg-transparent text-grafana-blue hover:text-grafana-blue/80 underline-offset-2 hover:underline p-0 h-auto border-0 shadow-none',
+      'bg-transparent hover:bg-slate-50 active:bg-slate-100 border border-slate-200 text-slate-800',
+    link: 'bg-transparent text-slate-900 hover:text-slate-700 underline-offset-2 hover:underline p-0 h-auto border-0 shadow-none font-medium',
   },
 };
 
@@ -106,7 +106,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
     const focusClass =
       portalTheme === 'auditor'
         ? 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-linear-primary focus-visible:ring-offset-1 focus-visible:ring-offset-linear-canvas'
-        : 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-grafana-orange focus-visible:ring-offset-1 focus-visible:ring-offset-white';
+        : 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/20 focus-visible:ring-offset-1 focus-visible:ring-offset-white';
 
     const disabledClass =
       'disabled:opacity-40 disabled:pointer-events-none disabled:cursor-not-allowed select-none';

@@ -155,21 +155,21 @@ export default function EmployeeTable() {
         <div className="flex flex-wrap items-center gap-2.5 flex-1">
           {/* Quick Search */}
           <div className="relative min-w-[220px] max-w-sm flex-1">
-            <Search className="w-3.5 h-3.5 text-grafana-neutral absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
               ref={searchInputRef}
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search personnel by name or email... (/)"
-              className="w-full pl-8 pr-7 py-1.5 bg-white border border-grafana-border rounded-md text-xs text-grafana-ink placeholder-grafana-neutral focus:outline-none focus:border-grafana-orange focus:ring-1 focus:ring-grafana-orange/20 transition-colors shadow-2xs"
+              className="w-full pl-9 pr-7 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-slate-900 focus:ring-4 focus:ring-slate-900/5 transition-all shadow-2xs"
             />
             {search && (
               <button
                 type="button"
                 onClick={() => setSearch('')}
                 aria-label="Clear search input"
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-grafana-neutral hover:text-grafana-ink p-1 rounded focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-grafana-orange"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-slate-400 hover:text-slate-700 p-0.5 rounded focus-visible:outline-none"
               >
                 ×
               </button>
@@ -178,11 +178,11 @@ export default function EmployeeTable() {
 
           {/* Department Filter */}
           <div className="relative flex items-center">
-            <Building2 className="w-3.5 h-3.5 text-grafana-neutral absolute left-2 pointer-events-none" />
+            <Building2 className="w-3.5 h-3.5 text-slate-400 absolute left-3 pointer-events-none" />
             <select
               value={selectedDept}
               onChange={(e) => setSelectedDept(e.target.value)}
-              className="pl-7 pr-6 py-1.5 bg-white border border-grafana-border rounded-md text-xs text-grafana-ink focus:outline-none focus:border-grafana-orange cursor-pointer shadow-2xs"
+              className="pl-9 pr-7 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-700 focus:outline-none focus:border-slate-900 focus:ring-4 focus:ring-slate-900/5 cursor-pointer shadow-2xs"
             >
               <option value="all">All Departments</option>
               {departments.map((dept) => (
@@ -193,15 +193,15 @@ export default function EmployeeTable() {
             </select>
           </div>
 
-          {/* Status Filter */}
-          <div className="flex items-center rounded-md border border-grafana-border p-0.5 bg-grafana-surface shadow-2xs text-xs">
+          {/* Status Filter Segmented Control */}
+          <div className="flex items-center rounded-xl border border-slate-200 p-0.5 bg-slate-100/70 shadow-2xs text-xs">
             <button
               type="button"
               onClick={() => setSelectedStatus('all')}
-              className={`px-2.5 py-1 rounded font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-grafana-orange ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
                 selectedStatus === 'all'
-                  ? 'bg-white text-grafana-ink shadow-2xs font-semibold'
-                  : 'text-grafana-neutral hover:text-grafana-ink'
+                  ? 'bg-white text-slate-900 shadow-xs font-semibold'
+                  : 'text-slate-500 hover:text-slate-900'
               }`}
             >
               All
@@ -209,10 +209,10 @@ export default function EmployeeTable() {
             <button
               type="button"
               onClick={() => setSelectedStatus('active')}
-              className={`px-2.5 py-1 rounded font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-grafana-orange ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
                 selectedStatus === 'active'
-                  ? 'bg-white text-linear-success shadow-2xs font-semibold'
-                  : 'text-grafana-neutral hover:text-grafana-ink'
+                  ? 'bg-white text-emerald-700 shadow-xs font-semibold'
+                  : 'text-slate-500 hover:text-slate-900'
               }`}
             >
               Active
@@ -220,10 +220,10 @@ export default function EmployeeTable() {
             <button
               type="button"
               onClick={() => setSelectedStatus('inactive')}
-              className={`px-2.5 py-1 rounded font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-grafana-orange ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
                 selectedStatus === 'inactive'
-                  ? 'bg-white text-grafana-orange shadow-2xs font-semibold'
-                  : 'text-grafana-neutral hover:text-grafana-ink'
+                  ? 'bg-white text-amber-700 shadow-xs font-semibold'
+                  : 'text-slate-500 hover:text-slate-900'
               }`}
             >
               Deactivated
@@ -231,8 +231,8 @@ export default function EmployeeTable() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2 text-xs text-grafana-neutral font-mono">
-          {isFetching && <span className="text-[10px] text-grafana-orange animate-pulse">syncing…</span>}
+        <div className="flex items-center gap-2 text-xs text-slate-400 font-mono">
+          {isFetching && <span className="text-[10px] text-amber-600 animate-pulse font-medium">syncing…</span>}
           <span>{filteredItems.length} records</span>
         </div>
       </FilterBar>
@@ -240,65 +240,68 @@ export default function EmployeeTable() {
       {/* Main Table Container */}
       <DataTable.Root portalTheme="hr">
         <DataTable.Header portalTheme="hr">
-          <DataTable.HeadCell className="w-[30%]">
-            Employee Profile
-          </DataTable.HeadCell>
-          <DataTable.HeadCell className="w-[24%]">
-            Role & Department
-          </DataTable.HeadCell>
-          <DataTable.HeadCell className="w-[16%]">
-            Annual Compensation
-          </DataTable.HeadCell>
-          <DataTable.HeadCell className="w-[14%]">
-            Security & Status
-          </DataTable.HeadCell>
-          <DataTable.HeadCell className="w-[16%] text-right">
-            Actions
-          </DataTable.HeadCell>
+          <tr>
+            <DataTable.HeadCell className="w-[30%]">
+              Employee Profile
+            </DataTable.HeadCell>
+            <DataTable.HeadCell className="w-[24%]">
+              Role & Department
+            </DataTable.HeadCell>
+            <DataTable.HeadCell className="w-[16%]">
+              Annual Compensation
+            </DataTable.HeadCell>
+            <DataTable.HeadCell className="w-[14%]">
+              Security & Status
+            </DataTable.HeadCell>
+            <DataTable.HeadCell className="w-[16%] text-right">
+              Actions
+            </DataTable.HeadCell>
+          </tr>
         </DataTable.Header>
 
-        <DataTable.Body portalTheme="hr">
-          {isLoading ? (
-            <SkeletonRows rowCount={8} columnCount={5} portalTheme="hr" />
-          ) : isError ? (
-            <tr>
-              <td colSpan={5} className="py-12 text-center text-xs text-grafana-orange font-mono">
-                Failed to query employee directory from PostgreSQL engine.
-              </td>
-            </tr>
-          ) : filteredItems.length === 0 ? (
-            <tr>
-              <td colSpan={5} className="py-12 text-center text-xs text-grafana-neutral">
-                No employees found matching the specified parameters.
-              </td>
-            </tr>
-          ) : (
-            filteredItems.map((emp, idx) => {
-              const isSelected = selectedEmployee?.employee_id === emp.employee_id;
-              const isKeyboardFocused = focusedRowIndex === idx;
+        {isLoading ? (
+          <SkeletonRows rowCount={8} columnCount={5} portalTheme="hr" />
+        ) : (
+          <DataTable.Body portalTheme="hr">
+            {isError ? (
+              <tr>
+                <td colSpan={5} className="py-12 text-center text-xs text-rose-600 font-mono">
+                  Failed to query employee directory from database engine.
+                </td>
+              </tr>
+            ) : filteredItems.length === 0 ? (
+              <tr>
+                <td colSpan={5} className="py-12 text-center text-xs text-slate-500">
+                  No employees found matching the specified parameters.
+                </td>
+              </tr>
+            ) : (
+              filteredItems.map((emp, idx) => {
+                const isSelected = selectedEmployee?.employee_id === emp.employee_id;
+                const isKeyboardFocused = focusedRowIndex === idx;
 
               return (
                 <DataTable.Row
                   key={emp.employee_id}
                   portalTheme="hr"
                   isSelected={isSelected}
-                  className={`${isKeyboardFocused ? 'ring-1 ring-inset ring-grafana-orange/40' : ''}`}
+                  className={`${isKeyboardFocused ? 'ring-1 ring-inset ring-slate-400' : ''}`}
                   onClick={() => openSheet(emp, 'overview')}
                 >
                   {/* Name & Email */}
                   <DataTable.Cell>
                     <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-lg bg-grafana-blue/10 border border-grafana-blue/20 flex items-center justify-center text-grafana-blue font-bold text-xs font-mono shrink-0">
+                      <div className="w-8 h-8 rounded-xl bg-slate-100 border border-slate-200/80 flex items-center justify-center text-slate-700 font-semibold text-xs shrink-0 shadow-2xs">
                         {emp.full_name.charAt(0)}
                       </div>
                       <div className="min-w-0">
-                        <div className="font-bold text-grafana-ink truncate flex items-center gap-1.5">
+                        <div className="font-semibold text-slate-900 truncate flex items-center gap-1.5 text-xs">
                           <span>{emp.full_name}</span>
-                          <span className="font-mono text-[10px] text-grafana-neutral font-normal">
+                          <span className="font-mono text-[10px] text-slate-400 font-normal">
                             #{emp.employee_id}
                           </span>
                         </div>
-                        <div className="text-[11px] text-grafana-neutral font-mono truncate">
+                        <div className="text-[11px] text-slate-500 font-mono truncate">
                           {emp.email}
                         </div>
                       </div>
@@ -308,11 +311,11 @@ export default function EmployeeTable() {
                   {/* Role & Dept */}
                   <DataTable.Cell>
                     <div className="min-w-0">
-                      <div className="font-semibold text-grafana-ink truncate text-xs">
+                      <div className="font-medium text-slate-900 truncate text-xs">
                         {emp.role_title}
                       </div>
-                      <div className="text-[11px] text-grafana-neutral truncate flex items-center gap-1 mt-0.5">
-                        <Building2 className="w-3 h-3 text-grafana-neutral shrink-0" />
+                      <div className="text-[11px] text-slate-500 truncate flex items-center gap-1 mt-0.5">
+                        <Building2 className="w-3 h-3 text-slate-400 shrink-0" />
                         {emp.department_name}
                       </div>
                     </div>
@@ -320,7 +323,7 @@ export default function EmployeeTable() {
 
                   {/* Compensation */}
                   <DataTable.Cell tabularNums mono>
-                    <div className="text-xs font-bold text-linear-success">
+                    <div className="text-xs font-semibold text-emerald-700">
                       {emp.salary
                         ? new Intl.NumberFormat('en-IN', {
                             style: 'currency',
@@ -329,7 +332,7 @@ export default function EmployeeTable() {
                           }).format(emp.salary)
                         : '—'}
                     </div>
-                    <div className="text-[10px] text-grafana-neutral font-mono font-normal">
+                    <div className="text-[10px] text-slate-400 font-mono font-normal">
                       Hired: {new Date(emp.date_hired).toLocaleDateString()}
                     </div>
                   </DataTable.Cell>
@@ -338,21 +341,21 @@ export default function EmployeeTable() {
                   <DataTable.Cell>
                     <div className="flex flex-col gap-1 items-start">
                       <span
-                        className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold border ${
+                        className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-medium border ${
                           emp.is_active
-                            ? 'bg-linear-success/10 text-linear-success border-linear-success/20'
-                            : 'bg-grafana-surface text-grafana-neutral border-grafana-border'
+                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200/80'
+                            : 'bg-slate-100 text-slate-500 border-slate-200'
                         }`}
                       >
                         <span
                           className={`w-1.5 h-1.5 rounded-full ${
-                            emp.is_active ? 'bg-linear-success' : 'bg-grafana-neutral/50'
+                            emp.is_active ? 'bg-emerald-500' : 'bg-slate-400'
                           }`}
                         />
                         {emp.is_active ? 'Active' : 'Deactivated'}
                       </span>
-                      <span className="text-[10px] font-mono text-grafana-neutral flex items-center gap-1">
-                        <ShieldCheck className="w-3 h-3 text-linear-success" />
+                      <span className="text-[10px] font-mono text-slate-400 flex items-center gap-1">
+                        <ShieldCheck className="w-3 h-3 text-emerald-600" />
                         PII Encrypted
                       </span>
                     </div>
@@ -371,7 +374,7 @@ export default function EmployeeTable() {
                         onClick={() => openSheet(emp, 'salary')}
                         title="Adjust Compensation"
                         aria-label={`Adjust compensation for ${emp.full_name}`}
-                        className="text-linear-success hover:bg-linear-success/10 hover:border-linear-success/20"
+                        className="text-emerald-700 hover:bg-emerald-50 hover:border-emerald-200 rounded-lg"
                         leftIcon={<DollarSign className="w-3.5 h-3.5" />}
                       />
                       <Button
@@ -381,7 +384,7 @@ export default function EmployeeTable() {
                         onClick={() => openSheet(emp, 'edit')}
                         title="Edit Profile"
                         aria-label={`Edit profile for ${emp.full_name}`}
-                        className="text-grafana-neutral hover:text-grafana-blue hover:bg-grafana-blue/10 hover:border-grafana-blue/20"
+                        className="text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-lg"
                         leftIcon={<Edit3 className="w-3.5 h-3.5" />}
                       />
                       <Button
@@ -391,7 +394,7 @@ export default function EmployeeTable() {
                         onClick={() => openSheet(emp, 'overview')}
                         title="Inspect Record Details"
                         aria-label={`Inspect record details for ${emp.full_name}`}
-                        className="text-grafana-neutral hover:text-black"
+                        className="text-slate-600 hover:text-slate-900 rounded-lg"
                         leftIcon={<User className="w-3.5 h-3.5" />}
                       />
                     </div>
@@ -401,17 +404,18 @@ export default function EmployeeTable() {
             })
           )}
         </DataTable.Body>
+      )}
       </DataTable.Root>
 
       {/* Pagination Footer */}
       {data && data.pages > 1 && (
-        <div className="bg-white px-4 py-3 rounded-lg border border-grafana-border flex items-center justify-between shadow-2xs">
-          <div className="text-xs text-grafana-neutral font-mono">
-            Showing <span className="font-bold text-grafana-ink">{(page - 1) * limit + 1}</span>–
-            <span className="font-bold text-grafana-ink">
+        <div className="bg-white px-4 py-3 rounded-xl border border-slate-200/80 flex items-center justify-between shadow-xs">
+          <div className="text-xs text-slate-500 font-mono">
+            Showing <span className="font-semibold text-slate-900">{(page - 1) * limit + 1}</span>–
+            <span className="font-semibold text-slate-900">
               {Math.min(page * limit, data.total)}
             </span>{' '}
-            of <span className="font-bold text-grafana-ink">{data.total}</span> employees
+            of <span className="font-semibold text-slate-900">{data.total}</span> employees
           </div>
           <div className="flex items-center gap-1.5">
             <Button
@@ -424,7 +428,7 @@ export default function EmployeeTable() {
             >
               Prev
             </Button>
-            <span className="px-2.5 py-1 text-xs font-mono text-grafana-neutral">
+            <span className="px-2.5 py-1 text-xs font-mono text-slate-500">
               Page {page} / {data.pages}
             </span>
             <Button

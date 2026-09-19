@@ -68,13 +68,15 @@ async def list_employees(
         )
 
         if search:
+            clean_search = search.strip().lstrip("#").upper().replace("EMP-", "").strip()
             pattern = f"%{search}%"
-            query = query.where(
-                or_(
-                    EmployeeDirectoryView.full_name.ilike(pattern),
-                    EmployeeDirectoryView.email.ilike(pattern),
-                )
-            )
+            conditions = [
+                EmployeeDirectoryView.full_name.ilike(pattern),
+                EmployeeDirectoryView.email.ilike(pattern),
+            ]
+            if clean_search.isdigit():
+                conditions.append(EmployeeDirectoryView.employee_id == int(clean_search))
+            query = query.where(or_(*conditions))
 
         count_query = select(func.count()).select_from(query.subquery())
         total = await session.scalar(count_query) or 0
@@ -128,13 +130,15 @@ async def list_employees(
 
     # Search filter
     if search:
+        clean_search = search.strip().lstrip("#").upper().replace("EMP-", "").strip()
         pattern = f"%{search}%"
-        query = query.where(
-            or_(
-                Employee.full_name.ilike(pattern),
-                Employee.email.ilike(pattern),
-            )
-        )
+        conditions = [
+            Employee.full_name.ilike(pattern),
+            Employee.email.ilike(pattern),
+        ]
+        if clean_search.isdigit():
+            conditions.append(Employee.employee_id == int(clean_search))
+        query = query.where(or_(*conditions))
 
     # Total count
     count_query = select(func.count()).select_from(query.subquery())

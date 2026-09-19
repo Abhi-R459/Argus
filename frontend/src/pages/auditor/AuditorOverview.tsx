@@ -72,7 +72,7 @@ export default function AuditorOverview() {
       </div>
 
       {/* Main content: Chain view + suspicious flags */}
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 items-start">
         {/* Chain visualization — 2/3 width */}
         <div className="xl:col-span-2 min-w-0 space-y-2 animate-fade-cascade stagger-4">
           <div className="flex items-center justify-between px-1">
@@ -97,17 +97,22 @@ export default function AuditorOverview() {
           )}
         </div>
 
-        {/* Suspicious flags link panel — 1/3 */}
-        <div className="animate-fade-cascade stagger-5 bg-linear-surface-1 border border-linear-hairline rounded-2xl overflow-hidden flex flex-col justify-center items-center p-8 text-center relative group shadow-sm">
-          <div className="absolute inset-0 bg-gradient-to-br from-linear-primary/5 to-transparent pointer-events-none" />
-          <AlertTriangle className="w-12 h-12 text-linear-primary/80 mb-4 group-hover:text-linear-primary transition-colors duration-150" />
-          <h3 className="text-lg font-semibold text-linear-ink">Activity & Risk</h3>
-          <p className="text-sm text-linear-ink-subtle mt-2 mb-6">
-            Review automatically flagged events and compliance violations.
+        {/* Suspicious flags link panel — 1/3 viewport anchored */}
+        <div className="animate-fade-cascade stagger-5 bg-linear-surface-1 border border-linear-hairline hover:border-linear-hairline-strong rounded-2xl overflow-hidden flex flex-col items-center p-8 text-center relative group shadow-sm xl:sticky xl:top-6 self-start transition-all duration-200">
+          <div className="absolute inset-0 bg-gradient-to-br from-linear-primary/5 via-transparent to-transparent pointer-events-none" />
+          <div className="w-14 h-14 rounded-2xl bg-linear-surface-2 border border-linear-hairline flex items-center justify-center mb-5 group-hover:border-linear-primary/40 transition-colors duration-200">
+            <AlertTriangle className="w-7 h-7 text-linear-primary/80 group-hover:text-linear-primary transition-colors duration-150" />
+          </div>
+          <span className="text-[10px] font-mono uppercase tracking-widest text-linear-primary font-semibold mb-1">
+            Forensic Incident Queue
+          </span>
+          <h3 className="text-lg font-semibold text-linear-ink tracking-tight">Activity & Risk Engine</h3>
+          <p className="text-sm text-linear-ink-subtle mt-2 mb-6 max-w-xs leading-relaxed">
+            Review trigger-flagged events, unauthorized mutations, and automated compliance alerts.
           </p>
           <Link
             to="/auditor/activity"
-            className="inline-flex items-center space-x-2 bg-linear-primary hover:bg-linear-primary-hover text-white font-medium px-5 py-2.5 rounded-xl transition-colors duration-150 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-linear-primary focus-visible:ring-offset-2 focus-visible:ring-offset-linear-canvas active:scale-[0.985]"
+            className="w-full inline-flex items-center justify-center space-x-2 bg-linear-primary hover:bg-linear-primary-hover text-white font-medium px-5 py-2.5 rounded-xl transition-all duration-150 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-linear-primary focus-visible:ring-offset-2 focus-visible:ring-offset-linear-canvas active:scale-[0.985]"
           >
             <span>Open Risk Panel</span>
             <ArrowRight className="w-4 h-4" />

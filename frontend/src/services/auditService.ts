@@ -504,8 +504,11 @@ export async function fetchRoles(
 export async function fetchEmployees(
   getToken: () => Promise<string | null>,
   limit: number = 100,
+  search?: string,
+  page: number = 1,
 ): Promise<{ items: EmployeeListItem[]; total: number }> {
-  return fetchWithAuth(`/employees?limit=${limit}`, {}, getToken);
+  const searchParam = search ? `&search=${encodeURIComponent(search)}` : '';
+  return fetchWithAuth(`/employees?limit=${limit}&page=${page}${searchParam}`, {}, getToken);
 }
 
 export interface UserProfile {

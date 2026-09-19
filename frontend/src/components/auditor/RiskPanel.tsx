@@ -145,15 +145,10 @@ export default function RiskPanel() {
                       {flag.flag_reason}
                     </p>
                     <div className="mt-3 flex items-center space-x-3 text-xs">
-                      <Link
-                        to={`/auditor/chain?seq=${flag.audit_log_sequence_id}`}
-                        className="btn-press-sm text-linear-ink-muted hover:text-linear-primary flex items-center bg-linear-canvas hover:bg-linear-surface-2 px-2.5 py-1 rounded-md border border-linear-hairline transition-colors duration-150 group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-linear-primary"
-                        title="Inspect Block in Chain Explorer"
-                      >
-                        <span>Audit Seq:</span>
-                        <span className="font-mono text-linear-primary group-hover:underline ml-1">#{flag.audit_log_sequence_id}</span>
-                        <ArrowUpRight className="w-3 h-3 ml-1 text-linear-ink-subtle group-hover:text-linear-primary transition-transform duration-150" />
-                      </Link>
+                      <span className="inline-flex items-center space-x-1.5 bg-linear-surface-2 px-2.5 py-1 rounded-md border border-linear-hairline text-linear-ink-muted text-xs">
+                        <span className="text-linear-ink-subtle">Audit Seq:</span>
+                        <span className="font-mono font-semibold text-linear-ink">#{flag.audit_log_sequence_id}</span>
+                      </span>
                       {flag.reviewed_at && (
                         <span className="text-linear-success/80 flex items-center">
                           <CheckCircle2 className="w-3.5 h-3.5 mr-1" />

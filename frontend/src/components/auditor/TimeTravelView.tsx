@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import { useAuth } from '@clerk/clerk-react';
 import { useQuery } from '@tanstack/react-query';
@@ -12,7 +12,7 @@ import {
   GitCommit,
   ArrowRight,
   ExternalLink,
-  Users,
+  X,
 } from 'lucide-react';
 import {
   fetchTimeTravelState,
@@ -32,20 +32,56 @@ export default function TimeTravelView() {
   const [timeInput, setTimeInput] = useState('');
   const [queryParams, setQueryParams] = useState<{ id: number; timestamp: string } | null>(null);
 
-  // ── Fetch Employee Directory for the Dropdown Selector ─────────────────────
+  // ── Autocomplete Search State ───────────────────────────────────────────────
+  const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const searchContainerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedSearchQuery(searchQuery);
+    }, 250);
+    return () => clearTimeout(handler);
+  }, [searchQuery]);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (searchContainerRef.current && !searchContainerRef.current.contains(event.target as Node)) {
+        setIsDropdownOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const parsedEmpId = parseInt(employeeIdInput, 10);
+  const isValidEmpId = !isNaN(parsedEmpId) && parsedEmpId > 0;
+
+  // ── Live Autocomplete Employee Search (Scales to 10,000s) ───────────────────
   const {
-    data: employeeData,
-    isLoading: isEmployeesLoading,
-    isError: isEmployeesError,
+    data: searchResultsData,
+    isLoading: isSearchLoading,
   } = useQuery({
-    queryKey: ['employeesDirectory'],
-    queryFn: () => fetchEmployees(getToken, 100),
+    queryKey: ['employeesSearch', debouncedSearchQuery],
+    queryFn: () => fetchEmployees(getToken, 10, debouncedSearchQuery || undefined),
+    enabled: isDropdownOpen,
+    staleTime: 30000,
+  });
+
+  const searchResults: EmployeeListItem[] = searchResultsData?.items || [];
+
+  // ── Fetch Targeted Details for Currently Selected Employee ───────────────────
+  const { data: selectedEmpData } = useQuery({
+    queryKey: ['employeeDetail', parsedEmpId],
+    queryFn: () => fetchEmployees(getToken, 1, String(parsedEmpId)),
+    enabled: isValidEmpId,
     staleTime: 60000,
   });
 
-  const employees: EmployeeListItem[] = employeeData?.items || [];
-  const parsedEmpId = parseInt(employeeIdInput, 10);
-  const isValidEmpId = !isNaN(parsedEmpId) && parsedEmpId > 0;
+  const selectedEmployee: EmployeeListItem | undefined =
+    selectedEmpData?.items?.find((e) => e.employee_id === parsedEmpId) ||
+    searchResults.find((e) => e.employee_id === parsedEmpId);
 
   // ── Fetch Recent Audit Mutation Timeline for Selected Employee ─────────────
   const { data: employeeLogsData, isLoading: isLogsLoading } = useQuery({
@@ -145,26 +181,6 @@ export default function TimeTravelView() {
     }
   };
 
-  const handleManualIdChange = (idStr: string) => {
-    setEmployeeIdInput(idStr);
-    if (!idStr) return;
-    const id = parseInt(idStr, 10);
-    if (!isNaN(id) && id > 0) {
-      let curDate = dateInput;
-      let curTime = timeInput;
-      if (!curDate || !curTime) {
-        const now = new Date();
-        curDate = now.toISOString().split('T')[0];
-        curTime = now.toISOString().split('T')[1].substring(0, 5);
-        setDateInput(curDate);
-        setTimeInput(curTime);
-      }
-      const timestamp = `${curDate}T${curTime}:00Z`;
-      setQueryParams({ id, timestamp });
-      setSearchParams({ emp_id: idStr, as_of: timestamp });
-    }
-  };
-
   const handleJumpToMutation = (createdAt: string) => {
     try {
       const d = new Date(createdAt);
@@ -186,7 +202,6 @@ export default function TimeTravelView() {
     }
   };
 
-  const selectedEmployee = employees.find((e) => e.employee_id === parsedEmpId);
 
   return (
     <div className="space-y-6 animate-fade-cascade">
@@ -212,120 +227,203 @@ export default function TimeTravelView() {
           Select an employee below or choose a historical event directly from the mutation timeline.
         </p>
 
-        <form onSubmit={handleSearch} className="space-y-4 max-w-4xl relative z-10">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <form onSubmit={handleSearch} className="space-y-4 max-w-5xl relative z-10">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-4 items-end">
             
-            {/* Employee Selector Dropdown */}
-            <div>
+            {/* Employee Selector Autocomplete Combobox */}
+            <div ref={searchContainerRef} className="sm:col-span-2 lg:col-span-5 relative">
               <label className="block text-xs font-medium text-linear-ink-muted mb-1 flex items-center justify-between">
                 <span>Select Employee</span>
                 {selectedEmployee && (
-                  <span className="text-[11px] text-linear-success font-mono">
+                  <span className={`text-[11px] font-mono ${selectedEmployee.is_active ? 'text-emerald-400' : 'text-amber-400'}`}>
                     #{selectedEmployee.employee_id} {selectedEmployee.is_active ? 'Active' : 'Inactive'}
                   </span>
                 )}
               </label>
-              <div className="relative">
-                <Users className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-linear-ink-subtle pointer-events-none" />
-                <select
-                  value={employeeIdInput}
-                  onChange={(e) => handleSelectEmployee(e.target.value)}
-                  disabled={isEmployeesLoading}
-                  className="w-full bg-linear-canvas border border-linear-hairline rounded-xl py-2 pl-10 pr-8 text-sm text-linear-ink focus:outline-none focus:border-linear-primary focus:ring-1 focus:ring-linear-primary appearance-none cursor-pointer transition-colors duration-150 disabled:opacity-60"
-                >
-                  {isEmployeesLoading ? (
-                    <option value="">Loading employee directory...</option>
-                  ) : isEmployeesError ? (
-                    <option value="">Error loading directory — enter ID manually</option>
-                  ) : (
-                    <>
-                      <option value="">-- Choose Employee ({employees.length} available) --</option>
-                      {employees.map((emp) => (
-                        <option key={emp.employee_id} value={emp.employee_id}>
-                          {emp.full_name} (#{emp.employee_id}) — {emp.role_title}
-                        </option>
-                      ))}
-                    </>
-                  )}
-                </select>
-                <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-linear-ink-subtle text-xs">
-                  ▼
+
+              {isValidEmpId && !isDropdownOpen ? (
+                <div className="w-full bg-linear-canvas border border-linear-hairline hover:border-linear-primary/50 rounded-xl p-2 px-3 flex items-center justify-between transition-colors min-h-[42px]">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="w-7 h-7 rounded-lg bg-linear-primary/10 border border-linear-primary/30 flex items-center justify-center text-linear-primary font-bold text-xs shrink-0">
+                      {selectedEmployee ? selectedEmployee.full_name.split(' ').map((n) => n[0]).join('').slice(0, 2) : `#${parsedEmpId}`}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-semibold text-xs text-linear-ink truncate">
+                          {selectedEmployee ? selectedEmployee.full_name : `Employee #${parsedEmpId}`}
+                        </span>
+                        <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-linear-surface-2 text-linear-ink-muted shrink-0">
+                          #EMP-{String(parsedEmpId).padStart(4, '0')}
+                        </span>
+                      </div>
+                      {selectedEmployee && (
+                        <p className="text-[11px] text-linear-ink-muted truncate">
+                          {selectedEmployee.role_title} · {selectedEmployee.department_name}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsDropdownOpen(true);
+                      setSearchQuery('');
+                    }}
+                    className="ml-2 text-xs text-linear-primary hover:text-linear-primary-hover font-medium px-2 py-1 rounded-md hover:bg-linear-primary/10 transition-colors shrink-0"
+                  >
+                    Change
+                  </button>
                 </div>
-              </div>
+              ) : (
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-linear-ink-subtle pointer-events-none" />
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => {
+                      setSearchQuery(e.target.value);
+                      if (!isDropdownOpen) setIsDropdownOpen(true);
+                    }}
+                    onFocus={() => setIsDropdownOpen(true)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Escape') setIsDropdownOpen(false);
+                    }}
+                    placeholder="Search name, email, or #ID (e.g. Marcus, #1)..."
+                    className="w-full bg-linear-canvas border border-linear-hairline focus:border-linear-primary rounded-xl py-2 pl-9 pr-8 text-sm text-linear-ink focus:outline-none focus:ring-1 focus:ring-linear-primary transition-colors h-[42px]"
+                    autoFocus={isDropdownOpen && isValidEmpId}
+                  />
+                  {searchQuery ? (
+                    <button
+                      type="button"
+                      onClick={() => setSearchQuery('')}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-linear-ink-subtle hover:text-linear-ink p-1 rounded"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  ) : isValidEmpId && (
+                    <button
+                      type="button"
+                      onClick={() => setIsDropdownOpen(false)}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-linear-ink-muted hover:text-linear-ink px-1"
+                    >
+                      Cancel
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {/* Floating Match Dropdown */}
+              {isDropdownOpen && (
+                <div className="absolute left-0 right-0 top-full mt-1.5 z-50 bg-linear-surface-1 border border-linear-hairline rounded-xl shadow-xl overflow-hidden max-h-72 overflow-y-auto">
+                  {isSearchLoading ? (
+                    <div className="p-4 text-center text-xs text-linear-ink-muted flex items-center justify-center gap-2">
+                      <div className="w-3.5 h-3.5 border-2 border-linear-primary border-t-transparent rounded-full animate-spin" />
+                      Searching workforce directory...
+                    </div>
+                  ) : searchResults.length === 0 ? (
+                    <div className="p-4 text-center text-xs text-linear-ink-muted">
+                      No employees found matching <strong className="text-linear-ink font-mono">"{debouncedSearchQuery || '...'}"</strong>
+                    </div>
+                  ) : (
+                    <div className="py-1 divide-y divide-linear-hairline/40">
+                      <div className="px-3 py-1.5 text-[10px] font-mono text-linear-ink-subtle uppercase tracking-wider bg-linear-surface-2/50 flex justify-between">
+                        <span>Matching Personnel ({searchResults.length})</span>
+                        <span>ESC to close</span>
+                      </div>
+                      {searchResults.map((emp) => (
+                        <div
+                          key={emp.employee_id}
+                          onClick={() => {
+                            handleSelectEmployee(String(emp.employee_id));
+                            setIsDropdownOpen(false);
+                            setSearchQuery('');
+                          }}
+                          className="p-2.5 px-3 hover:bg-linear-surface-2 cursor-pointer flex items-center justify-between group transition-colors"
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <div className="w-6 h-6 rounded-md bg-linear-primary/10 border border-linear-primary/20 flex items-center justify-center text-linear-primary text-[10px] font-bold shrink-0">
+                              {emp.full_name.split(' ').map((n) => n[0]).join('').slice(0, 2)}
+                            </div>
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-xs font-semibold text-linear-ink group-hover:text-linear-primary truncate transition-colors">
+                                  {emp.full_name}
+                                </span>
+                                <span className="text-[10px] font-mono text-linear-ink-muted">
+                                  #{emp.employee_id}
+                                </span>
+                              </div>
+                              <p className="text-[11px] text-linear-ink-muted truncate">
+                                {emp.role_title} · {emp.department_name}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0 ml-2">
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                              emp.is_active ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'
+                            }`}>
+                              {emp.is_active ? 'Active' : 'Inactive'}
+                            </span>
+                            <ArrowRight className="w-3.5 h-3.5 text-linear-ink-subtle group-hover:text-linear-primary transition-transform group-hover:translate-x-0.5" />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Target Date Input */}
-            <div>
+            <div className="lg:col-span-3">
               <label className="block text-xs font-medium text-linear-ink-muted mb-1">Target Date (UTC)</label>
               <input
                 type="date"
                 required
                 value={dateInput}
                 onChange={(e) => setDateInput(e.target.value)}
-                className="w-full bg-linear-canvas border border-linear-hairline rounded-xl py-2 px-4 text-sm text-linear-ink focus:outline-none focus:border-linear-primary focus:ring-1 focus:ring-linear-primary transition-colors duration-150 font-mono"
+                className="w-full bg-linear-canvas border border-linear-hairline rounded-xl py-2 px-3 text-xs text-linear-ink focus:outline-none focus:border-linear-primary focus:ring-1 focus:ring-linear-primary transition-colors duration-150 font-mono h-[42px]"
               />
             </div>
 
-            {/* Target Time Input & Submit */}
-            <div className="flex gap-2">
-              <div className="flex-1">
-                <div className="flex items-center justify-between mb-1">
-                  <label className="block text-xs font-medium text-linear-ink-muted">Target Time (UTC)</label>
-                  <Button
-                    type="button"
-                    variant="link"
-                    size="xs"
-                    portalTheme="auditor"
-                    onClick={handleSetToNow}
-                    title="Set target timestamp to current UTC"
-                    className="text-[11px] text-linear-primary hover:text-linear-primary/80 font-mono"
-                  >
-                    Set to Now
-                  </Button>
-                </div>
-                <input
-                  type="time"
-                  required
-                  value={timeInput}
-                  onChange={(e) => setTimeInput(e.target.value)}
-                  className="w-full bg-linear-canvas border border-linear-hairline rounded-xl py-2 px-4 text-sm text-linear-ink focus:outline-none focus:border-linear-primary focus:ring-1 focus:ring-linear-primary transition-colors duration-150 font-mono"
-                />
-              </div>
-
-              <div className="flex items-end">
-                <Button
-                  type="submit"
-                  disabled={isLoading}
-                  loading={isLoading}
-                  variant="primary"
-                  size="lg"
-                  portalTheme="auditor"
-                  leftIcon={<Search className="w-4 h-4" />}
-                  className="h-[38px] px-5 rounded-xl font-medium"
+            {/* Target Time Input with Set to Now */}
+            <div className="lg:col-span-2">
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-xs font-medium text-linear-ink-muted">Time (UTC)</label>
+                <button
+                  type="button"
+                  onClick={handleSetToNow}
+                  title="Set target timestamp to current UTC"
+                  className="text-[11px] text-linear-primary hover:text-linear-primary-hover font-mono hover:underline focus-visible:outline-none"
                 >
-                  Reconstruct
-                </Button>
+                  Set Now
+                </button>
               </div>
+              <input
+                type="time"
+                required
+                value={timeInput}
+                onChange={(e) => setTimeInput(e.target.value)}
+                className="w-full bg-linear-canvas border border-linear-hairline rounded-xl py-2 px-3 text-xs text-linear-ink focus:outline-none focus:border-linear-primary focus:ring-1 focus:ring-linear-primary transition-colors duration-150 font-mono h-[42px]"
+              />
             </div>
 
-          </div>
+            {/* Submit Button */}
+            <div className="sm:col-span-2 lg:col-span-2">
+              <Button
+                type="submit"
+                disabled={isLoading}
+                loading={isLoading}
+                variant="primary"
+                size="md"
+                portalTheme="auditor"
+                leftIcon={<Search className="w-3.5 h-3.5" />}
+                className="w-full h-[42px] rounded-xl font-medium text-xs"
+              >
+                Reconstruct
+              </Button>
+            </div>
 
-          {/* Quick manual ID override option */}
-          <div className="flex items-center space-x-3 text-xs text-linear-ink-subtle">
-            <span>Or enter ID manually:</span>
-            <input
-              type="number"
-              min="1"
-              placeholder="e.g. 13"
-              value={employeeIdInput}
-              onChange={(e) => handleManualIdChange(e.target.value)}
-              className="w-20 bg-linear-canvas border border-linear-hairline rounded px-2 py-1 text-xs text-linear-ink font-mono focus:outline-none focus:border-linear-primary"
-            />
-            {selectedEmployee && (
-              <span className="text-linear-ink-muted">
-                Loaded: <strong className="text-linear-ink">{selectedEmployee.full_name}</strong> ({selectedEmployee.department_name})
-              </span>
-            )}
           </div>
         </form>
       </div>

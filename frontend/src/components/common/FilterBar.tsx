@@ -29,12 +29,12 @@ export function FilterBar({
   const bgClasses =
     portalTheme === 'auditor'
       ? 'bg-linear-surface-1 border border-linear-hairline text-linear-ink'
-      : 'bg-white border border-grafana-border text-grafana-ink';
+      : 'bg-white border border-slate-200/80 text-slate-900';
 
 
   return (
     <div
-      className={`p-3 rounded-xl flex flex-col gap-2.5 shadow-sm ${bgClasses} ${className}`}
+      className={`p-3 rounded-2xl flex flex-col gap-2.5 shadow-xs ${bgClasses} ${className}`}
       {...props}
     >
       {children && (
@@ -47,7 +47,7 @@ export function FilterBar({
         <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-inherit/40">
           <span
             className={`text-xs ${
-              portalTheme === 'auditor' ? 'text-linear-ink-muted' : 'text-grafana-neutral'
+              portalTheme === 'auditor' ? 'text-linear-ink-muted' : 'text-slate-500'
             }`}
           >
             Active filters:
