@@ -159,10 +159,18 @@ export default function EmployeeTable() {
             <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
               ref={searchInputRef}
+              id="hr-employee-directory-search"
+              name="search"
               type="text"
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="off"
+              spellCheck={false}
+              data-lpignore="true"
+              data-form-type="other"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search personnel by name or email... (/)"
+              placeholder="Search personnel directory by name or ID... (/)"
               className="w-full pl-9 pr-7 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-slate-900 focus:ring-4 focus:ring-slate-900/5 transition-all shadow-2xs"
             />
             {search && (

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import { useAuth } from '@clerk/clerk-react';
 import { useQuery } from '@tanstack/react-query';
@@ -7,12 +7,14 @@ import {
   Search,
   CalendarClock,
   CheckCircle2,
-  XCircle,
   Clock,
   GitCommit,
   ArrowRight,
   ExternalLink,
   X,
+  AlertTriangle,
+  RotateCcw,
+  Sparkles,
 } from 'lucide-react';
 import {
   fetchTimeTravelState,
@@ -25,6 +27,30 @@ import Button from '../common/Button';
 import { formatINR } from '../../lib/format';
 import { getActionSemantic } from '../../lib/semantics';
 import { EmptyState } from '../common/EmptyState';
+
+/**
+ * Formats a clean ISO UTC timestamp from date & time input strings with sub-second ceiling.
+ * - If user enters HH:mm (e.g. 17:21), ceiling to 17:21:59.999Z so mutations during that minute are captured.
+ * - If user enters HH:mm:ss (e.g. 17:21:23), ceiling to 17:21:23.999Z so microsecond-stamped mutations within that second are captured.
+ * - If user provides an exact ISO string or timestamp with milliseconds, returns it cleanly.
+ */
+function buildTargetTimestamp(dateStr: string, timeStr: string): string {
+  const cleanTime = timeStr.trim();
+  if (/^\d{2}:\d{2}$/.test(cleanTime)) {
+    return `${dateStr}T${cleanTime}:59.999Z`;
+  }
+  if (/^\d{2}:\d{2}:\d{2}$/.test(cleanTime)) {
+    return `${dateStr}T${cleanTime}.999Z`;
+  }
+  if (/^\d{2}:\d{2}:\d{2}\.\d+/.test(cleanTime)) {
+    const withoutZ = cleanTime.replace(/Z$/i, '');
+    return `${dateStr}T${withoutZ}Z`;
+  }
+  if (cleanTime.includes('T')) {
+    return cleanTime;
+  }
+  return `${dateStr}T${cleanTime}Z`;
+}
 
 export default function TimeTravelView() {
   const { getToken } = useAuth();
@@ -51,7 +77,7 @@ export default function TimeTravelView() {
 
   useEffect(() => {
     setActiveOptionIndex(-1);
-  }, [debouncedSearchQuery, isDropdownOpen]);
+  }, [searchQuery, isDropdownOpen]);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -66,18 +92,62 @@ export default function TimeTravelView() {
   const parsedEmpId = parseInt(employeeIdInput, 10);
   const isValidEmpId = !isNaN(parsedEmpId) && parsedEmpId > 0;
 
-  // ── Live Autocomplete Employee Search (Scales to 10,000s) ───────────────────
+  // ── Preloaded Directory for Instant Typeahead Matching (0ms Latency) ────────
+  const {
+    data: directoryData,
+    isLoading: isDirectoryLoading,
+  } = useQuery({
+    queryKey: ['timeTravelDirectory'],
+    queryFn: () => fetchEmployees(getToken, 100),
+    staleTime: 60000,
+  });
+
+  const directoryEmployees: EmployeeListItem[] = directoryData?.items || [];
+
+  // ── Fallback Dynamic Server Search Query (for directories > 100) ────────────
   const {
     data: searchResultsData,
-    isLoading: isSearchLoading,
   } = useQuery({
     queryKey: ['employeesSearch', debouncedSearchQuery],
-    queryFn: () => fetchEmployees(getToken, 10, debouncedSearchQuery || undefined),
-    enabled: isDropdownOpen,
+    queryFn: () => fetchEmployees(getToken, 20, debouncedSearchQuery || undefined),
+    enabled: isDropdownOpen && debouncedSearchQuery.trim().length > 0,
     staleTime: 30000,
   });
 
-  const searchResults: EmployeeListItem[] = searchResultsData?.items || [];
+  // ── Synchronous Typeahead Matching (Filters Instantly While Typing) ──────────
+  const matchingEmployees: EmployeeListItem[] = useMemo(() => {
+    const q = searchQuery.trim();
+    if (!q) {
+      return directoryEmployees.slice(0, 10);
+    }
+
+    const qLower = q.toLowerCase();
+    const cleanNumStr = q.replace(/^#/, '').replace(/^emp-?/i, '').trim();
+    const isNum = /^\d+$/.test(cleanNumStr);
+    const numVal = isNum ? parseInt(cleanNumStr, 10) : null;
+
+    // 1. Filter preloaded directory in memory immediately
+    const inMemoryMatches = directoryEmployees.filter((emp) => {
+      if (numVal !== null && emp.employee_id === numVal) return true;
+      if (cleanNumStr && String(emp.employee_id).includes(cleanNumStr)) return true;
+      if (emp.full_name.toLowerCase().includes(qLower)) return true;
+      if (emp.email.toLowerCase().includes(qLower)) return true;
+      if (emp.role_title.toLowerCase().includes(qLower)) return true;
+      if (emp.department_name.toLowerCase().includes(qLower)) return true;
+      return false;
+    });
+
+    if (inMemoryMatches.length > 0) {
+      return inMemoryMatches.slice(0, 10);
+    }
+
+    // 2. Fallback to server search results if no in-memory matches
+    if (searchResultsData?.items && searchResultsData.items.length > 0) {
+      return searchResultsData.items.slice(0, 10);
+    }
+
+    return [];
+  }, [searchQuery, directoryEmployees, searchResultsData]);
 
   // ── Fetch Targeted Details for Currently Selected Employee ───────────────────
   const { data: selectedEmpData } = useQuery({
@@ -89,17 +159,28 @@ export default function TimeTravelView() {
 
   const selectedEmployee: EmployeeListItem | undefined =
     selectedEmpData?.items?.find((e) => e.employee_id === parsedEmpId) ||
-    searchResults.find((e) => e.employee_id === parsedEmpId);
+    directoryEmployees.find((e) => e.employee_id === parsedEmpId) ||
+    matchingEmployees.find((e) => e.employee_id === parsedEmpId);
 
   // ── Fetch Recent Audit Mutation Timeline for Selected Employee ─────────────
   const { data: employeeLogsData, isLoading: isLogsLoading } = useQuery({
     queryKey: ['employeeAuditLogs', parsedEmpId],
-    queryFn: () => fetchAuditLogs({ employee_id: parsedEmpId, limit: 10 }, getToken),
+    queryFn: () => fetchAuditLogs({ employee_id: parsedEmpId, limit: 50 }, getToken),
     enabled: isValidEmpId,
     staleTime: 15000,
   });
 
   const employeeLogs: AuditLogItem[] = employeeLogsData?.items || [];
+
+  const latestMutation = useMemo(() => {
+    return employeeLogs.length > 0 ? employeeLogs[0] : null;
+  }, [employeeLogs]);
+
+  const initialMutation = useMemo(() => {
+    if (employeeLogs.length === 0) return null;
+    const insertLog = employeeLogs.find((l) => l.action.toUpperCase() === 'INSERT');
+    return insertLog || employeeLogs[employeeLogs.length - 1];
+  }, [employeeLogs]);
 
   // ── Parse URL Search Parameters on Mount / URL Changes ──────────────────────
   useEffect(() => {
@@ -116,7 +197,7 @@ export default function TimeTravelView() {
         if (!isNaN(d.getTime())) {
           setDateInput(d.toISOString().split('T')[0]);
           const timePart = d.toISOString().split('T')[1];
-          setTimeInput(timePart ? timePart.substring(0, 5) : '12:00');
+          setTimeInput(timePart ? timePart.substring(0, 8) : '12:00:00');
         }
       } catch {
         // Ignore date parsing failure
@@ -147,7 +228,7 @@ export default function TimeTravelView() {
     e.preventDefault();
     if (!employeeIdInput || !dateInput || !timeInput) return;
 
-    const timestamp = `${dateInput}T${timeInput}:00Z`;
+    const timestamp = buildTargetTimestamp(dateInput, timeInput);
     const id = parseInt(employeeIdInput, 10);
     setQueryParams({ id, timestamp });
     setSearchParams({ emp_id: String(id), as_of: timestamp });
@@ -158,18 +239,15 @@ export default function TimeTravelView() {
     if (!idStr) return;
     const id = parseInt(idStr, 10);
 
-    // Auto-populate date & time with current UTC if blank
-    let curDate = dateInput;
-    let curTime = timeInput;
-    if (!curDate || !curTime) {
-      const now = new Date();
-      curDate = now.toISOString().split('T')[0];
-      curTime = now.toISOString().split('T')[1].substring(0, 5);
-      setDateInput(curDate);
-      setTimeInput(curTime);
-    }
+    // Default to current UTC time so any selected employee immediately reconstructs successfully
+    const now = new Date();
+    const curDate = now.toISOString().split('T')[0];
+    const timePart = now.toISOString().split('T')[1];
+    const curTime = timePart.substring(0, 8); // HH:mm:ss
+    setDateInput(curDate);
+    setTimeInput(curTime);
 
-    const timestamp = `${curDate}T${curTime}:00Z`;
+    const timestamp = now.toISOString();
     setQueryParams({ id, timestamp });
     setSearchParams({ emp_id: idStr, as_of: timestamp });
   };
@@ -177,13 +255,14 @@ export default function TimeTravelView() {
   const handleSetToNow = () => {
     const now = new Date();
     const curDate = now.toISOString().split('T')[0];
-    const curTime = now.toISOString().split('T')[1].substring(0, 5);
+    const timePart = now.toISOString().split('T')[1];
+    const curTime = timePart.substring(0, 8); // HH:mm:ss
     setDateInput(curDate);
     setTimeInput(curTime);
 
     const id = parseInt(employeeIdInput, 10);
     if (!isNaN(id) && id > 0) {
-      const timestamp = `${curDate}T${curTime}:00Z`;
+      const timestamp = now.toISOString();
       setQueryParams({ id, timestamp });
       setSearchParams({ emp_id: String(id), as_of: timestamp });
     }
@@ -194,13 +273,14 @@ export default function TimeTravelView() {
       const d = new Date(createdAt);
       if (!isNaN(d.getTime())) {
         const dateStr = d.toISOString().split('T')[0];
-        const timePart = d.toISOString().split('T')[1] || '12:00:00Z';
-        const timeStr = timePart.substring(0, 5);
+        const timePart = d.toISOString().split('T')[1] || '12:00:00.000Z';
+        const timeStr = timePart.substring(0, 8);
         setDateInput(dateStr);
         setTimeInput(timeStr);
 
         const id = parseInt(employeeIdInput, 10);
         if (!isNaN(id) && id > 0) {
+          // Keep the exact microsecond timestamp from the ledger
           setQueryParams({ id, timestamp: createdAt });
           setSearchParams({ emp_id: String(id), as_of: createdAt });
         }
@@ -214,9 +294,12 @@ export default function TimeTravelView() {
   return (
     <div className="space-y-6 animate-fade-cascade">
       {/* Header & Controls */}
-      <div className="bg-linear-surface-1 border border-linear-hairline rounded-2xl p-6 shadow-xs relative overflow-hidden">
-        <div className="absolute top-0 right-0 p-8 opacity-5">
-          <History className="w-32 h-32" />
+      <div className="bg-linear-surface-1 border border-linear-hairline rounded-2xl p-6 shadow-xs relative z-20">
+        {/* Dedicated overflow container for the watermark icon so dropdown menus are never clipped */}
+        <div className="absolute inset-0 rounded-2xl overflow-hidden pointer-events-none" aria-hidden="true">
+          <div className="absolute top-0 right-0 p-8 opacity-5">
+            <History className="w-32 h-32" />
+          </div>
         </div>
 
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-2">
@@ -235,11 +318,11 @@ export default function TimeTravelView() {
           Select an employee below or choose a historical event directly from the mutation timeline.
         </p>
 
-        <form onSubmit={handleSearch} className="space-y-4 max-w-5xl relative z-10">
+        <form onSubmit={handleSearch} autoComplete="off" className="space-y-4 max-w-5xl relative z-10">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-4 items-end">
             
             {/* Employee Selector Autocomplete Combobox */}
-            <div ref={searchContainerRef} className="sm:col-span-2 lg:col-span-5 relative">
+            <div ref={searchContainerRef} className="sm:col-span-2 lg:col-span-5 relative z-30">
               <div className="flex items-center justify-between h-5 mb-1.5">
                 <label className="block text-xs font-medium text-linear-ink-muted">Select Employee</label>
                 {selectedEmployee && (
@@ -286,14 +369,23 @@ export default function TimeTravelView() {
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-linear-ink-subtle pointer-events-none" />
                   <input
+                    id="timetravel-employee-search"
+                    name="search"
                     type="text"
                     role="combobox"
+                    autoComplete="off"
+                    autoCorrect="off"
+                    autoCapitalize="off"
+                    spellCheck={false}
+                    data-lpignore="true"
+                    data-form-type="other"
+                    data-1p-ignore="true"
                     aria-expanded={isDropdownOpen}
                     aria-autocomplete="list"
                     aria-controls="employee-search-listbox"
                     aria-activedescendant={
-                      activeOptionIndex >= 0 && searchResults[activeOptionIndex]
-                        ? `employee-option-${searchResults[activeOptionIndex].employee_id}`
+                      activeOptionIndex >= 0 && matchingEmployees[activeOptionIndex]
+                        ? `employee-option-${matchingEmployees[activeOptionIndex].employee_id}`
                         : undefined
                     }
                     value={searchQuery}
@@ -310,24 +402,30 @@ export default function TimeTravelView() {
                         e.preventDefault();
                         if (!isDropdownOpen) {
                           setIsDropdownOpen(true);
-                        } else if (searchResults.length > 0) {
-                          setActiveOptionIndex((prev) => (prev < searchResults.length - 1 ? prev + 1 : 0));
+                        } else if (matchingEmployees.length > 0) {
+                          setActiveOptionIndex((prev) => (prev < matchingEmployees.length - 1 ? prev + 1 : 0));
                         }
                       } else if (e.key === 'ArrowUp') {
                         e.preventDefault();
-                        if (isDropdownOpen && searchResults.length > 0) {
-                          setActiveOptionIndex((prev) => (prev > 0 ? prev - 1 : searchResults.length - 1));
+                        if (isDropdownOpen && matchingEmployees.length > 0) {
+                          setActiveOptionIndex((prev) => (prev > 0 ? prev - 1 : matchingEmployees.length - 1));
                         }
                       } else if (e.key === 'Enter') {
-                        if (isDropdownOpen && activeOptionIndex >= 0 && activeOptionIndex < searchResults.length) {
+                        if (isDropdownOpen) {
                           e.preventDefault();
-                          handleSelectEmployee(String(searchResults[activeOptionIndex].employee_id));
-                          setIsDropdownOpen(false);
-                          setSearchQuery('');
+                          const targetEmp =
+                            activeOptionIndex >= 0 && activeOptionIndex < matchingEmployees.length
+                              ? matchingEmployees[activeOptionIndex]
+                              : matchingEmployees[0];
+                          if (targetEmp) {
+                            handleSelectEmployee(String(targetEmp.employee_id));
+                            setIsDropdownOpen(false);
+                            setSearchQuery('');
+                          }
                         }
                       }
                     }}
-                    placeholder="Search name, email, or #ID (e.g. Marcus, #1)..."
+                    placeholder="Search personnel by name, role, department, or #ID..."
                     className="w-full bg-linear-canvas border border-linear-hairline focus:border-linear-primary rounded-xl py-2 pl-9 pr-8 text-sm text-linear-ink focus:outline-none focus:ring-1 focus:ring-linear-primary transition-colors h-[42px]"
                     autoFocus={isDropdownOpen && isValidEmpId}
                   />
@@ -351,30 +449,30 @@ export default function TimeTravelView() {
                 </div>
               )}
 
-              {/* Floating Match Dropdown */}
+              {/* Floating Match Dropdown with High Elevation & Crisp Contrast */}
               {isDropdownOpen && (
                 <div
                   id="employee-search-listbox"
                   role="listbox"
                   aria-label="Matching Personnel"
-                  className="absolute left-0 right-0 top-full mt-1.5 z-50 bg-linear-surface-1 border border-linear-hairline rounded-xl shadow-xl overflow-hidden max-h-72 overflow-y-auto"
+                  className="absolute left-0 right-0 top-full mt-1.5 z-50 bg-[#16181d] border border-linear-hairline-strong rounded-xl shadow-2xl backdrop-blur-xl ring-1 ring-black/60 overflow-hidden max-h-72 overflow-y-auto animate-in fade-in slide-in-from-top-1 duration-150"
                 >
-                  {isSearchLoading ? (
+                  {isDirectoryLoading && directoryEmployees.length === 0 ? (
                     <div className="p-4 text-center text-xs text-linear-ink-muted flex items-center justify-center gap-2">
                       <div className="w-3.5 h-3.5 border-2 border-linear-primary border-t-transparent rounded-full animate-spin" />
-                      Searching workforce directory...
+                      Loading workforce directory...
                     </div>
-                  ) : searchResults.length === 0 ? (
+                  ) : matchingEmployees.length === 0 ? (
                     <div className="p-4 text-center text-xs text-linear-ink-muted">
-                      No employees found matching <strong className="text-linear-ink font-mono">"{debouncedSearchQuery || '...'}"</strong>
+                      No employees found matching <strong className="text-linear-ink font-mono">"{searchQuery || debouncedSearchQuery || '...'}"</strong>
                     </div>
                   ) : (
                     <div className="py-1 divide-y divide-linear-hairline/40">
-                      <div className="px-3 py-1.5 text-[10px] font-mono text-linear-ink-subtle uppercase tracking-wider bg-linear-surface-2/50 flex justify-between">
-                        <span>Matching Personnel ({searchResults.length})</span>
-                        <span>Use ↑↓ keys, Enter to select, ESC to close</span>
+                      <div className="px-3 py-1.5 text-[10px] font-mono text-linear-ink-subtle uppercase tracking-wider bg-linear-surface-2/70 flex justify-between">
+                        <span>Matching Personnel ({matchingEmployees.length})</span>
+                        <span className="text-linear-ink-subtle lowercase">↑↓ navigate • ↵ select • esc close</span>
                       </div>
-                      {searchResults.map((emp, idx) => (
+                      {matchingEmployees.map((emp, idx) => (
                         <div
                           key={emp.employee_id}
                           id={`employee-option-${emp.employee_id}`}
@@ -387,8 +485,8 @@ export default function TimeTravelView() {
                           }}
                           className={`p-2.5 px-3 cursor-pointer flex items-center justify-between group transition-colors ${
                             idx === activeOptionIndex
-                              ? 'bg-linear-surface-2 ring-1 ring-inset ring-linear-primary/40'
-                              : 'hover:bg-linear-surface-2'
+                              ? 'bg-linear-primary/20 text-linear-ink border-l-2 border-linear-primary'
+                              : 'hover:bg-linear-surface-2/80 text-linear-ink border-l-2 border-transparent'
                           }`}
                         >
                           <div className="flex items-center gap-2.5 min-w-0">
@@ -454,6 +552,7 @@ export default function TimeTravelView() {
               </div>
               <input
                 type="time"
+                step="1"
                 required
                 value={timeInput}
                 onChange={(e) => setTimeInput(e.target.value)}
@@ -479,6 +578,41 @@ export default function TimeTravelView() {
             </div>
 
           </div>
+
+          {/* Quick Presets for Selected Employee */}
+          {isValidEmpId && (
+            <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-linear-hairline/60">
+              <span className="text-[11px] text-linear-ink-subtle uppercase tracking-wider font-mono">Presets:</span>
+              <button
+                type="button"
+                onClick={handleSetToNow}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-linear-surface-2 hover:bg-linear-surface-3 border border-linear-hairline text-linear-ink text-xs font-mono transition-colors cursor-pointer"
+              >
+                <Clock className="w-3 h-3 text-linear-primary" />
+                <span>Now (Current State)</span>
+              </button>
+              {latestMutation && (
+                <button
+                  type="button"
+                  onClick={() => handleJumpToMutation(latestMutation.created_at)}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-linear-surface-2 hover:bg-linear-surface-3 border border-linear-hairline text-linear-ink text-xs font-mono transition-colors cursor-pointer"
+                >
+                  <GitCommit className="w-3 h-3 text-linear-primary" />
+                  <span>Latest Event (Seq #{latestMutation.sequence_id})</span>
+                </button>
+              )}
+              {initialMutation && initialMutation !== latestMutation && (
+                <button
+                  type="button"
+                  onClick={() => handleJumpToMutation(initialMutation.created_at)}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-linear-surface-2 hover:bg-linear-surface-3 border border-linear-hairline text-linear-ink text-xs font-mono transition-colors cursor-pointer"
+                >
+                  <Sparkles className="w-3 h-3 text-amber-400" />
+                  <span>Initial Creation (Seq #{initialMutation.sequence_id})</span>
+                </button>
+              )}
+            </div>
+          )}
         </form>
       </div>
 
@@ -574,13 +708,61 @@ export default function TimeTravelView() {
 
       {/* Results Area */}
       {isError && (
-        <div className="bg-grafana-orange/10 border border-grafana-orange/25 rounded-2xl p-4 flex items-start text-grafana-orange animate-fade-cascade">
-          <XCircle className="w-5 h-5 mr-3 mt-0.5 shrink-0" />
-          <div>
-            <h3 className="font-medium text-grafana-orange">Reconstruction Failed</h3>
-            <p className="text-sm opacity-80 mt-1 text-grafana-orange/90">
-              {error instanceof Error ? error.message : 'The requested record could not be reconstructed for the given timestamp.'}
-            </p>
+        <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-5 text-linear-ink animate-fade-cascade space-y-4">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="w-5 h-5 text-amber-400 mt-0.5 shrink-0" />
+            <div className="space-y-1.5 flex-1">
+              <h3 className="font-semibold text-sm text-amber-400 flex items-center gap-2">
+                <span>
+                  {error instanceof Error && error.message.toLowerCase().includes('did not exist as of')
+                    ? 'Historical State Not Found (Record Not Yet Created)'
+                    : 'Reconstruction Failed'}
+                </span>
+              </h3>
+              <p className="text-xs text-linear-ink opacity-90 leading-relaxed font-mono">
+                {error instanceof Error
+                  ? error.message
+                  : 'The requested record could not be reconstructed for the given timestamp.'}
+              </p>
+              {error instanceof Error && error.message.toLowerCase().includes('did not exist as of') && (
+                <p className="text-xs text-linear-ink-muted leading-relaxed">
+                  The queried target timestamp is earlier than the first audit log entry recorded for this employee.
+                  Historical time-travel cannot reconstruct records prior to their cryptographic registration in the ledger.
+                </p>
+              )}
+              {initialMutation && (
+                <div className="text-xs text-linear-ink font-mono bg-linear-canvas/80 border border-linear-hairline px-3 py-2 rounded-xl w-fit mt-2">
+                  <span className="text-linear-ink-muted">First recorded ledger event: </span>
+                  <strong className="text-linear-primary">{initialMutation.action}</strong>
+                  <span className="text-linear-ink-muted"> at </span>
+                  <span className="text-amber-300 font-semibold">{new Date(initialMutation.created_at).toUTCString()}</span>
+                  <span className="text-linear-ink-subtle"> (Seq #{initialMutation.sequence_id})</span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Quick Recovery Actions */}
+          <div className="pt-3 border-t border-linear-hairline/60 flex flex-wrap items-center gap-2.5">
+            <span className="text-xs text-linear-ink-muted font-medium">Quick Recovery:</span>
+            {initialMutation && (
+              <button
+                type="button"
+                onClick={() => handleJumpToMutation(initialMutation.created_at)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-xs font-medium transition-colors cursor-pointer"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>Reconstruct at Initial Creation (Seq #{initialMutation.sequence_id})</span>
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={handleSetToNow}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-linear-primary/20 hover:bg-linear-primary/30 text-linear-primary border border-linear-primary/40 text-xs font-medium transition-colors cursor-pointer"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span>Reconstruct Current State (Now)</span>
+            </button>
           </div>
         </div>
       )}

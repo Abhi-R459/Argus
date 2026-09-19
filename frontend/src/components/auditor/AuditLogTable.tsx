@@ -343,7 +343,14 @@ export default function AuditLogTable() {
             <Search className="w-3.5 h-3.5 text-linear-ink-subtle absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
               ref={searchInputRef}
+              id="audit-log-table-filter"
+              name="table_name"
               type="text"
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="off"
+              spellCheck={false}
+              data-lpignore="true"
               placeholder="Table (/)..."
               value={filters.table_name ?? ''}
               onChange={(e) => handleFilterChange({ table_name: e.target.value || undefined, page: 1 })}
@@ -355,7 +362,11 @@ export default function AuditLogTable() {
           <div className="relative">
             <Hash className="w-3.5 h-3.5 text-linear-ink-subtle absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
+              id="audit-log-seq-filter"
+              name="sequence_id"
               type="number"
+              autoComplete="off"
+              data-lpignore="true"
               placeholder="Seq #..."
               value={filters.sequence_id ?? ''}
               onChange={(e) => {
@@ -370,7 +381,14 @@ export default function AuditLogTable() {
           <div className="relative">
             <Search className="w-3.5 h-3.5 text-linear-ink-subtle absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
+              id="audit-log-blind-id-filter"
+              name="blind_id"
               type="text"
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="off"
+              spellCheck={false}
+              data-lpignore="true"
               placeholder="Blind ID..."
               title="HMAC-SHA256 blind index query for encrypted National ID"
               value={filters.national_id_search ?? ''}

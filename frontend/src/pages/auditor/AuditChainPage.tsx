@@ -227,11 +227,13 @@ export default function AuditChainPage() {
 
     const options: SearchOption[] = [];
     const qLower = q.toLowerCase();
-    const qNum = /^\d+$/.test(q) ? parseInt(q, 10) : null;
+    const cleanNumStr = q.replace(/^#/, '').trim();
+    const isNum = /^\d+$/.test(cleanNumStr);
+    const qNum = isNum ? parseInt(cleanNumStr, 10) : null;
 
     // Filter matching blocks from displayEntries
     const matchedEntries = displayEntries.filter((e) => {
-      const matchSeq = String(e.entry_id).includes(q);
+      const matchSeq = cleanNumStr ? String(e.entry_id).includes(cleanNumStr) : false;
       const matchOp = e.operation.toLowerCase().includes(qLower);
       const matchTable = e.table_name.toLowerCase().includes(qLower);
       const matchActor = e.actor_email.toLowerCase().includes(qLower);
@@ -523,14 +525,22 @@ export default function AuditChainPage() {
       </div>
 
       {/* Filter & Jump Toolbar */}
-      <FilterBar activeFilters={activeFilters} onClearAll={handleClearAllFilters} portalTheme="auditor">
+      <FilterBar activeFilters={activeFilters} onClearAll={handleClearAllFilters} portalTheme="auditor" className="relative z-30">
         {/* Sequence jump search */}
-        <form onSubmit={handleJumpSubmit} className="flex items-center gap-2 flex-1 max-w-md relative">
+        <form onSubmit={handleJumpSubmit} autoComplete="off" className="flex items-center gap-2 flex-1 max-w-md relative">
           <div className="relative flex-1">
             <Search className="w-3.5 h-3.5 text-linear-ink-subtle absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
               ref={searchInputRef}
+              id="audit-chain-seq-search"
+              name="search"
               type="text"
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="off"
+              spellCheck={false}
+              data-lpignore="true"
+              data-form-type="other"
               value={seqInput}
               onChange={(e) => {
                 setSeqInput(e.target.value);
@@ -551,7 +561,7 @@ export default function AuditChainPage() {
             {isSearchDropdownOpen && seqInput.trim().length > 0 && (
               <div
                 ref={searchDropdownRef}
-                className="absolute left-0 right-0 top-full mt-1.5 z-50 bg-linear-surface-1 border border-linear-hairline rounded-xl shadow-2xl backdrop-blur-md overflow-hidden animate-in fade-in slide-in-from-top-1 duration-150"
+                className="absolute left-0 right-0 top-full mt-1.5 z-50 bg-[#16181d] border border-linear-hairline-strong rounded-xl shadow-2xl backdrop-blur-xl ring-1 ring-black/60 overflow-hidden animate-in fade-in slide-in-from-top-1 duration-150"
               >
                 <div className="px-3 py-1.5 text-[10px] uppercase font-mono font-semibold text-linear-ink-muted border-b border-linear-hairline bg-linear-surface-2/70 flex items-center justify-between">
                   <span>
