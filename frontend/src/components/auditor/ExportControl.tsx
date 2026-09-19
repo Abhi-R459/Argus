@@ -4,6 +4,7 @@ import { downloadSignedEvidence, downloadEvidencePack } from '../../services/aud
 import { Download, CheckCircle, AlertCircle, Package, FileJson, ShieldCheck } from 'lucide-react';
 
 import Button from '../common/Button';
+import { SegmentedControl } from '../common/SegmentedControl';
 
 export default function ExportControl() {
   const { getToken } = useAuth();
@@ -49,44 +50,43 @@ export default function ExportControl() {
       <h3 className="text-lg font-semibold text-linear-ink">Export Cryptographic Evidence</h3>
       
       {/* Format Selector */}
-      <div className="mt-3 mb-4 inline-flex p-1 bg-linear-surface-2 rounded-xl border border-linear-hairline text-xs font-medium space-x-1" role="tablist" aria-label="Evidence format selection">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={format === 'arguspack'}
-          onClick={() => setFormat('arguspack')}
-          className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-linear-primary ${
-            format === 'arguspack'
-              ? 'bg-linear-success text-white shadow-xs font-semibold'
-              : 'text-linear-ink-subtle hover:text-linear-ink'
-          }`}
-        >
-          <ShieldCheck className="w-3.5 h-3.5" />
-          <span>.arguspack Bundle</span>
-          <span className="text-[10px] px-1 py-0.2 bg-linear-canvas text-linear-success rounded border border-linear-success/30">Air-Gapped</span>
-        </button>
-
-        <button
-          type="button"
-          role="tab"
-          aria-selected={format === 'json'}
-          onClick={() => setFormat('json')}
-          className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-linear-primary ${
-            format === 'json'
-              ? 'bg-linear-success text-white shadow-xs font-semibold'
-              : 'text-linear-ink-subtle hover:text-linear-ink'
-          }`}
-        >
-          <FileJson className="w-3.5 h-3.5" />
-          <span>Signed JSON</span>
-        </button>
-      </div>
+      <SegmentedControl<'arguspack' | 'json'>
+        value={format}
+        onChange={setFormat}
+        options={[
+          {
+            value: 'arguspack',
+            label: '.arguspack Bundle',
+            icon: <ShieldCheck className="w-3.5 h-3.5" />,
+            badge: (
+              <span className="text-[10px] px-1 py-0.5 bg-linear-canvas text-linear-success rounded border border-linear-success/30 font-mono">
+                Air-Gapped
+              </span>
+            ),
+          },
+          {
+            value: 'json',
+            label: 'Signed JSON',
+            icon: <FileJson className="w-3.5 h-3.5" />,
+          },
+        ]}
+        portalTheme="auditor"
+        ariaLabel="Evidence format selection"
+        className="mt-3 mb-4"
+      />
 
       <p className="text-sm text-linear-ink-subtle mb-5 max-w-md">
         {format === 'arguspack'
           ? 'Download a turnkey .arguspack archive with embedded zero-dependency standalone verifier, detached Ed25519 signature, manifest, and canonical events.'
           : 'Download a single cryptographically signed JSON file containing the full audit trail for lightweight verification.'}
       </p>
+
+      {/* Screen Reader Live Region (F-110, F-122) */}
+      <div aria-live="polite" className="sr-only">
+        {status === 'loading' && `Generating ${format === 'arguspack' ? '.arguspack Bundle' : 'JSON Package'}...`}
+        {status === 'success' && 'Evidence export completed successfully and downloaded to disk.'}
+        {status === 'error' && `Export failed: ${errorMessage}`}
+      </div>
 
       <Button
         type="button"
@@ -117,12 +117,11 @@ export default function ExportControl() {
       </Button>
 
       {status === 'error' && (
-        <div className="mt-4 flex items-center space-x-2 text-grafana-orange text-sm">
-          <AlertCircle className="w-4 h-4" />
+        <div role="alert" className="mt-4 flex items-center space-x-2 text-grafana-orange text-sm">
+          <AlertCircle className="w-4 h-4 shrink-0" />
           <span>{errorMessage}</span>
         </div>
       )}
     </div>
   );
 }
-

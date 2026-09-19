@@ -8,6 +8,7 @@ Implements:
 - POST   /api/employees/{id}/salary — Add salary record (hr_admin only)
 """
 
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, or_
@@ -33,7 +34,9 @@ router = APIRouter(prefix="/employees", tags=["Employees"])
 
 @router.get("", response_model=PaginatedResponse[EmployeeListItem])
 async def list_employees(
-    search: str = Query(None, description="Filter by name or email"),
+    search: Optional[str] = Query(None, description="Filter by name or email"),
+    department: Optional[str] = Query(None, description="Filter by department name"),
+    is_active: Optional[bool] = Query(None, description="Filter by active status"),
     page: int = Query(1, ge=1, description="Page number"),
     limit: int = Query(20, ge=1, le=100, description="Items per page"),
     current_user: User = Depends(get_current_user),
@@ -77,6 +80,11 @@ async def list_employees(
             if clean_search.isdigit():
                 conditions.append(EmployeeDirectoryView.employee_id == int(clean_search))
             query = query.where(or_(*conditions))
+
+        if department and department.strip() and department.strip().lower() != "all":
+            query = query.where(EmployeeDirectoryView.department_name.ilike(department.strip()))
+        if is_active is not None:
+            query = query.where(EmployeeDirectoryView.is_active == is_active)
 
         count_query = select(func.count()).select_from(query.subquery())
         total = await session.scalar(count_query) or 0
@@ -139,6 +147,11 @@ async def list_employees(
         if clean_search.isdigit():
             conditions.append(Employee.employee_id == int(clean_search))
         query = query.where(or_(*conditions))
+
+    if department and department.strip() and department.strip().lower() != "all":
+        query = query.where(Department.name.ilike(department.strip()))
+    if is_active is not None:
+        query = query.where(Employee.is_active == is_active)
 
     # Total count
     count_query = select(func.count()).select_from(query.subquery())

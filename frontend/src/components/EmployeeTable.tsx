@@ -54,17 +54,19 @@ export default function EmployeeTable() {
 
   const limit = 12;
 
-  // Query employees
+  // Query employees with server-side filters
   const { data, isLoading, isError, isFetching } = useQuery<PaginatedResponse>({
-    queryKey: ['employees', page, debouncedSearch],
-    queryFn: () =>
-      fetchWithAuth(
-        `/employees?page=${page}&limit=${limit}${
-          debouncedSearch ? `&search=${encodeURIComponent(debouncedSearch)}` : ''
-        }`,
+    queryKey: ['employees', page, debouncedSearch, selectedDept, selectedStatus],
+    queryFn: () => {
+      const searchParam = debouncedSearch ? `&search=${encodeURIComponent(debouncedSearch)}` : '';
+      const deptParam = selectedDept !== 'all' ? `&department=${encodeURIComponent(selectedDept)}` : '';
+      const statusParam = selectedStatus !== 'all' ? `&is_active=${selectedStatus === 'active'}` : '';
+      return fetchWithAuth(
+        `/employees?page=${page}&limit=${limit}${searchParam}${deptParam}${statusParam}`,
         {},
         getToken
-      ),
+      );
+    },
     placeholderData: (prev) => prev,
     refetchInterval: 3000,
   });
@@ -76,15 +78,7 @@ export default function EmployeeTable() {
     staleTime: 300000,
   });
 
-  const rawItems = data?.items ?? [];
-
-  // Filter client-side by department and status
-  const filteredItems = rawItems.filter((emp) => {
-    if (selectedDept !== 'all' && emp.department_name !== selectedDept) return false;
-    if (selectedStatus === 'active' && !emp.is_active) return false;
-    if (selectedStatus === 'inactive' && emp.is_active) return false;
-    return true;
-  });
+  const items = data?.items ?? [];
 
   // Active filters list for FilterBar
   const activeFilters: ActiveFilterItem[] = [];
@@ -96,6 +90,7 @@ export default function EmployeeTable() {
       onRemove: () => {
         setSearch('');
         setDebouncedSearch('');
+        setPage(1);
       },
     });
   }
@@ -104,7 +99,10 @@ export default function EmployeeTable() {
       id: 'dept',
       label: 'Department',
       value: selectedDept,
-      onRemove: () => setSelectedDept('all'),
+      onRemove: () => {
+        setSelectedDept('all');
+        setPage(1);
+      },
     });
   }
   if (selectedStatus !== 'all') {
@@ -112,7 +110,10 @@ export default function EmployeeTable() {
       id: 'status',
       label: 'Status',
       value: selectedStatus === 'active' ? 'Active' : 'Deactivated',
-      onRemove: () => setSelectedStatus('all'),
+      onRemove: () => {
+        setSelectedStatus('all');
+        setPage(1);
+      },
     });
   }
 
@@ -126,11 +127,11 @@ export default function EmployeeTable() {
 
   // Keyboard navigation
   useKeyboardNav({
-    itemCount: filteredItems.length,
+    itemCount: items.length,
     selectedIndex: focusedRowIndex,
     onSelectIndex: (idx) => setFocusedRowIndex(idx),
     onPeek: (idx) => {
-      const emp = filteredItems[idx];
+      const emp = items[idx];
       if (emp) {
         setSelectedEmployee(emp);
         setSheetTab('overview');
@@ -181,7 +182,10 @@ export default function EmployeeTable() {
             <Building2 className="w-3.5 h-3.5 text-slate-400 absolute left-3 pointer-events-none" />
             <select
               value={selectedDept}
-              onChange={(e) => setSelectedDept(e.target.value)}
+              onChange={(e) => {
+                setSelectedDept(e.target.value);
+                setPage(1);
+              }}
               className="pl-9 pr-7 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-700 focus:outline-none focus:border-slate-900 focus:ring-4 focus:ring-slate-900/5 cursor-pointer shadow-2xs"
             >
               <option value="all">All Departments</option>
@@ -197,7 +201,10 @@ export default function EmployeeTable() {
           <div className="flex items-center rounded-xl border border-slate-200 p-0.5 bg-slate-100/70 shadow-2xs text-xs">
             <button
               type="button"
-              onClick={() => setSelectedStatus('all')}
+              onClick={() => {
+                setSelectedStatus('all');
+                setPage(1);
+              }}
               className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
                 selectedStatus === 'all'
                   ? 'bg-white text-slate-900 shadow-xs font-semibold'
@@ -208,7 +215,10 @@ export default function EmployeeTable() {
             </button>
             <button
               type="button"
-              onClick={() => setSelectedStatus('active')}
+              onClick={() => {
+                setSelectedStatus('active');
+                setPage(1);
+              }}
               className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
                 selectedStatus === 'active'
                   ? 'bg-white text-emerald-700 shadow-xs font-semibold'
@@ -219,7 +229,10 @@ export default function EmployeeTable() {
             </button>
             <button
               type="button"
-              onClick={() => setSelectedStatus('inactive')}
+              onClick={() => {
+                setSelectedStatus('inactive');
+                setPage(1);
+              }}
               className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
                 selectedStatus === 'inactive'
                   ? 'bg-white text-amber-700 shadow-xs font-semibold'
@@ -233,7 +246,7 @@ export default function EmployeeTable() {
 
         <div className="flex items-center gap-2 text-xs text-slate-400 font-mono">
           {isFetching && <span className="text-[10px] text-amber-600 animate-pulse font-medium">syncing…</span>}
-          <span>{filteredItems.length} records</span>
+          <span>{data?.total ?? 0} records</span>
         </div>
       </FilterBar>
 
@@ -269,14 +282,14 @@ export default function EmployeeTable() {
                   Failed to query employee directory from database engine.
                 </td>
               </tr>
-            ) : filteredItems.length === 0 ? (
+            ) : items.length === 0 ? (
               <tr>
                 <td colSpan={5} className="py-12 text-center text-xs text-slate-500">
                   No employees found matching the specified parameters.
                 </td>
               </tr>
             ) : (
-              filteredItems.map((emp, idx) => {
+              items.map((emp, idx) => {
                 const isSelected = selectedEmployee?.employee_id === emp.employee_id;
                 const isKeyboardFocused = focusedRowIndex === idx;
 
@@ -285,7 +298,7 @@ export default function EmployeeTable() {
                   key={emp.employee_id}
                   portalTheme="hr"
                   isSelected={isSelected}
-                  className={`${isKeyboardFocused ? 'ring-1 ring-inset ring-slate-400' : ''}`}
+                  isFocused={isKeyboardFocused}
                   onClick={() => openSheet(emp, 'overview')}
                 >
                   {/* Name & Email */}

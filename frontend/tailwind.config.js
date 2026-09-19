@@ -20,18 +20,22 @@ export default {
         '240': '240ms',
         '280': '280ms',
       },
+      boxShadow: {
+        '2xs': '0 1px 2px rgba(16, 24, 40, 0.05)',
+        'xs': '0 1px 3px rgba(16, 24, 40, 0.08), 0 1px 2px rgba(16, 24, 40, 0.04)',
+      },
+      spacing: {
+        '0.2': '0.05rem',
+        '4.5': '1.125rem',
+        '9.5': '2.375rem',
+      },
+      backdropBlur: {
+        xs: '2px',
+      },
       keyframes: {
         modalEnter: {
           '0%': { transform: 'scale(0.95)', opacity: '0' },
           '100%': { transform: 'scale(1)', opacity: '1' },
-        },
-        drawerSlideIn: {
-          '0%': { transform: 'translateX(100%)' },
-          '100%': { transform: 'translateX(0)' },
-        },
-        drawerSlideOut: {
-          '0%': { transform: 'translateX(0)' },
-          '100%': { transform: 'translateX(100%)' },
         },
         fadeCascade: {
           '0%': { transform: 'translateY(6px)', opacity: '0' },
@@ -44,8 +48,6 @@ export default {
       },
       animation: {
         'modal-enter': 'modalEnter 180ms cubic-bezier(0.23, 1, 0.32, 1) forwards',
-        'drawer-in': 'drawerSlideIn 280ms cubic-bezier(0.32, 0.72, 0, 1) forwards',
-        'drawer-out': 'drawerSlideOut 200ms cubic-bezier(0.23, 1, 0.32, 1) forwards',
         'fade-cascade': 'fadeCascade 220ms cubic-bezier(0.23, 1, 0.32, 1) forwards',
         'fast-spin': 'fastSpin 0.6s linear infinite',
       },
@@ -53,6 +55,32 @@ export default {
         slate: {
           850: '#151e2e',
           925: '#0b1120',
+        },
+        portal: {
+          canvas: '#f8fafc',
+          surface: {
+            1: '#ffffff',
+            2: '#f1f5f9',
+            3: '#e2e8f0',
+          },
+          hairline: {
+            DEFAULT: '#e2e8f0',
+            strong: '#cbd5e1',
+          },
+          ink: {
+            DEFAULT: '#0f172a',
+            muted: '#475569',
+            subtle: '#64748b',
+          },
+          primary: {
+            DEFAULT: '#0f172a',
+            hover: '#1e293b',
+            focus: '#020617',
+          },
+          success: '#15803d',
+          warning: '#b45309',
+          danger: '#be123c',
+          info: '#1d4ed8',
         },
         linear: {
           canvas: '#010102',
@@ -69,13 +97,14 @@ export default {
           },
           ink: {
             DEFAULT: '#f7f8f8',
+            secondary: '#8a8f98',
             muted: '#d0d6e0',
             subtle: '#8a8f98',
             tertiary: '#62666d',
           },
           primary: {
             DEFAULT: '#5e6ad2',
-            hover: '#828fff',
+            hover: '#4f5ac2',
             focus: '#5e69d1',
           },
           secure: '#7a7fad',

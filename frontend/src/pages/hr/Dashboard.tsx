@@ -12,36 +12,9 @@ import {
 import { fetchDashboardStats, type DashboardStats } from '../../services/auditService';
 import RefreshButton from '../../components/common/RefreshButton';
 import { Button } from '../../components/common/Button';
-
-function formatRelativeTime(isoString: string): string {
-  try {
-    const diff = Math.max(0, Date.now() - new Date(isoString).getTime());
-    const seconds = Math.floor(diff / 1000);
-    if (seconds < 5) return 'just now';
-    if (seconds < 60) return `${seconds}s ago`;
-    const minutes = Math.floor(seconds / 60);
-    if (minutes < 60) return `${minutes}m ago`;
-    const hours = Math.floor(minutes / 60);
-    if (hours < 24) return `${hours}h ago`;
-    const days = Math.floor(hours / 24);
-    return `${days}d ago`;
-  } catch {
-    return isoString;
-  }
-}
-
-function getActivityBadge(action: string, tableName: string): { label: string; className: string } {
-  if (tableName === 'salary_history') {
-    return { label: 'Compensation', className: 'bg-blue-50 text-blue-700 border-blue-200/80' };
-  }
-  if (action === 'INSERT') {
-    return { label: 'New Hire', className: 'bg-emerald-50 text-emerald-700 border-emerald-200/80' };
-  }
-  if (action === 'DELETE') {
-    return { label: 'Deactivated', className: 'bg-amber-50 text-amber-700 border-amber-200/80' };
-  }
-  return { label: 'Profile Update', className: 'bg-slate-100 text-slate-700 border-slate-200/80' };
-}
+import { EmptyState } from '../../components/common/EmptyState';
+import { formatRelativeTime } from '../../lib/format';
+import { getActionSemantic } from '../../lib/semantics';
 
 export default function Dashboard() {
   const { getToken } = useAuth();
@@ -213,13 +186,15 @@ export default function Dashboard() {
             Unable to fetch recent activity from database engine.
           </div>
         ) : !data?.recent_activity || data.recent_activity.length === 0 ? (
-          <div className="p-12 text-center text-xs text-slate-500">
-            No activity events recorded yet.
-          </div>
+          <EmptyState
+            title="No activity events recorded yet"
+            description="Personnel updates and compensation changes will automatically log here."
+            portalTheme="hr"
+          />
         ) : (
           <div className="divide-y divide-slate-100">
             {data.recent_activity.map((activity) => {
-              const badge = getActivityBadge(activity.action, activity.table_name);
+              const semantic = getActionSemantic(activity.action, activity.table_name, 'hr');
               return (
                 <div
                   key={activity.sequence_id}
@@ -227,9 +202,9 @@ export default function Dashboard() {
                 >
                   <div className="flex items-center gap-3">
                     <span
-                      className={`text-[11px] font-medium px-2 py-0.5 rounded-md border ${badge.className}`}
+                      className={`text-[11px] font-medium px-2 py-0.5 rounded-md border ${semantic.className}`}
                     >
-                      {badge.label}
+                      {semantic.label}
                     </span>
                     <div className="text-xs">
                       <span className="font-semibold text-slate-900">
@@ -241,13 +216,13 @@ export default function Dashboard() {
                           ? 'compensation record'
                           : 'employee profile'}
                       </span>
-                      <span className="text-slate-400 font-mono text-[11px] ml-1.5">
+                      <span className="text-slate-500 font-mono text-[11px] ml-1.5">
                         (Seq #{activity.sequence_id})
                       </span>
                     </div>
                   </div>
 
-                  <div className="text-[11px] text-slate-400 flex items-center gap-1.5 pl-14 sm:pl-0">
+                  <div className="text-[11px] text-slate-500 flex items-center gap-1.5 pl-14 sm:pl-0">
                     <Clock className="w-3.5 h-3.5 text-slate-400" />
                     <span>{formatRelativeTime(activity.created_at)}</span>
                   </div>

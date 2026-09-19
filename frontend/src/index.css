@@ -172,6 +172,47 @@
   .stagger-5 { animation-delay: 175ms; }
   .stagger-6 { animation-delay: 210ms; }
 
+  /* Drawer, Sheet & Modal Transitions (F-05) */
+  @keyframes enterFromRight {
+    from {
+      transform: translateX(100%);
+    }
+    to {
+      transform: translateX(0);
+    }
+  }
+  @keyframes enterFromBottom {
+    from {
+      transform: translateY(1rem);
+    }
+    to {
+      transform: translateY(0);
+    }
+  }
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  .animate-in {
+    animation-duration: 200ms;
+    animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+    animation-fill-mode: both;
+  }
+  .fade-in {
+    animation-name: fadeIn;
+  }
+  .slide-in-from-right {
+    animation-name: enterFromRight;
+  }
+  .slide-in-from-bottom-4 {
+    animation-name: enterFromBottom;
+  }
+
   /* Linear Design System Classes */
   .linear-panel {
     @apply bg-linear-surface-1 border border-linear-hairline;
@@ -183,14 +224,6 @@
     @apply bg-linear-primary hover:bg-linear-primary-hover active:bg-linear-primary-focus text-white font-medium transition-colors duration-150;
   }
 
-  /* Grafana Observability Classes */
-  .grafana-panel {
-    @apply bg-white border border-grafana-border;
-  }
-  .grafana-btn-primary {
-    @apply bg-grafana-orange hover:bg-grafana-orange-hover active:bg-grafana-orange-pressed text-white font-medium transition-colors duration-150;
-  }
-
   /* 300ms subtle row micro-flash for live stream ingestion */
   @keyframes row-micro-flash {
     0% { background-color: rgba(94, 106, 210, 0.22); }
@@ -198,6 +231,59 @@
   }
   .animate-row-flash {
     animation: row-micro-flash 450ms ease-out forwards;
+  }
+
+  /* Accordion smooth expansion & collapse (going down / going up) */
+  .accordion-collapse {
+    display: grid;
+    grid-template-rows: 0fr;
+    opacity: 0;
+    transition: grid-template-rows 280ms cubic-bezier(0.16, 1, 0.3, 1),
+                opacity 220ms ease,
+                transform 280ms cubic-bezier(0.16, 1, 0.3, 1);
+    transform: translateY(-6px);
+    will-change: grid-template-rows, opacity, transform;
+  }
+  .accordion-collapse.accordion-open {
+    grid-template-rows: 1fr;
+    opacity: 1;
+    transform: translateY(0);
+  }
+  .accordion-collapse-inner {
+    overflow: hidden;
+    min-height: 0;
+  }
+
+  /* Modal backdrop smooth entry and exit */
+  .modal-backdrop {
+    opacity: 0;
+    transition: opacity 240ms cubic-bezier(0.16, 1, 0.3, 1), backdrop-filter 240ms cubic-bezier(0.16, 1, 0.3, 1);
+    will-change: opacity, backdrop-filter;
+  }
+  .modal-backdrop-open {
+    opacity: 1;
+  }
+
+  /* Modal dialog card smooth pop-up (going down/into view) and going back (closing) */
+  .modal-dialog-card {
+    opacity: 0;
+    transform: scale(0.95) translateY(8px);
+    transition: opacity 220ms cubic-bezier(0.16, 1, 0.3, 1), transform 220ms cubic-bezier(0.16, 1, 0.3, 1);
+    will-change: opacity, transform;
+  }
+  .modal-dialog-card-open {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+
+  /* Drawer slide-over smooth entry (slide in from right) and exit (slide out to right) */
+  .drawer-slide-right {
+    transform: translateX(100%);
+    transition: transform 240ms cubic-bezier(0.16, 1, 0.3, 1);
+    will-change: transform;
+  }
+  .drawer-slide-right-open {
+    transform: translateX(0);
   }
 }
 

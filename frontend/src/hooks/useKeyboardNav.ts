@@ -8,6 +8,7 @@ export interface UseKeyboardNavOptions {
   onDismiss?: () => void;
   onTogglePause?: () => void;
   searchInputRef?: React.RefObject<HTMLInputElement | null>;
+  containerRef?: React.RefObject<HTMLElement | null>;
   enabled?: boolean;
 }
 
@@ -15,6 +16,7 @@ export interface UseKeyboardNavOptions {
  * Enterprise Keyboard Navigation Hook
  * Implements Linear-style keyboard navigation (j/k, Space, Esc, /, p).
  * Automatically suppresses shortcuts when input/textarea/select fields are focused.
+ * Scopes arrow keys and Space to active table/grid focus to preserve native browser scrolling.
  */
 export function useKeyboardNav({
   itemCount,
@@ -24,6 +26,7 @@ export function useKeyboardNav({
   onDismiss,
   onTogglePause,
   searchInputRef,
+  containerRef,
   enabled = true,
 }: UseKeyboardNavOptions) {
   const isInputFocused = useCallback(() => {
@@ -37,6 +40,15 @@ export function useKeyboardNav({
       (active as HTMLElement).isContentEditable
     );
   }, []);
+
+  const isTableOrContainerFocused = useCallback(() => {
+    const active = document.activeElement;
+    if (!active) return false;
+    if (containerRef?.current && (containerRef.current.contains(active) || containerRef.current === active)) {
+      return true;
+    }
+    return Boolean(active.closest('table, [role="table"], [role="grid"], [role="listbox"], [data-keyboard-nav-container]'));
+  }, [containerRef]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -60,6 +72,11 @@ export function useKeyboardNav({
         return;
       }
 
+      // Do not hijack browser shortcuts or hotkeys with modifiers
+      if (e.ctrlKey || e.metaKey || e.altKey) {
+        return;
+      }
+
       // Search focus shortcut: '/'
       if (e.key === '/' && searchInputRef?.current) {
         e.preventDefault();
@@ -68,14 +85,17 @@ export function useKeyboardNav({
       }
 
       // Stream pause shortcut: 'p' or 'P'
-      if ((e.key === 'p' || e.key === 'P') && onTogglePause) {
+      if (e.key.toLowerCase() === 'p' && onTogglePause) {
         e.preventDefault();
         onTogglePause();
         return;
       }
 
-      // Navigate down: 'j' or 'ArrowDown'
-      if (e.key === 'j' || e.key === 'ArrowDown') {
+      // Navigate down: 'j' / 'J' (global) or 'ArrowDown' (scoped to table/container focus)
+      if (e.key.toLowerCase() === 'j' || e.code === 'KeyJ' || e.key === 'ArrowDown') {
+        if (e.key === 'ArrowDown' && !isTableOrContainerFocused()) {
+          return; // Allow native page scroll
+        }
         e.preventDefault();
         if (itemCount === 0) return;
         const nextIndex = selectedIndex < itemCount - 1 ? selectedIndex + 1 : 0;
@@ -83,8 +103,11 @@ export function useKeyboardNav({
         return;
       }
 
-      // Navigate up: 'k' or 'ArrowUp'
-      if (e.key === 'k' || e.key === 'ArrowUp') {
+      // Navigate up: 'k' / 'K' (global) or 'ArrowUp' (scoped to table/container focus)
+      if (e.key.toLowerCase() === 'k' || e.code === 'KeyK' || e.key === 'ArrowUp') {
+        if (e.key === 'ArrowUp' && !isTableOrContainerFocused()) {
+          return; // Allow native page scroll
+        }
         e.preventDefault();
         if (itemCount === 0) return;
         const prevIndex = selectedIndex > 0 ? selectedIndex - 1 : itemCount - 1;
@@ -93,8 +116,8 @@ export function useKeyboardNav({
       }
 
       // Peek / inspect toggle: ' ' (Space) or 'Enter'
-      if ((e.key === ' ' || e.key === 'Enter') && onPeek) {
-        if (selectedIndex >= 0 && selectedIndex < itemCount) {
+      if (e.key === ' ' || e.key === 'Spacebar' || e.code === 'Space' || e.key === 'Enter') {
+        if (onPeek && selectedIndex >= 0 && selectedIndex < itemCount) {
           e.preventDefault();
           onPeek(selectedIndex);
         }
@@ -114,5 +137,6 @@ export function useKeyboardNav({
     onTogglePause,
     searchInputRef,
     isInputFocused,
+    isTableOrContainerFocused,
   ]);
 }

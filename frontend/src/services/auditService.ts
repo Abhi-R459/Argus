@@ -506,9 +506,13 @@ export async function fetchEmployees(
   limit: number = 100,
   search?: string,
   page: number = 1,
-): Promise<{ items: EmployeeListItem[]; total: number }> {
+  department?: string,
+  isActive?: boolean,
+): Promise<{ items: EmployeeListItem[]; total: number; page: number; pages: number }> {
   const searchParam = search ? `&search=${encodeURIComponent(search)}` : '';
-  return fetchWithAuth(`/employees?limit=${limit}&page=${page}${searchParam}`, {}, getToken);
+  const deptParam = department && department !== 'all' ? `&department=${encodeURIComponent(department)}` : '';
+  const statusParam = isActive !== undefined ? `&is_active=${isActive}` : '';
+  return fetchWithAuth(`/employees?limit=${limit}&page=${page}${searchParam}${deptParam}${statusParam}`, {}, getToken);
 }
 
 export interface UserProfile {

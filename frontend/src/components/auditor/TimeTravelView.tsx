@@ -22,6 +22,9 @@ import {
   EmployeeListItem,
 } from '../../services/auditService';
 import Button from '../common/Button';
+import { formatINR } from '../../lib/format';
+import { getActionSemantic } from '../../lib/semantics';
+import { EmptyState } from '../common/EmptyState';
 
 export default function TimeTravelView() {
   const { getToken } = useAuth();
@@ -36,6 +39,7 @@ export default function TimeTravelView() {
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [activeOptionIndex, setActiveOptionIndex] = useState<number>(-1);
   const searchContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -44,6 +48,10 @@ export default function TimeTravelView() {
     }, 250);
     return () => clearTimeout(handler);
   }, [searchQuery]);
+
+  useEffect(() => {
+    setActiveOptionIndex(-1);
+  }, [debouncedSearchQuery, isDropdownOpen]);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -206,7 +214,7 @@ export default function TimeTravelView() {
   return (
     <div className="space-y-6 animate-fade-cascade">
       {/* Header & Controls */}
-      <div className="bg-linear-surface-1 border border-linear-hairline rounded-xl p-6 shadow-xs relative overflow-hidden">
+      <div className="bg-linear-surface-1 border border-linear-hairline rounded-2xl p-6 shadow-xs relative overflow-hidden">
         <div className="absolute top-0 right-0 p-8 opacity-5">
           <History className="w-32 h-32" />
         </div>
@@ -232,14 +240,14 @@ export default function TimeTravelView() {
             
             {/* Employee Selector Autocomplete Combobox */}
             <div ref={searchContainerRef} className="sm:col-span-2 lg:col-span-5 relative">
-              <label className="block text-xs font-medium text-linear-ink-muted mb-1 flex items-center justify-between">
-                <span>Select Employee</span>
+              <div className="flex items-center justify-between h-5 mb-1.5">
+                <label className="block text-xs font-medium text-linear-ink-muted">Select Employee</label>
                 {selectedEmployee && (
                   <span className={`text-[11px] font-mono ${selectedEmployee.is_active ? 'text-emerald-400' : 'text-amber-400'}`}>
                     #{selectedEmployee.employee_id} {selectedEmployee.is_active ? 'Active' : 'Inactive'}
                   </span>
                 )}
-              </label>
+              </div>
 
               {isValidEmpId && !isDropdownOpen ? (
                 <div className="w-full bg-linear-canvas border border-linear-hairline hover:border-linear-primary/50 rounded-xl p-2 px-3 flex items-center justify-between transition-colors min-h-[42px]">
@@ -252,7 +260,7 @@ export default function TimeTravelView() {
                         <span className="font-semibold text-xs text-linear-ink truncate">
                           {selectedEmployee ? selectedEmployee.full_name : `Employee #${parsedEmpId}`}
                         </span>
-                        <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-linear-surface-2 text-linear-ink-muted shrink-0">
+                        <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-linear-surface-2 text-linear-ink-muted shrink-0">
                           #EMP-{String(parsedEmpId).padStart(4, '0')}
                         </span>
                       </div>
@@ -279,6 +287,15 @@ export default function TimeTravelView() {
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-linear-ink-subtle pointer-events-none" />
                   <input
                     type="text"
+                    role="combobox"
+                    aria-expanded={isDropdownOpen}
+                    aria-autocomplete="list"
+                    aria-controls="employee-search-listbox"
+                    aria-activedescendant={
+                      activeOptionIndex >= 0 && searchResults[activeOptionIndex]
+                        ? `employee-option-${searchResults[activeOptionIndex].employee_id}`
+                        : undefined
+                    }
                     value={searchQuery}
                     onChange={(e) => {
                       setSearchQuery(e.target.value);
@@ -286,7 +303,29 @@ export default function TimeTravelView() {
                     }}
                     onFocus={() => setIsDropdownOpen(true)}
                     onKeyDown={(e) => {
-                      if (e.key === 'Escape') setIsDropdownOpen(false);
+                      if (e.key === 'Escape') {
+                        setIsDropdownOpen(false);
+                        setActiveOptionIndex(-1);
+                      } else if (e.key === 'ArrowDown') {
+                        e.preventDefault();
+                        if (!isDropdownOpen) {
+                          setIsDropdownOpen(true);
+                        } else if (searchResults.length > 0) {
+                          setActiveOptionIndex((prev) => (prev < searchResults.length - 1 ? prev + 1 : 0));
+                        }
+                      } else if (e.key === 'ArrowUp') {
+                        e.preventDefault();
+                        if (isDropdownOpen && searchResults.length > 0) {
+                          setActiveOptionIndex((prev) => (prev > 0 ? prev - 1 : searchResults.length - 1));
+                        }
+                      } else if (e.key === 'Enter') {
+                        if (isDropdownOpen && activeOptionIndex >= 0 && activeOptionIndex < searchResults.length) {
+                          e.preventDefault();
+                          handleSelectEmployee(String(searchResults[activeOptionIndex].employee_id));
+                          setIsDropdownOpen(false);
+                          setSearchQuery('');
+                        }
+                      }
                     }}
                     placeholder="Search name, email, or #ID (e.g. Marcus, #1)..."
                     className="w-full bg-linear-canvas border border-linear-hairline focus:border-linear-primary rounded-xl py-2 pl-9 pr-8 text-sm text-linear-ink focus:outline-none focus:ring-1 focus:ring-linear-primary transition-colors h-[42px]"
@@ -314,7 +353,12 @@ export default function TimeTravelView() {
 
               {/* Floating Match Dropdown */}
               {isDropdownOpen && (
-                <div className="absolute left-0 right-0 top-full mt-1.5 z-50 bg-linear-surface-1 border border-linear-hairline rounded-xl shadow-xl overflow-hidden max-h-72 overflow-y-auto">
+                <div
+                  id="employee-search-listbox"
+                  role="listbox"
+                  aria-label="Matching Personnel"
+                  className="absolute left-0 right-0 top-full mt-1.5 z-50 bg-linear-surface-1 border border-linear-hairline rounded-xl shadow-xl overflow-hidden max-h-72 overflow-y-auto"
+                >
                   {isSearchLoading ? (
                     <div className="p-4 text-center text-xs text-linear-ink-muted flex items-center justify-center gap-2">
                       <div className="w-3.5 h-3.5 border-2 border-linear-primary border-t-transparent rounded-full animate-spin" />
@@ -328,17 +372,24 @@ export default function TimeTravelView() {
                     <div className="py-1 divide-y divide-linear-hairline/40">
                       <div className="px-3 py-1.5 text-[10px] font-mono text-linear-ink-subtle uppercase tracking-wider bg-linear-surface-2/50 flex justify-between">
                         <span>Matching Personnel ({searchResults.length})</span>
-                        <span>ESC to close</span>
+                        <span>Use ↑↓ keys, Enter to select, ESC to close</span>
                       </div>
-                      {searchResults.map((emp) => (
+                      {searchResults.map((emp, idx) => (
                         <div
                           key={emp.employee_id}
+                          id={`employee-option-${emp.employee_id}`}
+                          role="option"
+                          aria-selected={idx === activeOptionIndex}
                           onClick={() => {
                             handleSelectEmployee(String(emp.employee_id));
                             setIsDropdownOpen(false);
                             setSearchQuery('');
                           }}
-                          className="p-2.5 px-3 hover:bg-linear-surface-2 cursor-pointer flex items-center justify-between group transition-colors"
+                          className={`p-2.5 px-3 cursor-pointer flex items-center justify-between group transition-colors ${
+                            idx === activeOptionIndex
+                              ? 'bg-linear-surface-2 ring-1 ring-inset ring-linear-primary/40'
+                              : 'hover:bg-linear-surface-2'
+                          }`}
                         >
                           <div className="flex items-center gap-2.5 min-w-0">
                             <div className="w-6 h-6 rounded-md bg-linear-primary/10 border border-linear-primary/20 flex items-center justify-center text-linear-primary text-[10px] font-bold shrink-0">
@@ -376,7 +427,9 @@ export default function TimeTravelView() {
 
             {/* Target Date Input */}
             <div className="lg:col-span-3">
-              <label className="block text-xs font-medium text-linear-ink-muted mb-1">Target Date (UTC)</label>
+              <div className="flex items-center h-5 mb-1.5">
+                <label className="block text-xs font-medium text-linear-ink-muted">Target Date (UTC)</label>
+              </div>
               <input
                 type="date"
                 required
@@ -388,7 +441,7 @@ export default function TimeTravelView() {
 
             {/* Target Time Input with Set to Now */}
             <div className="lg:col-span-2">
-              <div className="flex items-center justify-between mb-1">
+              <div className="flex items-center justify-between h-5 mb-1.5">
                 <label className="block text-xs font-medium text-linear-ink-muted">Time (UTC)</label>
                 <button
                   type="button"
@@ -410,6 +463,7 @@ export default function TimeTravelView() {
 
             {/* Submit Button */}
             <div className="sm:col-span-2 lg:col-span-2">
+              <div className="h-5 mb-1.5 hidden lg:block" />
               <Button
                 type="submit"
                 disabled={isLoading}
@@ -457,75 +511,62 @@ export default function TimeTravelView() {
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-              {employeeLogs.map((log) => {
-                const isActionInsert = log.action === 'INSERT';
-                const isActionDelete = log.action === 'DELETE';
-                const actionBadgeClass = isActionInsert
-                  ? 'bg-linear-success/15 text-linear-success border-linear-success/30'
-                  : isActionDelete
-                  ? 'bg-grafana-orange/15 text-grafana-orange border-grafana-orange/30'
-                  : 'bg-amber-500/15 text-amber-400 border-amber-500/30';
-
-                return (
-                  <div
-                    key={log.sequence_id}
-                    onClick={() => handleJumpToMutation(log.created_at)}
-                    role="button"
-                    tabIndex={0}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault();
-                        handleJumpToMutation(log.created_at);
-                      }
-                    }}
-                    className="group bg-linear-canvas hover:bg-linear-surface-2 border border-linear-hairline hover:border-linear-hairline-strong rounded-xl p-3 transition-colors duration-150 cursor-pointer flex flex-col justify-between space-y-2 relative overflow-hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-linear-primary"
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center space-x-2">
-                        <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-md border ${actionBadgeClass}`}>
-                          {log.action}
-                        </span>
-                        <span className="text-xs font-mono text-linear-ink-muted group-hover:text-linear-ink">
-                          Seq #{log.sequence_id}
-                        </span>
-                      </div>
-                      <span className="text-[10px] text-linear-ink-subtle font-mono">
-                        {log.table_name}
+              {employeeLogs.map((log) => (
+                <div
+                  key={log.sequence_id}
+                  className="bg-linear-canvas hover:bg-linear-surface-2/70 border border-linear-hairline hover:border-linear-hairline-strong rounded-xl p-3.5 transition-colors duration-150 flex flex-col justify-between space-y-3 relative overflow-hidden"
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-2">
+                      <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-md border ${
+                        getActionSemantic(log.action, log.table_name, 'auditor').className
+                      }`}>
+                        {log.action}
+                      </span>
+                      <span className="text-xs font-mono text-linear-ink-muted">
+                        Seq #{log.sequence_id}
                       </span>
                     </div>
+                    <span className="text-[10px] text-linear-ink-subtle font-mono">
+                      {log.table_name}
+                    </span>
+                  </div>
 
-                    <div className="text-xs text-linear-ink">
-                      <span className="text-linear-ink-subtle block text-[10px]">Actor: {log.actor_name}</span>
-                      <span className="text-[11px] text-linear-ink-muted font-mono">
-                        {new Date(log.created_at).toLocaleString()}
-                      </span>
-                    </div>
+                  <div className="text-xs text-linear-ink">
+                    <span className="text-linear-ink-subtle block text-[10px]">Actor: {log.actor_name}</span>
+                    <span className="text-[11px] text-linear-ink-muted font-mono">
+                      {new Date(log.created_at).toLocaleString()}
+                    </span>
+                  </div>
 
-                    <div className="pt-2 border-t border-linear-hairline flex items-center justify-between">
-                      <span className="text-[11px] text-linear-primary flex items-center group-hover:underline">
-                        Reconstruct as of this change
-                        <ArrowRight className="w-3 h-3 ml-1 group-hover:translate-x-0.5 transition-transform duration-150" />
-                      </span>
-                      <div className="flex items-center space-x-2" onClick={(e) => e.stopPropagation()}>
-                        <Link
-                          to={`/auditor/chain?seq=${log.sequence_id}`}
-                          title="Inspect in Chain Explorer"
-                          className="text-linear-ink-subtle hover:text-linear-primary p-1 rounded transition-colors duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-linear-primary"
-                        >
-                          <GitCommit className="w-3.5 h-3.5" />
-                        </Link>
-                        <Link
-                          to={`/auditor/log?seq=${log.sequence_id}`}
-                          title="View in Audit Log"
-                          className="text-linear-ink-subtle hover:text-linear-primary p-1 rounded transition-colors duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-linear-primary"
-                        >
-                          <ExternalLink className="w-3.5 h-3.5" />
-                        </Link>
-                      </div>
+                  <div className="pt-2 border-t border-linear-hairline flex items-center justify-between gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleJumpToMutation(log.created_at)}
+                      className="text-[11px] text-linear-primary hover:text-linear-primary-hover font-medium flex items-center group cursor-pointer focus-visible:outline-none focus-visible:underline text-left"
+                    >
+                      <span>Reconstruct as of this change</span>
+                      <ArrowRight className="w-3 h-3 ml-1 group-hover:translate-x-0.5 transition-transform duration-150" />
+                    </button>
+                    <div className="flex items-center space-x-1 shrink-0">
+                      <Link
+                        to={`/auditor/chain?seq=${log.sequence_id}`}
+                        title="Inspect in Chain Explorer"
+                        className="text-linear-ink-subtle hover:text-linear-primary p-1 rounded transition-colors duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-linear-primary"
+                      >
+                        <GitCommit className="w-3.5 h-3.5" />
+                      </Link>
+                      <Link
+                        to={`/auditor/log?seq=${log.sequence_id}`}
+                        title="View in Audit Log"
+                        className="text-linear-ink-subtle hover:text-linear-primary p-1 rounded transition-colors duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-linear-primary"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5" />
+                      </Link>
                     </div>
                   </div>
-                );
-              })}
+                </div>
+              ))}
             </div>
           )}
         </div>
@@ -533,7 +574,7 @@ export default function TimeTravelView() {
 
       {/* Results Area */}
       {isError && (
-        <div className="bg-grafana-orange/10 border border-grafana-orange/25 rounded-xl p-4 flex items-start text-grafana-orange animate-fade-cascade">
+        <div className="bg-grafana-orange/10 border border-grafana-orange/25 rounded-2xl p-4 flex items-start text-grafana-orange animate-fade-cascade">
           <XCircle className="w-5 h-5 mr-3 mt-0.5 shrink-0" />
           <div>
             <h3 className="font-medium text-grafana-orange">Reconstruction Failed</h3>
@@ -545,79 +586,81 @@ export default function TimeTravelView() {
       )}
 
       {record && !isLoading && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-fade-cascade">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-fade-cascade items-stretch">
           {/* Formatted View */}
-          <div className="lg:col-span-2 bg-linear-surface-1 border border-linear-hairline rounded-xl shadow-xs overflow-hidden">
-            <div className="bg-linear-surface-2/40 px-6 py-4 border-b border-linear-hairline flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-              <h3 className="font-semibold text-linear-ink flex items-center">
-                <CheckCircle2 className="w-4 h-4 mr-2 text-linear-success" />
-                State Reconstructed Successfully
-              </h3>
-              <div className="flex items-center text-xs font-mono text-linear-primary bg-linear-primary/15 px-3 py-1 rounded-md border border-linear-primary/30">
-                <CalendarClock className="w-3 h-3 mr-2" />
-                AS OF {new Date(record.as_of).toLocaleString()}
+          <div className="lg:col-span-2 bg-linear-surface-1 border border-linear-hairline rounded-2xl shadow-xs overflow-hidden flex flex-col justify-between">
+            <div>
+              <div className="bg-linear-surface-2/40 px-6 py-4 border-b border-linear-hairline flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <h3 className="font-semibold text-linear-ink flex items-center">
+                  <CheckCircle2 className="w-4 h-4 mr-2 text-linear-success" />
+                  State Reconstructed Successfully
+                </h3>
+                <div className="flex items-center text-xs font-mono text-linear-primary bg-linear-primary/15 px-3 py-1 rounded-md border border-linear-primary/30">
+                  <CalendarClock className="w-3 h-3 mr-2" />
+                  AS OF {new Date(record.as_of).toLocaleString()}
+                </div>
               </div>
-            </div>
 
-            <div className="p-6">
-              <div className="grid grid-cols-2 gap-x-12 gap-y-6">
-                <div>
-                  <div className="text-xs font-medium text-linear-ink-muted mb-1 uppercase tracking-wider">Employee ID</div>
-                  <div className="text-lg font-mono text-linear-ink">#{record.employee_id}</div>
-                </div>
-                <div>
-                  <div className="text-xs font-medium text-linear-ink-muted mb-1 uppercase tracking-wider">Status</div>
+              <div className="p-6">
+                <div className="grid grid-cols-2 gap-x-12 gap-y-6">
                   <div>
-                    {record.is_active ? (
-                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-linear-success/15 text-linear-success border border-linear-success/30">
-                        Active
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-grafana-orange/15 text-grafana-orange border border-grafana-orange/30">
-                        Inactive
-                      </span>
-                    )}
+                    <div className="text-xs font-medium text-linear-ink-muted mb-1 uppercase tracking-wider">Employee ID</div>
+                    <div className="text-lg font-mono text-linear-ink">#{record.employee_id}</div>
                   </div>
-                </div>
-
-                <div>
-                  <div className="text-xs font-medium text-linear-ink-muted mb-1 uppercase tracking-wider">Full Name</div>
-                  <div className="text-base text-linear-ink font-medium">{record.full_name}</div>
-                </div>
-                <div>
-                  <div className="text-xs font-medium text-linear-ink-muted mb-1 uppercase tracking-wider">Email</div>
-                  <div className="text-base text-linear-ink-muted">{record.email}</div>
-                </div>
-
-                <div>
-                  <div className="text-xs font-medium text-linear-ink-muted mb-1 uppercase tracking-wider">Role & Dept</div>
-                  <div className="text-base text-linear-ink">{record.role_title}</div>
-                  <div className="text-sm text-linear-ink-muted">{record.department_name}</div>
-                </div>
-                <div>
-                  <div className="text-xs font-medium text-linear-ink-muted mb-1 uppercase tracking-wider">Compensation</div>
-                  <div className="text-base font-mono text-linear-ink">
-                    {new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(record.salary)}
+                  <div>
+                    <div className="text-xs font-medium text-linear-ink-muted mb-1 uppercase tracking-wider">Status</div>
+                    <div>
+                      {record.is_active ? (
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-linear-success/15 text-linear-success border border-linear-success/30">
+                          Active
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-grafana-orange/15 text-grafana-orange border border-grafana-orange/30">
+                          Inactive
+                        </span>
+                      )}
+                    </div>
                   </div>
-                </div>
 
-                <div className="col-span-2">
-                  <div className="text-xs font-medium text-linear-ink-muted mb-1 uppercase tracking-wider">Date Hired</div>
-                  <div className="text-base text-linear-ink-muted">{new Date(record.date_hired).toLocaleDateString()}</div>
+                  <div>
+                    <div className="text-xs font-medium text-linear-ink-muted mb-1 uppercase tracking-wider">Full Name</div>
+                    <div className="text-base text-linear-ink font-medium">{record.full_name}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs font-medium text-linear-ink-muted mb-1 uppercase tracking-wider">Email</div>
+                    <div className="text-base text-linear-ink-muted">{record.email}</div>
+                  </div>
+
+                  <div>
+                    <div className="text-xs font-medium text-linear-ink-muted mb-1 uppercase tracking-wider">Role & Dept</div>
+                    <div className="text-base text-linear-ink">{record.role_title}</div>
+                    <div className="text-sm text-linear-ink-muted">{record.department_name}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs font-medium text-linear-ink-muted mb-1 uppercase tracking-wider">Compensation</div>
+                    <div className="text-base font-mono text-linear-ink">
+                      {formatINR(record.salary)}
+                    </div>
+                  </div>
+
+                  <div className="col-span-2">
+                    <div className="text-xs font-medium text-linear-ink-muted mb-1 uppercase tracking-wider">Date Hired</div>
+                    <div className="text-base text-linear-ink-muted">{record.date_hired}</div>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
 
           {/* Raw JSON View */}
-          <div className="bg-linear-canvas border border-linear-hairline rounded-2xl shadow-sm overflow-hidden flex flex-col">
+          <div className="bg-linear-canvas border border-linear-hairline rounded-2xl shadow-xs overflow-hidden flex flex-col">
             <div className="bg-linear-surface-1 px-4 py-3 border-b border-linear-hairline flex items-center justify-between">
               <span className="text-xs font-mono text-linear-ink-muted">reconstructed_state.json</span>
               <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-md bg-linear-primary/15 text-linear-primary border border-linear-primary/30">
                 O(log N) RECONSTRUCT
               </span>
             </div>
-            <div className="p-4 flex-1 overflow-auto max-h-[350px]">
+            <div className="p-4 flex-1 overflow-auto max-h-[380px]">
               <pre className="text-[11px] font-mono text-linear-ink-muted leading-relaxed">
                 {JSON.stringify(record, null, 2)}
               </pre>
@@ -627,10 +670,12 @@ export default function TimeTravelView() {
       )}
 
       {!record && !isLoading && !isError && (
-        <div className="h-44 border-2 border-dashed border-linear-hairline rounded-xl flex flex-col items-center justify-center text-linear-ink-subtle space-y-2">
-          <History className="w-8 h-8 text-linear-ink-subtle/50" />
-          <p className="text-sm">Select an employee and target time or choose an event from the mutation timeline above.</p>
-        </div>
+        <EmptyState
+          icon={<History className="w-6 h-6 text-linear-primary" />}
+          title="No Reconstruction Target Selected"
+          description="Select an employee and target timestamp above, or choose a historical event from the mutation timeline."
+          portalTheme="auditor"
+        />
       )}
     </div>
   );

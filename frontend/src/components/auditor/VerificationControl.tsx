@@ -29,7 +29,7 @@ export default function VerificationControl({ onResult }: VerificationControlPro
       const res = await runVerification(getToken);
       return res;
     },
-    refetchInterval: 3000,
+    refetchInterval: 30000,
   });
 
   useEffect(() => {
@@ -44,6 +44,13 @@ export default function VerificationControl({ onResult }: VerificationControlPro
 
   return (
     <div className="bg-linear-surface-1 border border-linear-hairline rounded-2xl overflow-hidden shadow-sm">
+      {/* Screen Reader Live Region (F-122) */}
+      <div aria-live="polite" className="sr-only">
+        {isFetching && 'Scanning hash chain and walking entries from last checkpoint.'}
+        {isIntact && 'Verification complete. Chain is intact with zero anomalies.'}
+        {isTampered && `Warning: Tampering detected at sequence ID ${lastResult?.tampered_sequence_id}.`}
+      </div>
+
       {/* Header */}
       <div className="flex items-center justify-between px-5 py-4 border-b border-linear-hairline">
         <div className="flex items-center space-x-2.5">

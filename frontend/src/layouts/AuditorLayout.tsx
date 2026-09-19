@@ -1,8 +1,9 @@
+import { useState, useEffect } from 'react';
 import { Outlet, Link, useLocation } from 'react-router-dom';
 import { UserButton } from '@clerk/clerk-react';
 import {
   ShieldCheck, Activity, FileSearch, LayoutDashboard, GitBranch,
-  AlertTriangle, History, ShieldAlert, ArrowRight, Lock,
+  AlertTriangle, History, ShieldAlert, ArrowRight, Lock, Menu, X,
 } from 'lucide-react';
 import { useIncidentStatus } from '../services/auditService';
 import RealtimeClock from '../components/common/RealtimeClock';
@@ -11,6 +12,12 @@ import { ErrorBoundary } from '../components/common/ErrorBoundary';
 export default function AuditorLayout() {
   const location = useLocation();
   const incident = useIncidentStatus();
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
+  // Close mobile drawer upon navigation
+  useEffect(() => {
+    setIsMobileMenuOpen(false);
+  }, [location.pathname]);
 
   const navItems = [
     { name: 'Overview', path: '/auditor/overview', icon: LayoutDashboard },
@@ -25,11 +32,24 @@ export default function AuditorLayout() {
   const pageTitle = currentPath.charAt(0).toUpperCase() + currentPath.slice(1);
 
   return (
-    <div className="portal-auditor flex h-screen bg-linear-canvas text-linear-ink font-sans antialiased">
-      {/* Sidebar - Linear Terminal Style */}
-      <aside className="w-64 bg-linear-surface-1 border-r border-linear-hairline shadow-sm flex flex-col relative z-20">
+    <div className="portal-auditor flex h-dvh bg-linear-canvas text-linear-ink font-sans antialiased overflow-hidden">
+      {/* Mobile Drawer Backdrop */}
+      {isMobileMenuOpen && (
+        <div
+          className="fixed inset-0 bg-black/60 backdrop-blur-xs z-40 lg:hidden transition-opacity"
+          onClick={() => setIsMobileMenuOpen(false)}
+          aria-hidden="true"
+        />
+      )}
+
+      {/* Sidebar - Linear Terminal Style (Responsive Off-Canvas on <lg) */}
+      <aside
+        className={`fixed inset-y-0 left-0 z-50 w-64 bg-linear-surface-1 border-r border-linear-hairline shadow-sm flex flex-col transform transition-transform duration-200 ease-in-out lg:translate-x-0 lg:static lg:z-20 shrink-0 ${
+          isMobileMenuOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full'
+        }`}
+      >
         {/* Logo */}
-        <div className="h-16 flex items-center px-6 border-b border-linear-hairline justify-between">
+        <div className="h-16 flex items-center px-6 border-b border-linear-hairline justify-between shrink-0">
           <div className="flex items-center space-x-2.5">
             <div className="w-8 h-8 rounded-lg bg-linear-primary flex items-center justify-center text-white shadow-xs">
               <ShieldCheck className="w-5 h-5" />
@@ -38,9 +58,19 @@ export default function AuditorLayout() {
               Argus
             </span>
           </div>
-          <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-md bg-linear-primary/15 text-linear-primary border border-linear-primary/30">
-            AUDITOR
-          </span>
+          <div className="flex items-center space-x-2">
+            <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-md bg-linear-primary/15 text-linear-primary border border-linear-primary/30">
+              AUDITOR
+            </span>
+            <button
+              type="button"
+              onClick={() => setIsMobileMenuOpen(false)}
+              className="lg:hidden p-1 rounded-md text-linear-ink-subtle hover:text-linear-ink hover:bg-linear-surface-2"
+              aria-label="Close menu"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
         {/* Nav */}
@@ -65,7 +95,7 @@ export default function AuditorLayout() {
                 }`}
               >
                 <Icon
-                  className={`w-4.5 h-4.5 mr-3 transition-colors duration-150 ${
+                  className={`w-4 h-4 mr-3 transition-colors duration-150 ${
                     isActive ? 'text-linear-primary' : 'text-linear-ink-subtle group-hover:text-linear-ink'
                   }`}
                 />
@@ -125,71 +155,83 @@ export default function AuditorLayout() {
       </aside>
 
       {/* Main Content */}
-      <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Header */}
-        <header className="h-16 bg-linear-surface-1/90 backdrop-blur-md border-b border-linear-hairline flex items-center justify-between px-8 shadow-xs">
-          <div className="flex items-center space-x-3">
-            <Activity className="w-4 h-4 text-linear-primary" />
-            <h1 className="text-base font-semibold text-linear-ink tracking-wide">
-              {pageTitle}
-            </h1>
-            <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-md bg-linear-surface-2 border border-linear-hairline text-[11px] text-linear-ink-muted font-mono">
-              <Lock className="w-3 h-3 text-linear-primary" />
-              <span>Pool: compliance_auditor (Read-Only)</span>
+      <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+        {/* Header - Aligned to max-w-7xl content container */}
+        <header className="h-16 bg-linear-surface-1/90 backdrop-blur-md border-b border-linear-hairline flex items-center px-4 sm:px-6 lg:px-8 shadow-xs shrink-0">
+          <div className="max-w-7xl mx-auto w-full flex items-center justify-between">
+            <div className="flex items-center space-x-2 sm:space-x-3">
+              <button
+                type="button"
+                onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+                className="lg:hidden p-1.5 -ml-1 mr-1 rounded-lg text-linear-ink-subtle hover:text-linear-ink hover:bg-linear-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-linear-primary"
+                aria-label="Toggle navigation menu"
+              >
+                <Menu className="w-5 h-5" />
+              </button>
+              <Activity className="w-4 h-4 text-linear-primary hidden sm:block" />
+              <h1 className="text-base font-semibold text-linear-ink tracking-wide">
+                {pageTitle}
+              </h1>
+              <div className="hidden sm:flex items-center space-x-1.5 px-2.5 py-1 rounded-md bg-linear-surface-2 border border-linear-hairline text-[11px] text-linear-ink-muted font-mono">
+                <Lock className="w-3 h-3 text-linear-primary" />
+                <span>Pool: compliance_auditor (Read-Only)</span>
+              </div>
             </div>
-          </div>
-          <div className="flex items-center space-x-4">
-            <div className="flex items-center space-x-2 px-3 py-1.5 rounded-lg bg-linear-surface-2 border border-linear-hairline text-xs text-linear-ink-muted font-mono hidden md:flex shadow-2xs">
-              <span className="text-[10px] font-bold text-linear-success tracking-wider">LIVE</span>
-              <span className="text-linear-hairline-strong">|</span>
-              <RealtimeClock showLiveDot={true} />
-            </div>
-            <div className="h-8 w-8 rounded-full ring-2 ring-linear-hairline-strong flex items-center justify-center overflow-hidden">
-              <UserButton afterSignOutUrl="/" appearance={{ elements: { avatarBox: 'w-8 h-8' } }} />
+            <div className="flex items-center space-x-3 sm:space-x-4">
+              <div className="hidden md:flex items-center space-x-2 px-3 py-1.5 rounded-lg bg-linear-surface-2 border border-linear-hairline text-xs text-linear-ink-muted font-mono shadow-2xs">
+                <span className="text-[10px] font-bold text-linear-success tracking-wider">LIVE</span>
+                <span className="text-linear-hairline-strong">|</span>
+                <RealtimeClock showLiveDot={false} />
+              </div>
+              <div className="h-8 w-8 rounded-full ring-2 ring-linear-hairline-strong flex items-center justify-center overflow-hidden">
+                <UserButton afterSignOutUrl="/" appearance={{ elements: { avatarBox: 'w-8 h-8' } }} />
+              </div>
             </div>
           </div>
         </header>
 
         {/* Persistent Incident Alert Banner */}
         {incident.isCompromised && (
-          <div className="bg-gradient-to-r from-grafana-orange/20 via-grafana-orange/15 to-grafana-orange/20 border-b border-grafana-orange/40 px-8 py-3 flex items-center justify-between shadow-lg shadow-black/50 z-10 animate-fade-cascade">
-            <div className="flex items-center space-x-3.5">
-              <div className="w-8 h-8 rounded-lg bg-grafana-orange/20 border border-grafana-orange/40 flex items-center justify-center text-grafana-orange shrink-0">
-                <ShieldAlert className="w-5 h-5 animate-pulse" />
-              </div>
-              <div>
-                <div className="flex items-center space-x-2">
-                  <span className="text-[11px] font-extrabold uppercase tracking-wider text-grafana-orange font-mono">
-                    CRITICAL SECURITY ALERT
-                  </span>
-                  {incident.tamperedSeqId && (
-                    <span className="text-[10px] font-mono font-semibold bg-grafana-orange/25 text-white px-2 py-0.5 rounded border border-grafana-orange/40">
-                      Tampered Block #{incident.tamperedSeqId}
-                    </span>
-                  )}
-                  {incident.anchorMismatch && (
-                    <span className="text-[10px] font-mono font-semibold bg-grafana-orange/25 text-white px-2 py-0.5 rounded border border-grafana-orange/40">
-                      External Anchor Mismatch
-                    </span>
-                  )}
+          <div className="bg-gradient-to-r from-grafana-orange/20 via-grafana-orange/15 to-grafana-orange/20 border-b border-grafana-orange/40 px-4 sm:px-6 lg:px-8 py-3 shadow-lg shadow-black/50 z-10 animate-fade-cascade shrink-0">
+            <div className="max-w-7xl mx-auto w-full flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+              <div className="flex items-center space-x-3.5">
+                <div className="w-8 h-8 rounded-lg bg-grafana-orange/20 border border-grafana-orange/40 flex items-center justify-center text-grafana-orange shrink-0">
+                  <ShieldAlert className="w-5 h-5 animate-pulse" />
                 </div>
-                <p className="text-xs text-linear-ink mt-0.5 font-medium">
-                  {incident.details || 'Cryptographic chain verification detected tampering or anchor discrepancy.'}
-                </p>
+                <div>
+                  <div className="flex items-center space-x-2">
+                    <span className="text-[11px] font-extrabold uppercase tracking-wider text-grafana-orange font-mono">
+                      CRITICAL SECURITY ALERT
+                    </span>
+                    {incident.tamperedSeqId && (
+                      <span className="text-[10px] font-mono font-semibold bg-grafana-orange/25 text-white px-2 py-0.5 rounded border border-grafana-orange/40">
+                        Tampered Block #{incident.tamperedSeqId}
+                      </span>
+                    )}
+                    {incident.anchorMismatch && (
+                      <span className="text-[10px] font-mono font-semibold bg-grafana-orange/25 text-white px-2 py-0.5 rounded border border-grafana-orange/40">
+                        External Anchor Mismatch
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-linear-ink mt-0.5 font-medium">
+                    {incident.details || 'Cryptographic chain verification detected tampering or anchor discrepancy.'}
+                  </p>
+                </div>
               </div>
+              <Link
+                to={`/auditor/chain${incident.tamperedSeqId ? `?seq=${incident.tamperedSeqId}` : ''}`}
+                className="shrink-0 flex items-center space-x-1.5 px-3.5 py-1.5 rounded-lg bg-grafana-orange hover:bg-grafana-orange-hover border border-grafana-orange text-white text-xs font-semibold transition-colors duration-150 shadow-xs group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+              >
+                <span>Inspect Compromised Block {incident.tamperedSeqId ? `#${incident.tamperedSeqId}` : ''}</span>
+                <ArrowRight className="w-3.5 h-3.5 transition-transform duration-150 group-hover:translate-x-0.5" />
+              </Link>
             </div>
-            <Link
-              to={`/auditor/chain${incident.tamperedSeqId ? `?seq=${incident.tamperedSeqId}` : ''}`}
-              className="shrink-0 flex items-center space-x-1.5 px-3.5 py-1.5 rounded-lg bg-grafana-orange hover:bg-grafana-orange-hover border border-grafana-orange text-white text-xs font-semibold transition-colors duration-150 shadow-xs group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
-            >
-              <span>Inspect Compromised Block {incident.tamperedSeqId ? `#${incident.tamperedSeqId}` : ''}</span>
-              <ArrowRight className="w-3.5 h-3.5 transition-transform duration-150 group-hover:translate-x-0.5" />
-            </Link>
           </div>
         )}
 
         {/* Scrollable content */}
-        <main className="flex-1 overflow-y-auto p-8 bg-linear-canvas">
+        <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 bg-linear-canvas">
           <div className="max-w-7xl mx-auto min-h-full">
             <ErrorBoundary portalTheme="auditor" fallbackTitle="Auditor Portal View Error">
               <Outlet />

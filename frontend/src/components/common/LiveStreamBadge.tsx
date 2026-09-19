@@ -36,11 +36,11 @@ export function LiveStreamBadge({
 
   const containerClasses = isAuditor
     ? 'bg-linear-surface-2 border border-linear-hairline text-linear-ink'
-    : 'bg-white border border-grafana-border text-grafana-ink';
+    : 'bg-white border border-slate-200 text-slate-900';
 
   const buttonHoverClasses = isAuditor
     ? 'hover:bg-linear-surface-3 text-linear-ink-muted hover:text-linear-ink'
-    : 'hover:bg-gray-100 text-grafana-neutral hover:text-grafana-ink';
+    : 'hover:bg-slate-100 text-slate-500 hover:text-slate-900';
 
   return (
     <div

@@ -6,7 +6,7 @@ export default function AnalyticsPage() {
     <div className="space-y-6">
       <div>
         <h2 className="text-lg font-semibold text-linear-ink">System Analytics</h2>
-        <p className="text-sm text-linear-ink-secondary mt-0.5">
+        <p className="text-sm text-linear-ink-muted mt-0.5">
           Performance metrics and security posture overview.
         </p>
       </div>

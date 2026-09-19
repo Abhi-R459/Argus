@@ -7,6 +7,7 @@ export type ButtonVariant =
   | 'ghost'
   | 'danger'
   | 'success'
+  | 'accent'
   | 'outline'
   | 'link';
 
@@ -43,6 +44,8 @@ const VARIANT_MAP: Record<PortalTheme, Record<ButtonVariant, string>> = {
       'bg-rose-500/15 hover:bg-rose-500/25 active:bg-rose-500/35 border border-rose-500/30 text-rose-400',
     success:
       'bg-linear-success/15 hover:bg-linear-success/25 active:bg-linear-success/35 border border-linear-success/30 text-linear-success',
+    accent:
+      'bg-emerald-700 hover:bg-emerald-800 active:bg-emerald-900 text-white border border-transparent shadow-xs font-medium',
     outline:
       'bg-transparent hover:bg-linear-surface-1 active:bg-linear-surface-2 border border-linear-hairline text-linear-ink',
     link: 'bg-transparent text-linear-primary hover:text-linear-primary-hover underline-offset-2 hover:underline p-0 h-auto border-0 shadow-none',
@@ -58,6 +61,8 @@ const VARIANT_MAP: Record<PortalTheme, Record<ButtonVariant, string>> = {
       'bg-rose-50 hover:bg-rose-100 active:bg-rose-200 border border-rose-200 text-rose-700',
     success:
       'bg-emerald-50 hover:bg-emerald-100 active:bg-emerald-200 border border-emerald-200 text-emerald-700',
+    accent:
+      'bg-emerald-700 hover:bg-emerald-800 active:bg-emerald-900 text-white border border-transparent shadow-xs font-medium',
     outline:
       'bg-transparent hover:bg-slate-50 active:bg-slate-100 border border-slate-200 text-slate-800',
     link: 'bg-transparent text-slate-900 hover:text-slate-700 underline-offset-2 hover:underline p-0 h-auto border-0 shadow-none font-medium',
@@ -68,11 +73,11 @@ const SIZE_MAP: Record<ButtonSize, string> = {
   xs: 'h-6 px-2 text-[11px] font-medium rounded-md gap-1',
   sm: 'h-7 px-2.5 text-xs font-medium rounded-lg gap-1.5',
   md: 'h-8 px-3.5 text-xs font-semibold rounded-lg gap-2',
-  lg: 'h-9.5 px-4 text-sm font-semibold rounded-lg gap-2',
-  'icon-xs': 'h-6 w-6 p-0 rounded-md shrink-0 justify-center',
+  lg: 'h-10 px-4 text-sm font-semibold rounded-lg gap-2',
+  'icon-xs': 'h-7 w-7 p-0 rounded-md shrink-0 justify-center',
   'icon-sm': 'h-7 w-7 p-0 rounded-lg shrink-0 justify-center',
   'icon-md': 'h-8 w-8 p-0 rounded-lg shrink-0 justify-center',
-  'icon-lg': 'h-9.5 w-9.5 p-0 rounded-lg shrink-0 justify-center',
+  'icon-lg': 'h-10 w-10 p-0 rounded-lg shrink-0 justify-center',
 };
 
 export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(

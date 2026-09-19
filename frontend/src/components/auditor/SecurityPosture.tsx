@@ -37,7 +37,7 @@ export default function SecurityPosture() {
 
       <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-8">
         {/* Overall Score */}
-        <div className="flex flex-col items-center justify-center border-r border-linear-hairline pr-8">
+        <div className="flex flex-col items-center justify-center border-b md:border-b-0 md:border-r border-linear-hairline pb-8 md:pb-0 md:pr-8">
           <div className="relative flex items-center justify-center w-40 h-40">
             <svg className="w-full h-full transform -rotate-90" viewBox="0 0 36 36">
               <path
@@ -96,7 +96,7 @@ export default function SecurityPosture() {
               <p className="text-sm font-semibold text-linear-ink flex items-center gap-2">
                 Role Segregation
                 {data?.security_checks?.role_isolation && (
-                  <span className="text-[10px] font-mono uppercase bg-linear-success/10 text-linear-success px-1.5 py-0.2 rounded border border-linear-success/20">Verified</span>
+                  <span className="text-[10px] font-mono uppercase bg-linear-success/10 text-linear-success px-1.5 py-0.5 rounded border border-linear-success/20">Verified</span>
                 )}
               </p>
               <p className="text-xs text-linear-ink-muted mt-0.5">
@@ -122,7 +122,7 @@ export default function SecurityPosture() {
               <p className="text-sm font-semibold text-linear-ink flex items-center gap-2">
                 Cryptographic Extension
                 {data?.security_checks?.pgcrypto_active && (
-                  <span className="text-[10px] font-mono uppercase bg-linear-success/10 text-linear-success px-1.5 py-0.2 rounded border border-linear-success/20">Active</span>
+                  <span className="text-[10px] font-mono uppercase bg-linear-success/10 text-linear-success px-1.5 py-0.5 rounded border border-linear-success/20">Active</span>
                 )}
               </p>
               <p className="text-xs text-linear-ink-muted mt-0.5">
@@ -148,7 +148,7 @@ export default function SecurityPosture() {
               <p className="text-sm font-semibold text-linear-ink flex items-center gap-2">
                 Chain State Continuity
                 {data?.security_checks?.chain_continuous && (
-                  <span className="text-[10px] font-mono uppercase bg-linear-success/10 text-linear-success px-1.5 py-0.2 rounded border border-linear-success/20">Synchronized</span>
+                  <span className="text-[10px] font-mono uppercase bg-linear-success/10 text-linear-success px-1.5 py-0.5 rounded border border-linear-success/20">Synchronized</span>
                 )}
               </p>
               <p className="text-xs text-linear-ink-muted mt-0.5">

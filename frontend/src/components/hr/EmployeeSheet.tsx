@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -21,6 +21,8 @@ import {
 } from 'lucide-react';
 import { DetailSheet } from '../common/DetailSheet';
 import { Button } from '../common/Button';
+import { SegmentedControl } from '../common/SegmentedControl';
+import { formatINR } from '../../lib/format';
 import { fetchWithAuth, ApiError } from '../../lib/api';
 import { fetchRoles, type RoleItem } from '../../services/auditService';
 
@@ -75,6 +77,11 @@ export function EmployeeSheet({
 
   const [activeTab, setActiveTab] = useState<'overview' | 'edit' | 'salary'>(initialTab);
   const [feedbackMessage, setFeedbackMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [isDeactivateModalOpen, setIsDeactivateModalOpen] = useState(false);
+  const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
+  const [pendingAction, setPendingAction] = useState<
+    { type: 'tab'; tab: 'overview' | 'edit' | 'salary' } | { type: 'close' } | null
+  >(null);
 
   // Sync tab whenever initialTab or selected employee changes
   useEffect(() => {
@@ -123,7 +130,7 @@ export function EmployeeSheet({
     register: registerSalary,
     handleSubmit: handleSalarySubmit,
     reset: resetSalary,
-    formState: { errors: salaryErrors, isSubmitting: isSalarySubmitting },
+    formState: { errors: salaryErrors, isSubmitting: isSalarySubmitting, isDirty: isSalaryDirty },
   } = useForm<SalaryFormData>({
     resolver: zodResolver(salarySchema),
     defaultValues: {
@@ -230,88 +237,77 @@ export function EmployeeSheet({
     },
   });
 
-  if (!employee) return null;
+  // Cache last non-null employee so sheet content stays rendered during smooth exit transition
+  const cachedEmployee = useRef<Employee | null>(employee);
+  if (employee) {
+    cachedEmployee.current = employee;
+  }
+  const currentEmployee = employee || cachedEmployee.current;
 
-  const formattedSalary = employee.salary
-    ? new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(
-        employee.salary
-      )
-    : 'Not Recorded';
+  if (!currentEmployee) return null;
+
+  const formattedSalary = currentEmployee.salary ? formatINR(currentEmployee.salary) : 'Not Recorded';
+
+  const handleTabChange = (nextTab: 'overview' | 'edit' | 'salary') => {
+    if (nextTab === activeTab) return;
+    const hasUnsavedChanges = (activeTab === 'edit' && isProfileDirty) || (activeTab === 'salary' && isSalaryDirty);
+    if (hasUnsavedChanges) {
+      setPendingAction({ type: 'tab', tab: nextTab });
+      setShowDiscardConfirm(true);
+    } else {
+      setActiveTab(nextTab);
+      setFeedbackMessage(null);
+    }
+  };
+
+  const handleCloseRequest = () => {
+    const hasUnsavedChanges = (activeTab === 'edit' && isProfileDirty) || (activeTab === 'salary' && isSalaryDirty);
+    if (hasUnsavedChanges) {
+      setPendingAction({ type: 'close' });
+      setShowDiscardConfirm(true);
+    } else {
+      onClose();
+    }
+  };
 
   return (
     <DetailSheet
       isOpen={isOpen}
-      onClose={onClose}
+      onClose={handleCloseRequest}
       portalTheme="hr"
       mode="drawer"
       widthClass="w-full sm:w-[520px] lg:w-[580px]"
-      title={employee.full_name}
-      subtitle={`EMP-${employee.employee_id.toString().padStart(4, '0')} • ${employee.role_title}`}
+      title={currentEmployee.full_name}
+      subtitle={`EMP-${currentEmployee.employee_id.toString().padStart(4, '0')} • ${currentEmployee.role_title}`}
       headerBadge={
         <span
           className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium border ${
-            employee.is_active
+            currentEmployee.is_active
               ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
               : 'bg-slate-100 text-slate-600 border-slate-200'
           }`}
         >
           <span
             className={`w-1.5 h-1.5 rounded-full ${
-              employee.is_active ? 'bg-emerald-500' : 'bg-slate-400'
+              currentEmployee.is_active ? 'bg-emerald-500' : 'bg-slate-400'
             }`}
           />
-          {employee.is_active ? 'Active' : 'Deactivated'}
+          {currentEmployee.is_active ? 'Active' : 'Deactivated'}
         </span>
       }
     >
       {/* Modern Segmented Tab Switcher */}
-      <div className="flex bg-slate-100/90 p-1 rounded-xl gap-1 border border-slate-200/70">
-        <button
-          type="button"
-          onClick={() => {
-            setActiveTab('overview');
-            setFeedbackMessage(null);
-          }}
-          className={`flex-1 py-1.5 px-3 text-xs font-medium rounded-lg transition-all flex items-center justify-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 ${
-            activeTab === 'overview'
-              ? 'bg-white text-slate-900 shadow-2xs font-semibold'
-              : 'text-slate-600 hover:text-slate-900'
-          }`}
-        >
-          <User className="w-3.5 h-3.5" />
-          Overview
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            setActiveTab('edit');
-            setFeedbackMessage(null);
-          }}
-          className={`flex-1 py-1.5 px-3 text-xs font-medium rounded-lg transition-all flex items-center justify-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 ${
-            activeTab === 'edit'
-              ? 'bg-white text-slate-900 shadow-2xs font-semibold'
-              : 'text-slate-600 hover:text-slate-900'
-          }`}
-        >
-          <Edit3 className="w-3.5 h-3.5" />
-          Edit Profile
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            setActiveTab('salary');
-            setFeedbackMessage(null);
-          }}
-          className={`flex-1 py-1.5 px-3 text-xs font-medium rounded-lg transition-all flex items-center justify-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 ${
-            activeTab === 'salary'
-              ? 'bg-white text-slate-900 shadow-2xs font-semibold'
-              : 'text-slate-600 hover:text-slate-900'
-          }`}
-        >
-          <DollarSign className="w-3.5 h-3.5" />
-          Compensation
-        </button>
-      </div>
+      <SegmentedControl<'overview' | 'edit' | 'salary'>
+        value={activeTab}
+        onChange={handleTabChange}
+        options={[
+          { value: 'overview', label: 'Overview', icon: <User className="w-3.5 h-3.5" /> },
+          { value: 'edit', label: 'Edit Profile', icon: <Edit3 className="w-3.5 h-3.5" /> },
+          { value: 'salary', label: 'Compensation', icon: <DollarSign className="w-3.5 h-3.5" /> },
+        ]}
+        fullWidth
+        portalTheme="hr"
+      />
 
       {/* Feedback Banner */}
       {feedbackMessage && (
@@ -335,45 +331,45 @@ export function EmployeeSheet({
       {activeTab === 'overview' && (
         <div className="space-y-4">
           {/* Identity & Core Information */}
-          <div className="bg-slate-50/70 rounded-2xl border border-slate-200/80 p-4.5 space-y-3.5">
+          <div className="bg-slate-50/70 rounded-2xl border border-slate-200/80 p-4 space-y-3.5">
             <h4 className="text-xs font-semibold text-slate-900 tracking-tight">
               Personnel information
             </h4>
             <div className="grid grid-cols-2 gap-3.5 text-xs">
               <div>
                 <span className="text-slate-500 block text-[11px]">Full name</span>
-                <span className="font-semibold text-slate-900 mt-0.5 block">{employee.full_name}</span>
+                <span className="font-semibold text-slate-900 mt-0.5 block">{currentEmployee.full_name}</span>
               </div>
               <div>
                 <span className="text-slate-500 block text-[11px]">System identifier</span>
-                <span className="font-mono font-medium text-slate-900 mt-0.5 block">#{employee.employee_id}</span>
+                <span className="font-mono font-medium text-slate-900 mt-0.5 block">#{currentEmployee.employee_id}</span>
               </div>
               <div className="col-span-2">
                 <span className="text-slate-500 block text-[11px]">Official corporate email</span>
                 <span className="font-mono font-medium text-slate-900 flex items-center gap-1.5 mt-0.5">
                   <Mail className="w-3.5 h-3.5 text-slate-400" />
-                  {employee.email}
+                  {currentEmployee.email}
                 </span>
               </div>
               <div>
                 <span className="text-slate-500 block text-[11px]">Assigned position</span>
                 <span className="font-semibold text-slate-900 flex items-center gap-1 mt-0.5">
                   <Briefcase className="w-3.5 h-3.5 text-slate-400" />
-                  {employee.role_title}
+                  {currentEmployee.role_title}
                 </span>
               </div>
               <div>
                 <span className="text-slate-500 block text-[11px]">Department</span>
                 <span className="font-semibold text-slate-900 flex items-center gap-1 mt-0.5">
                   <Building2 className="w-3.5 h-3.5 text-slate-400" />
-                  {employee.department_name}
+                  {currentEmployee.department_name}
                 </span>
               </div>
               <div>
                 <span className="text-slate-500 block text-[11px]">Date onboarded</span>
                 <span className="font-mono text-slate-900 flex items-center gap-1 mt-0.5">
                   <Calendar className="w-3.5 h-3.5 text-slate-400" />
-                  {new Date(employee.date_hired).toLocaleDateString()}
+                  {new Date(currentEmployee.date_hired).toLocaleDateString()}
                 </span>
               </div>
               <div>
@@ -386,7 +382,7 @@ export function EmployeeSheet({
           </div>
 
           {/* Cryptographic Shield & PII Protection */}
-          <div className="bg-white rounded-2xl border border-slate-200/80 p-4.5 space-y-3 shadow-2xs">
+          <div className="bg-white rounded-2xl border border-slate-200/80 p-4 space-y-3 shadow-2xs">
             <div className="flex items-center justify-between">
               <h4 className="text-xs font-semibold text-slate-900 tracking-tight flex items-center gap-1.5">
                 <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
@@ -422,7 +418,7 @@ export function EmployeeSheet({
           </div>
 
           {/* Audit Chain Link */}
-          <div className="bg-white rounded-2xl border border-slate-200/80 p-4.5 space-y-3 shadow-2xs">
+          <div className="bg-white rounded-2xl border border-slate-200/80 p-4 space-y-3 shadow-2xs">
             <div className="flex items-center justify-between">
               <h4 className="text-xs font-semibold text-slate-900 tracking-tight flex items-center gap-1.5">
                 <Clock className="w-3.5 h-3.5 text-slate-700" />
@@ -446,14 +442,11 @@ export function EmployeeSheet({
           {/* Quick Actions */}
           <div className="pt-2 flex items-center gap-2">
             <Button
-              variant="success"
+              variant="accent"
               size="sm"
               portalTheme="hr"
-              onClick={() => {
-                setActiveTab('salary');
-                setFeedbackMessage(null);
-              }}
-              className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white shadow-2xs"
+              onClick={() => handleTabChange('salary')}
+              className="flex-1"
             >
               Adjust Salary
             </Button>
@@ -461,32 +454,39 @@ export function EmployeeSheet({
               variant="secondary"
               size="sm"
               portalTheme="hr"
-              onClick={() => {
-                setActiveTab('edit');
-                setFeedbackMessage(null);
-              }}
+              onClick={() => handleTabChange('edit')}
               className="flex-1"
             >
               Edit Profile
             </Button>
-            {employee.is_active && (
-              <Button
-                variant="danger"
-                size="icon-sm"
-                portalTheme="hr"
-                onClick={() => {
-                  if (window.confirm(`Are you sure you want to deactivate ${employee.full_name}?`)) {
-                    deactivateMutation.mutate();
-                  }
-                }}
-                disabled={deactivateMutation.isPending}
-                loading={deactivateMutation.isPending}
-                title="Deactivate employee"
-                aria-label={`Deactivate ${employee.full_name}`}
-                leftIcon={<UserX className="w-4 h-4" />}
-              />
-            )}
           </div>
+
+          {/* Explicit Danger Zone (F-43) */}
+          {currentEmployee.is_active && (
+            <div className="pt-3 border-t border-slate-200/80">
+              <div className="rounded-2xl border border-rose-200/80 bg-rose-50/50 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
+                <div>
+                  <h5 className="text-xs font-semibold text-rose-950">Deactivate Workforce Personnel</h5>
+                  <p className="text-[11px] text-rose-700/90 mt-0.5 leading-relaxed">
+                    Revokes credentials and writes an immutable cryptographic event to the audit ledger.
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="danger"
+                  size="sm"
+                  portalTheme="hr"
+                  onClick={() => setIsDeactivateModalOpen(true)}
+                  disabled={deactivateMutation.isPending}
+                  loading={deactivateMutation.isPending}
+                  leftIcon={<UserX className="w-3.5 h-3.5" />}
+                  className="shrink-0"
+                >
+                  Deactivate
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -539,7 +539,7 @@ export function EmployeeSheet({
                 className="w-full px-3.5 py-2 bg-slate-50/60 hover:bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 focus:bg-white focus:outline-none focus:ring-4 focus:ring-slate-900/5 focus:border-slate-900 transition-all shadow-2xs cursor-pointer"
               >
                 <option value="">
-                  {isRolesLoading ? 'Loading roles from database…' : `Keep Current: ${employee.role_title || 'Unassigned'} (${employee.department_name || 'General'})`}
+                  {isRolesLoading ? 'Loading roles from database…' : `Keep Current: ${currentEmployee.role_title || 'Unassigned'} (${currentEmployee.department_name || 'General'})`}
                 </option>
                 {roles.map((r) => (
                   <option key={r.role_id} value={r.role_id}>
@@ -578,10 +578,7 @@ export function EmployeeSheet({
               variant="secondary"
               size="sm"
               portalTheme="hr"
-              onClick={() => {
-                setActiveTab('overview');
-                setFeedbackMessage(null);
-              }}
+              onClick={() => handleTabChange('overview')}
               disabled={isProfileSubmitting}
             >
               Cancel
@@ -611,7 +608,7 @@ export function EmployeeSheet({
           className="space-y-4"
         >
           {/* Current Compensation Card */}
-          <div className="bg-slate-50/70 rounded-2xl border border-slate-200/80 p-4.5 space-y-1.5">
+          <div className="bg-slate-50/70 rounded-2xl border border-slate-200/80 p-4 space-y-1.5">
             <span className="text-xs font-semibold text-slate-500 tracking-tight">
               Current annual compensation
             </span>
@@ -622,7 +619,7 @@ export function EmployeeSheet({
               <span className="text-xs text-slate-500">per annum</span>
             </div>
             <p className="text-[11px] text-slate-500">
-              Validated against role benchmarks for <span className="font-semibold text-slate-900">{employee.role_title}</span>.
+              Validated against role benchmarks for <span className="font-semibold text-slate-900">{currentEmployee.role_title}</span>.
             </p>
           </div>
 
@@ -671,7 +668,7 @@ export function EmployeeSheet({
               Automated Checkpoint Trigger
             </span>
             <p className="text-slate-600 text-[11px] leading-relaxed">
-              Recording this adjustment creates an immutable row in <code className="font-mono text-slate-900 bg-white/70 px-1 py-0.2 rounded">salary_history</code> and triggers an automatic SHA-256 block in <code className="font-mono text-slate-900 bg-white/70 px-1 py-0.2 rounded">audit_log</code>.
+              Recording this adjustment creates an immutable row in <code className="font-mono text-slate-900 bg-white/70 px-1 py-0.5 rounded">salary_history</code> and triggers an automatic SHA-256 block in <code className="font-mono text-slate-900 bg-white/70 px-1 py-0.5 rounded">audit_log</code>.
             </p>
           </div>
 
@@ -680,27 +677,115 @@ export function EmployeeSheet({
               variant="secondary"
               size="sm"
               portalTheme="hr"
-              onClick={() => {
-                setActiveTab('overview');
-                setFeedbackMessage(null);
-              }}
+              onClick={() => handleTabChange('overview')}
               disabled={isSalarySubmitting}
             >
               Cancel
             </Button>
             <Button
               type="submit"
-              variant="success"
+              variant="accent"
               size="sm"
               portalTheme="hr"
               disabled={isSalarySubmitting}
               loading={isSalarySubmitting}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs font-medium"
             >
               Record Salary Adjustment
             </Button>
           </div>
         </form>
+      )}
+
+      {/* Styled Deactivation Modal (F-37) */}
+      {isDeactivateModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-xl max-w-md w-full p-6 space-y-4">
+            <div className="flex items-center gap-3 text-rose-600">
+              <div className="w-10 h-10 rounded-xl bg-rose-100 flex items-center justify-center shrink-0">
+                <UserX className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-semibold text-slate-900">Deactivate Personnel</h3>
+                <p className="text-xs text-slate-500">Immutable ledger transaction</p>
+              </div>
+            </div>
+            <p className="text-xs text-slate-600 leading-relaxed">
+              Are you sure you want to deactivate <strong className="text-slate-900">{currentEmployee.full_name}</strong> (#{currentEmployee.employee_id})? Their active system access will be terminated immediately.
+            </p>
+            <div className="flex items-center justify-end gap-2.5 pt-2">
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                portalTheme="hr"
+                onClick={() => setIsDeactivateModalOpen(false)}
+                disabled={deactivateMutation.isPending}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                variant="danger"
+                size="sm"
+                portalTheme="hr"
+                onClick={() => {
+                  deactivateMutation.mutate();
+                  setIsDeactivateModalOpen(false);
+                }}
+                disabled={deactivateMutation.isPending}
+                loading={deactivateMutation.isPending}
+              >
+                Confirm Deactivation
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Discard Unsaved Changes Modal (F-40, F-124) */}
+      {showDiscardConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-xl max-w-sm w-full p-5 space-y-3">
+            <h3 className="text-sm font-semibold text-slate-900">Discard unsaved changes?</h3>
+            <p className="text-xs text-slate-500 leading-relaxed">
+              You have modified input fields that have not been saved. If you leave now, your changes will be lost.
+            </p>
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                portalTheme="hr"
+                onClick={() => {
+                  setShowDiscardConfirm(false);
+                  setPendingAction(null);
+                }}
+              >
+                Keep Editing
+              </Button>
+              <Button
+                type="button"
+                variant="danger"
+                size="sm"
+                portalTheme="hr"
+                onClick={() => {
+                  setShowDiscardConfirm(false);
+                  resetProfile();
+                  resetSalary();
+                  if (pendingAction?.type === 'tab') {
+                    setActiveTab(pendingAction.tab);
+                    setFeedbackMessage(null);
+                  } else if (pendingAction?.type === 'close') {
+                    onClose();
+                  }
+                  setPendingAction(null);
+                }}
+              >
+                Discard Changes
+              </Button>
+            </div>
+          </div>
+        </div>
       )}
     </DetailSheet>
   );

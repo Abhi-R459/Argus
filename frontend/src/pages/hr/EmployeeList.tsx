@@ -36,8 +36,8 @@ export default function EmployeeList() {
       {/* Workforce Table with Compound Primitives & Slide-Over Sheet */}
       <EmployeeTable />
 
-      {/* Slide-over Registration Drawer */}
-      {isFormOpen && <EmployeeForm onClose={() => setIsFormOpen(false)} />}
+      {/* Personnel Registration Modal */}
+      <EmployeeForm isOpen={isFormOpen} onClose={() => setIsFormOpen(false)} />
     </div>
   );
 }

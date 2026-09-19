@@ -56,7 +56,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
           className={`p-6 rounded-xl border flex flex-col gap-4 max-w-2xl my-4 mx-auto ${
             isAuditor
               ? 'bg-linear-surface-1 border-linear-hairline text-linear-ink'
-              : 'bg-white border-grafana-border text-grafana-ink shadow-sm'
+              : 'bg-white border-slate-200 text-slate-900 shadow-sm'
           }`}
         >
           <div className="flex items-start gap-3.5">
@@ -73,7 +73,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
               <h3 className="text-sm font-semibold tracking-tight">{title}</h3>
               <p
                 className={`text-xs mt-1 ${
-                  isAuditor ? 'text-linear-ink-muted' : 'text-grafana-neutral'
+                  isAuditor ? 'text-linear-ink-muted' : 'text-slate-500'
                 }`}
               >
                 {subtitle}
@@ -93,7 +93,11 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
             </div>
           )}
 
-          <div className="flex items-center gap-2 pt-2 border-t border-inherit justify-end">
+          <div
+            className={`flex items-center gap-2 pt-2 border-t justify-end ${
+              isAuditor ? 'border-linear-hairline' : 'border-slate-200'
+            }`}
+          >
             <Button
               variant="secondary"
               size="sm"

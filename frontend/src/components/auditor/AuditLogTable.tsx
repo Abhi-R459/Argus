@@ -1,11 +1,11 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@clerk/clerk-react';
 import {
   ChevronLeft, ChevronRight, Search,
-  Hash, ChevronDown, ChevronUp, ArrowRight, GitBranch, Clock,
-  Filter, Check
+  Hash, ChevronDown, ArrowRight, GitBranch, Clock,
+  Filter
 } from 'lucide-react';
 import {
   fetchAuditLogs,
@@ -19,93 +19,67 @@ import { DataTable } from '../common/DataTable';
 import { FilterBar, type ActiveFilterItem } from '../common/FilterBar';
 import { Button } from '../common/Button';
 import { SkeletonRows } from '../common/SkeletonRows';
+import { EmptyState } from '../common/EmptyState';
+import { CopyButton } from '../common/CopyButton';
 import { useKeyboardNav } from '../../hooks/useKeyboardNav';
-
-// ─── Badges & styles ─────────────────────────────────────────────────────────
-
-const ACTION_STYLE: Record<string, string> = {
-  INSERT: 'bg-linear-success/15 text-linear-success border-linear-success/30',
-  UPDATE: 'bg-linear-primary/15 text-linear-primary border-linear-primary/30',
-  DELETE: 'bg-grafana-orange/15 text-grafana-orange border-grafana-orange/30',
-};
-
-const SEVERITY_STYLE: Record<string, string> = {
-  INFO:     'bg-linear-surface-2 text-linear-ink-muted border-linear-hairline',
-  WARNING:  'bg-grafana-orange/15 text-grafana-orange border-grafana-orange/30',
-  CRITICAL: 'bg-grafana-orange/20 text-grafana-orange border-grafana-orange/40 font-semibold',
-};
-
-const SEVERITY_DOT: Record<string, string> = {
-  INFO:     'bg-linear-ink-subtle',
-  WARNING:  'bg-linear-primary',
-  CRITICAL: 'bg-grafana-orange',
-};
-
-function truncateHash(h: string, n = 8) {
-  return h.length <= n + 3 ? h : `${h.slice(0, n)}…`;
-}
-
-function relativeTime(iso: string) {
-  const diff = Math.max(0, Date.now() - new Date(iso).getTime());
-  const s = Math.floor(diff / 1000);
-  if (s < 5) return 'just now';
-  if (s < 60) return `${s}s ago`;
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m ago`;
-  const hr = Math.floor(m / 60);
-  if (hr < 24) return `${hr}h ago`;
-  return `${Math.floor(hr / 24)}d ago`;
-}
+import { useAccordionTransition } from '../../hooks/useAccordionTransition';
+import { formatRelativeTime, truncateHash } from '../../lib/format';
+import { getActionSemantic, getSeverityDotClass, getSeverityChipClass } from '../../lib/semantics';
 
 // ─── Expandable row ───────────────────────────────────────────────────────────
 
-function AuditRow({
-  entry,
-  isTampered,
-  isTargetSeq,
-  isSelected,
-  isOpen,
-  onToggleOpen,
-}: {
-  entry: AuditLogItem;
-  isTampered?: boolean;
-  isTargetSeq?: boolean;
-  isSelected?: boolean;
-  isOpen: boolean;
-  onToggleOpen: () => void;
-}) {
-  const [copied, setCopied] = useState(false);
-  const navigate = useNavigate();
+const AuditRow = React.forwardRef<
+  HTMLTableRowElement,
+  {
+    entry: AuditLogItem;
+    isTampered?: boolean;
+    isTargetSeq?: boolean;
+    isSelected?: boolean;
+    isFocused?: boolean;
+    isOpen: boolean;
+    onToggleOpen: () => void;
+  }
+>(
+  (
+    {
+      entry,
+      isTampered,
+      isTargetSeq,
+      isSelected,
+      isFocused,
+      isOpen,
+      onToggleOpen,
+    },
+    ref
+  ) => {
+    const navigate = useNavigate();
+    const actionSemantic = getActionSemantic(entry.action, entry.table_name, 'auditor');
+    const { isRendered, isExpanded } = useAccordionTransition(isOpen);
 
-  const handleCopyHash = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    navigator.clipboard.writeText(entry.entry_hash);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
-  return (
-    <>
-      <DataTable.Row
-        isSelected={isSelected || isTargetSeq}
-        isTampered={isTampered}
-        portalTheme="auditor"
-        onClick={onToggleOpen}
-        className={isOpen ? 'bg-linear-surface-2' : ''}
-      >
+    return (
+      <>
+        <DataTable.Row
+          ref={ref}
+          isSelected={isSelected || isTargetSeq}
+          isFocused={isFocused}
+          isTampered={isTampered}
+          portalTheme="auditor"
+          onClick={onToggleOpen}
+          className={isOpen ? 'bg-linear-surface-2' : ''}
+        >
         {/* Seq ID */}
         <DataTable.Cell tabularNums mono className="font-bold">
           <div className="flex items-center space-x-1.5">
             <span
               className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
-                isTampered ? 'bg-grafana-orange' : SEVERITY_DOT[entry.severity] ?? 'bg-linear-ink-subtle'
+                isTampered ? 'bg-grafana-orange' : getSeverityDotClass(entry.severity)
               }`}
             />
             <span className={isTampered ? 'text-grafana-orange' : 'text-linear-ink'}>
               #{entry.sequence_id}
             </span>
             {isTampered && (
-              <span className="text-[10px] font-mono font-bold bg-grafana-orange/20 text-grafana-orange border border-grafana-orange/40 px-1 py-0.2 rounded">
+              <span className="text-[10px] font-mono font-bold bg-grafana-orange/20 text-grafana-orange border border-grafana-orange/40 px-1 py-0.5 rounded">
                 TAMPERED
               </span>
             )}
@@ -116,7 +90,7 @@ function AuditRow({
         <DataTable.Cell>
           <span
             className={`inline-flex px-1.5 py-0.5 rounded text-[10px] font-mono font-bold uppercase tracking-wide border ${
-              ACTION_STYLE[entry.action] ?? ''
+              actionSemantic.className
             }`}
           >
             {entry.action}
@@ -143,27 +117,20 @@ function AuditRow({
           <div className="flex items-center space-x-1 text-xs text-linear-primary">
             <span className="text-linear-ink-subtle">{truncateHash(entry.previous_hash, 6)}</span>
             <ArrowRight className="w-2.5 h-2.5 text-linear-ink-muted" />
-            <Button
-              type="button"
-              variant="ghost"
-              size="xs"
+            <CopyButton
+              text={entry.entry_hash}
+              label={truncateHash(entry.entry_hash, 6)}
               portalTheme="auditor"
-              onClick={handleCopyHash}
               title="Click to copy full entry hash"
-              aria-label="Copy full entry hash"
-              className="px-1.5 py-0.5 text-[11px] font-mono text-linear-primary hover:bg-linear-surface-3"
-            >
-              <span>{truncateHash(entry.entry_hash, 6)}</span>
-              {copied && <Check className="w-3 h-3 text-linear-success inline ml-1" />}
-            </Button>
+            />
           </div>
         </DataTable.Cell>
 
         {/* Severity */}
         <DataTable.Cell>
           <span
-            className={`inline-flex px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide border ${
-              SEVERITY_STYLE[entry.severity] ?? ''
+            className={`inline-flex px-1.5 py-0.5 rounded text-[10px] uppercase tracking-wide border ${
+              getSeverityChipClass(entry.severity, 'auditor')
             }`}
           >
             {entry.severity}
@@ -173,64 +140,76 @@ function AuditRow({
         {/* Recorded When */}
         <DataTable.Cell align="right" mono className="text-linear-ink-muted text-[11px]">
           <span title={new Date(entry.created_at).toLocaleString()}>
-            {relativeTime(entry.created_at)}
+            {formatRelativeTime(entry.created_at)}
           </span>
         </DataTable.Cell>
 
-        {/* Expand Indicator */}
+        {/* Expand Indicator with smooth 180-deg chevron rotation */}
         <DataTable.Cell align="center" className="w-8">
-          <span className="text-linear-ink-subtle">
-            {isOpen ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+          <span
+            className={`inline-flex items-center justify-center text-linear-ink-subtle transition-transform duration-280 ease-out ${
+              isOpen ? 'rotate-180 text-linear-ink' : 'rotate-0'
+            }`}
+          >
+            <ChevronDown className="w-3.5 h-3.5" />
           </span>
         </DataTable.Cell>
       </DataTable.Row>
 
-      {/* Diff drawer accordion */}
-      {isOpen && (
+      {/* Diff drawer accordion with smooth slide down / slide up */}
+      {isRendered && (
         <tr>
           <td colSpan={8} className="p-0 border-b border-linear-hairline">
-            <div className="px-5 py-3.5 bg-linear-canvas space-y-3">
-              <DiffViewer
-                oldValue={entry.old_value}
-                newValue={entry.new_value}
-                operation={entry.action}
-              />
-              <div className="flex items-center justify-end space-x-2 pt-2 border-t border-linear-hairline/60">
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  portalTheme="auditor"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    navigate(`/auditor/chain?seq=${entry.sequence_id}`);
-                  }}
-                  leftIcon={<GitBranch className="w-3.5 h-3.5 text-linear-primary" />}
-                >
-                  Inspect in Chain Explorer
-                </Button>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  portalTheme="auditor"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    const empId = entry.employee_id || entry.row_id;
-                    navigate(`/auditor/time-travel?emp_id=${empId}&as_of=${encodeURIComponent(entry.created_at)}`);
-                  }}
-                  leftIcon={<Clock className="w-3.5 h-3.5 text-linear-primary" />}
-                >
-                  Time-Travel to Change ⏱
-                </Button>
+            <div
+              className={`accordion-collapse ${isExpanded ? 'accordion-open' : ''}`}
+            >
+              <div className="accordion-collapse-inner">
+                <div className="px-5 py-3.5 bg-linear-canvas space-y-3">
+                  <DiffViewer
+                    oldValue={entry.old_value}
+                    newValue={entry.new_value}
+                    operation={entry.action}
+                  />
+                  <div className="flex items-center justify-end space-x-2 pt-2 border-t border-linear-hairline/60">
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      portalTheme="auditor"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        navigate(`/auditor/chain?seq=${entry.sequence_id}`);
+                      }}
+                      leftIcon={<GitBranch className="w-3.5 h-3.5 text-linear-primary" />}
+                    >
+                      Inspect in Chain Explorer
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      portalTheme="auditor"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const empId = entry.employee_id || entry.row_id;
+                        navigate(`/auditor/time-travel?emp_id=${empId}&as_of=${encodeURIComponent(entry.created_at)}`);
+                      }}
+                      leftIcon={<Clock className="w-3.5 h-3.5 text-linear-primary" />}
+                    >
+                      Time-Travel to Change ⏱
+                    </Button>
+                  </div>
+                </div>
               </div>
             </div>
           </td>
         </tr>
       )}
-    </>
-  );
-}
+      </>
+    );
+  }
+);
+AuditRow.displayName = 'AuditRow';
 
 // ─── Main AuditLogTable component ──────────────────────────────────────────────
 
@@ -240,6 +219,7 @@ export default function AuditLogTable() {
   const incident = useIncidentStatus();
 
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const rowRefs = useRef<(HTMLTableRowElement | null)[]>([]);
 
   // Pre-seed sequence_id filter if ?seq= is passed
   const targetSeqParam = searchParams.get('seq');
@@ -269,6 +249,22 @@ export default function AuditLogTable() {
   const items = data?.items ?? [];
   const total = data?.total ?? 0;
   const totalPages = data?.pages ?? Math.ceil(total / (filters.limit ?? 25));
+
+  // Auto-scroll focused row into view when focusedRowIndex changes
+  useEffect(() => {
+    const rowEl = rowRefs.current[focusedRowIndex];
+    if (rowEl) {
+      rowEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
+  }, [focusedRowIndex]);
+
+  // Keep rowRefs aligned with items
+  useEffect(() => {
+    rowRefs.current = rowRefs.current.slice(0, items.length);
+    if (items.length > 0 && focusedRowIndex >= items.length) {
+      setFocusedRowIndex(0);
+    }
+  }, [items.length, focusedRowIndex]);
 
   const handleFilterChange = (patch: Partial<AuditLogFilters>) => {
     setFilters((prev) => ({ ...prev, ...patch }));
@@ -441,12 +437,13 @@ export default function AuditLogTable() {
         ) : items.length === 0 ? (
           <tbody>
             <tr>
-              <td colSpan={8} className="py-12 text-center text-xs text-linear-ink-muted">
-                <Hash className="w-6 h-6 mx-auto mb-2 text-linear-ink-subtle" />
-                <p className="font-medium text-linear-ink">No audit entries matching filters</p>
-                <p className="text-linear-ink-subtle text-[11px] mt-0.5">
-                  Try clearing active filter chips or adjusting query parameters.
-                </p>
+              <td colSpan={8}>
+                <EmptyState
+                  icon={<Hash className="w-6 h-6" />}
+                  title="No audit entries matching filters"
+                  description="Try clearing active filter chips or adjusting query parameters."
+                  portalTheme="auditor"
+                />
               </td>
             </tr>
           </tbody>
@@ -455,10 +452,14 @@ export default function AuditLogTable() {
             {items.map((entry, idx) => (
               <AuditRow
                 key={entry.sequence_id}
+                ref={(el) => {
+                  rowRefs.current[idx] = el;
+                }}
                 entry={entry}
                 isTampered={incident.tamperedSeqId === entry.sequence_id}
                 isTargetSeq={targetSeqId === entry.sequence_id}
-                isSelected={focusedRowIndex === idx}
+                isSelected={openRowSeq === entry.sequence_id}
+                isFocused={focusedRowIndex === idx}
                 isOpen={openRowSeq === entry.sequence_id}
                 onToggleOpen={() => {
                   setFocusedRowIndex(idx);

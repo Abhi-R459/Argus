@@ -44,7 +44,11 @@ export function FilterBar({
       )}
 
       {hasActiveFilters && (
-        <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-inherit/40">
+        <div
+          className={`flex flex-wrap items-center gap-2 pt-2 border-t ${
+            portalTheme === 'auditor' ? 'border-linear-hairline' : 'border-slate-200'
+          }`}
+        >
           <span
             className={`text-xs ${
               portalTheme === 'auditor' ? 'text-linear-ink-muted' : 'text-slate-500'
