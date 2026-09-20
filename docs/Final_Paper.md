@@ -215,13 +215,69 @@ Argus maintains strict modular separation:
 
 ## 16.10 Sequencing, Pedagogy & Mentorship Note
 
-Developed over an 11-week academic lifecycle, Argus serves as a pedagogical demonstration of database systems theory:
-- Relational normal forms (3NF) and constraint enforcement.
-- Concurrency control via Two-Phase Locking (2PL).
-- Transactional atomicity and Write-Ahead Log (WAL) crash recovery.
-- B-tree indexing and keyset streaming optimization.
+### 1. Project Chronology & Implementation Sequencing
+
+The development of Argus was structured over an intensive 11-week academic project lifecycle divided into six phased milestones:
+
+1. **Phase 1: Foundation (Weeks 1–2):** Joint schema and API contract freeze (`schema_contract.sql`, `api_contract.md`). Implementation of core normalized relational tables (`departments`, `roles`, `users`, `employees`, `salary_history`) and audit tables (`audit_log`, `chain_state`, `chain_checkpoints`) via Alembic migrations.
+2. **Phase 2: Security Mechanisms (Weeks 3–4):** In-engine PL/pgSQL triggers (`audit_employees`, `audit_salary_history`) implementing SHA-256 hash chaining, Two-Phase Locking (`SELECT ... FOR UPDATE`), PII redaction (`mask_employee_payload`), severity mapping, and business rule constraint triggers (salary decrease limit, self-modification block).
+3. **Phase 3: Verification Engine (Weeks 5–6):** Standalone Python verification CLI with keyset pagination (`chain_walker.py`), hash recomputation (`hash_verifier.py`), Ed25519 asymmetric key generation (`keygen.py`), checkpoint signing (`signer.py`), and pluggable external anchoring (`anchor_store.py`).
+4. **Phase 4: Advanced Features (Weeks 7–8):** Parallel checkpoint verification engine (`--parallel`), database dump integrity verification via streaming SHA-256 hashing (`backup.py`), and SQL stored routines (`reconstruct_employee_state`, `refresh_suspicious_activity_flags`).
+5. **Phase 5: Evaluation & Research (Week 9):** Full benchmark harness (`db/bench/`) evaluating write latency, verification throughput, checkpoint sweeps, and parallel scaling across 100 to 100,000 records. Authoring of formal threat model, algorithm, complexity, and failure analyses.
+6. **Phase 6: Integration & Delivery (Weeks 10–11):** End-to-end integration, 6 attack demo rehearsals, publication plot generation, comparison matrix synthesis, and final research paper assembly.
 
 ---
+
+### 2. Pedagogical Mapping to the DBMS Curriculum
+
+Argus was engineered directly to demonstrate and extend the foundational principles taught in the BCSE302L Database Management Systems curriculum:
+
+- **Relational Integrity & Normalization (BCSE302L Module 2):** Argus implements a fully normalized 3NF schema, enforcing strict foreign key constraints with cascaded referential actions, unique constraints, and check constraints (`amount > 0`, salary bands).
+- **Concurrency Control & 2PL Locking (BCSE302L Module 4):** Rather than treating transactions as abstract theory, Argus applies Two-Phase Locking (2PL) pragmatically. By acquiring an exclusive row lock on `chain_state` (`SELECT ... FOR UPDATE`), the system demonstrates how strict serializability guarantees deterministic hash chain linkage without race conditions.
+- **Write-Ahead Logging (WAL) & Crash Recovery (BCSE302L Module 5):** The atomicity of Argus's audit triggers relies fundamentally on PostgreSQL's WAL engine. Because data mutations and audit records commit in the same transaction, the system illustrates how ARIES-style recovery naturally prevents partial log writes.
+- **Query Optimization & Indexing (BCSE302L Module 6):** Argus demonstrates the practical difference between linear $O(N)$ table scans and logarithmic $O(\log N)$ B-tree index traversals. Keyset pagination ensures memory-safe $O(1)$ stream verification, while composite indexes enable sub-millisecond historical time-travel reconstruction.
+
+---
+
+### 3. Academic Mentorship & Publication Roadmap
+
+Following the conclusion of the course evaluation, the authors plan to collaborate with the course faculty mentor to prepare this work for formal academic submission to a peer-reviewed database systems conference (e.g., IEEE ICDE, ACM SIGMOD Demo Track, or VLDB Workshop on High-Assurance Database Systems).
+
+Key areas identified for subsequent post-course exploration include:
+1. **Adaptive Checkpoint Intervals:** Incorporating dynamic heuristic adjustments to the checkpoint interval $C$ based on real-time transaction write volume.
+2. **Hardware-Accelerated Verification:** Leveraging SIMD instructions (AVX-512) and GPU acceleration to scale parallel hash recomputation beyond 1,000,000 entries/second.
+3. **Decentralized WORM Anchoring:** Adding pluggable adapters for decentralized immutable ledgers (e.g., Ethereum smart contract logs or Filecoin).
+
+---
+
+### 4. Application Layer Sequencing — API & Frontend Track (Nidhurshek)
+
+The Application Layer track ran in deliberate parallel to the Database Core track, following a **mock-then-real integration discipline** that insulated frontend development velocity from database implementation dependencies.
+
+**Phase 1 — Backend Foundation (Weeks 2–3):** The FastAPI skeleton was initialized first, establishing the two-layer RBAC bridge: Clerk JWT verification → local `users.role` lookup → PostgreSQL role-routed connection pool. The `POST /api/auth/sync` endpoint ensured `users.role` — not any Clerk-provided claim — was always the sole authorization source.
+
+**Phase 2 — Employee CRUD (Week 3):** The five Employee CRUD endpoints were implemented with `SET LOCAL app.user_id = <id>` emitted in every write transaction *before* database triggers existed, fulfilling the session variable contract with the trigger layer without blocking either side.
+
+**Phase 3 — Frontend Skeleton & HR Admin Dashboard (Week 4):** React 19 + Vite bootstrapped with TailwindCSS, TanStack Query, React Hook Form, and Zod. HR Dashboard wired against live FastAPI backend immediately — no mocks needed at this stage.
+
+**Phase 4 — Compliance Auditor Dashboard, Mocked First (Weeks 5–6):** `mockAuditService.ts` served synthetic chain entries, verification results, and anchor status. The full auditor UI was completed against mocks; swapping to real endpoints (`auditService.ts`) when Abhinav's triggers landed required no component changes.
+
+**Phase 5 — Advanced Panels & Evidence Export (Weeks 7–8):** Time-Travel UI, Activity & Risk Panel, Concurrency Lab, and `.arguspack` evidence export built via thin FastAPI wrappers over Abhinav's stored functions and CLI tools.
+
+**Phase 6 — Deployment & Integration (Week 9+):** FastAPI deployed to Render Free, React SPA to Vercel, Neon Free receiving the full Alembic migration chain.
+
+**Integration Handshake Points:**
+
+| Integration Point | Application Side | Database Side |
+|---|---|---|
+| **SET LOCAL / Trigger Attribution** | `SET LOCAL app.user_id` in every write transaction | `current_setting('app.user_id')` in AFTER trigger |
+| **POST /api/verify subprocess** | FastAPI spawns `db.cli.verifier`, parses stdout JSON | Verifier CLI outputs structured JSON result |
+| **reconstruct_employee_state()** | `GET /api/employees/{id}/time-travel` calls stored function | SQL function defined in migration 009 |
+| **Evidence Export Signing** | `api/services/export.py` spawns `db.cli.signer` subprocess | `signer.py` writes detached `.sig` |
+
+---
+
+
 
 ## 16.11 Enterprise Auditor UX & Cross-View Forensic Navigation
 
