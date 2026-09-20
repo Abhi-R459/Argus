@@ -92,6 +92,7 @@ CREATE TABLE chain_checkpoints (
     sequence_id BIGINT NOT NULL REFERENCES audit_log(sequence_id),
     checkpoint_hash CHAR(64) NOT NULL,
     signature BYTEA NOT NULL, -- Asymmetric signature (Ed25519)
+    key_id VARCHAR(128) DEFAULT 'local:ed25519:v1', -- Key identifier supporting rotation
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 

@@ -72,7 +72,9 @@ async def test_export_signature_cryptographic_verification(client_auditor: Async
     payload_hash = meta["payload_hash"]
     sig_bytes = bytes.fromhex(meta["signature"])
 
-    pub_key_path = Path(get_default_key_dir()) / "public_key.pem"
+    pub_key_path = Path("keys/public_key.pem")
+    if not pub_key_path.is_file():
+        pub_key_path = Path(get_default_key_dir()) / "public_key.pem"
     if pub_key_path.is_file():
         pub_key = load_public_key(str(pub_key_path))
         is_valid = verify_signature(pub_key, payload_hash, sig_bytes)

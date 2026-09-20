@@ -62,6 +62,7 @@ $func$;
     op.execute(sa.text("""
 CREATE OR REPLACE PROCEDURE refresh_suspicious_activity_flags()
 LANGUAGE plpgsql
+SECURITY DEFINER
 AS $$
 BEGIN
     -- Pattern 1: Salary change > 30%

@@ -1,0 +1,8 @@
+iterations,py_latency_ms,pg_latency_ms,gpu_search_seconds,gpu_search_formatted,sla_compliant,nist_approved
+1,0.018,,0.83,0.83 s,True,True
+100,0.064,,83.33,1.4 min,True,True
+500,0.181,,416.67,6.9 min,True,True
+1000,0.292,,833.33,13.9 min,True,True
+5000,1.39,,4166.67,1.16 hours,True,True
+10000,2.898,,8333.33,2.31 hours,True,True
+50000,14.674,,41666.67,11.57 hours,False,True

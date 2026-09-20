@@ -3,7 +3,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .database import init_engines, dispose_engines
-from .routers import health, auth, employees, audits
+from .routers import health, auth, employees, audits, dashboard
 
 
 @asynccontextmanager
@@ -38,3 +38,4 @@ app.include_router(health.router, prefix="/api")
 app.include_router(auth.router, prefix="/api")
 app.include_router(employees.router, prefix="/api")
 app.include_router(audits.router, prefix="/api")
+app.include_router(dashboard.router, prefix="/api")

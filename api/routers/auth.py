@@ -6,6 +6,7 @@ from ..middleware.clerk import verify_clerk_token
 from ..database import get_session_factory
 from ..models.user import User
 from ..schemas.user import UserSyncResponse
+from ..config import get_settings
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -42,12 +43,19 @@ async def sync_user(
         
         if user is None:
             # Auto-provision: create user with data from Clerk token
-            # Default role is hr_admin; can be changed by another admin later
+            # Determine role: check email keyword or Clerk metadata
+            assigned_role = "hr_admin"
+            if "audit" in (email or "").lower() or "compliance" in (email or "").lower():
+                assigned_role = "compliance_auditor"
+            metadata = token_payload.get("public_metadata") or token_payload.get("unsafe_metadata") or {}
+            if metadata.get("role") in ("hr_admin", "compliance_auditor"):
+                assigned_role = metadata.get("role")
+
             user = User(
                 clerk_user_id=clerk_user_id,
                 full_name=full_name or "Unknown",
                 email=email or f"{clerk_user_id}@placeholder.com",
-                role="hr_admin",  # Default role for new users
+                role=assigned_role,
                 is_active=True,
             )
             session.add(user)
@@ -72,3 +80,69 @@ async def sync_user(
                 await session.refresh(user)
     
     return user
+
+
+@router.get("/me", response_model=UserSyncResponse)
+async def get_my_profile(
+    token_payload: dict = Depends(verify_clerk_token),
+):
+    """Retrieve the profile and role of the currently authenticated user."""
+    clerk_user_id = token_payload.get("sub")
+    if not clerk_user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token: missing subject claim."
+        )
+    session_factory = get_session_factory("hr_admin")
+    async with session_factory() as session:
+        result = await session.execute(
+            select(User).where(User.clerk_user_id == clerk_user_id)
+        )
+        user = result.scalar_one_or_none()
+        if user is None:
+            # Sync user if not yet created in db
+            return await sync_user(token_payload)
+        return user
+
+
+@router.post("/role", response_model=UserSyncResponse)
+async def switch_user_role(
+    new_role: str,
+    token_payload: dict = Depends(verify_clerk_token),
+):
+    """Switch user role between 'hr_admin' and 'compliance_auditor' for demonstration and testing."""
+    settings = get_settings()
+    if not settings.ALLOW_DEMO_ROLE_SWITCH:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Role switching is disabled in production environments."
+        )
+
+    if new_role not in ("hr_admin", "compliance_auditor"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid role. Must be 'hr_admin' or 'compliance_auditor'."
+        )
+    
+    clerk_user_id = token_payload.get("sub")
+    if not clerk_user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token: missing subject."
+        )
+    
+    session_factory = get_session_factory("hr_admin")
+    async with session_factory() as session:
+        result = await session.execute(
+            select(User).where(User.clerk_user_id == clerk_user_id)
+        )
+        user = result.scalar_one_or_none()
+        if user is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found. Call POST /api/auth/sync first."
+            )
+        user.role = new_role
+        await session.commit()
+        await session.refresh(user)
+        return user

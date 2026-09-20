@@ -103,7 +103,7 @@ def _ensure_prerequisites(conn: Any) -> tuple[list[int], list[int], int]:
     """
     with conn.cursor() as cur:
         # --- Departments ---
-        cur.execute("SELECT id FROM departments ORDER BY id")
+        cur.execute("SELECT department_id FROM departments ORDER BY department_id")
         dept_rows = cur.fetchall()
         if dept_rows:
             dept_ids = [r[0] for r in dept_rows]
@@ -112,7 +112,7 @@ def _ensure_prerequisites(conn: Any) -> tuple[list[int], list[int], int]:
             dept_ids = []
             for name in dept_names:
                 cur.execute(
-                    "INSERT INTO departments (name) VALUES (%s) RETURNING id",
+                    "INSERT INTO departments (name) VALUES (%s) RETURNING department_id",
                     (name,),
                 )
                 dept_ids.append(cur.fetchone()[0])
@@ -134,7 +134,7 @@ def _ensure_prerequisites(conn: Any) -> tuple[list[int], list[int], int]:
             for title, min_sal, max_sal in role_defs:
                 dept_id = random.choice(dept_ids)
                 cur.execute(
-                    "INSERT INTO roles (title, department_id, min_salary, max_salary) "
+                    "INSERT INTO roles (title, department_id, salary_band_min, salary_band_max) "
                     "VALUES (%s, %s, %s, %s) RETURNING role_id",
                     (title, dept_id, min_sal, max_sal),
                 )
@@ -150,9 +150,9 @@ def _ensure_prerequisites(conn: Any) -> tuple[list[int], list[int], int]:
             actor_user_id = row[0]
         else:
             cur.execute(
-                "INSERT INTO users (clerk_user_id, email, role) "
-                "VALUES (%s, %s, %s) RETURNING user_id",
-                ("bench_seed_actor", "bench@argus.test", "hr_admin"),
+                "INSERT INTO users (clerk_user_id, full_name, email, role) "
+                "VALUES (%s, %s, %s, %s) RETURNING user_id",
+                ("bench_seed_actor", "Benchmark Seed Actor", "bench@argus.test", "hr_admin"),
             )
             actor_user_id = cur.fetchone()[0]
 
@@ -190,24 +190,29 @@ def seed_employees(
         cur.execute("SET argus.actor_employee_id = '0'")
         cur.execute("SET argus.actor_user_id = %s", (str(actor_user_id),))
 
+        from datetime import date, timedelta
         batch: list[tuple] = []
         for i in range(num_employees):
             name = _random_name()
+            email = f"{name.lower().replace(' ', '.')}.{i}_{os.urandom(4).hex()}@argus.test"
             role_id = random.choice(role_ids)
             national_id = os.urandom(16)  # simulated encrypted bytes
             contact_info = os.urandom(16)
+            date_hired = date(2023, 1, 1) + timedelta(days=random.randint(0, 700))
 
             batch.append((
                 name,
+                email,
                 role_id,
                 national_id,
                 contact_info,
+                date_hired,
             ))
 
             if len(batch) >= batch_size or i == num_employees - 1:
                 query = (
                     "INSERT INTO employees "
-                    "(full_name, role_id, national_id_encrypted, contact_info_encrypted) "
+                    "(full_name, email, role_id, national_id_encrypted, contact_info_encrypted, date_hired) "
                     "VALUES %s RETURNING employee_id"
                 )
                 returned_rows = psycopg2.extras.execute_values(

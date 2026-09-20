@@ -8,6 +8,7 @@ Implements:
 - POST   /api/employees/{id}/salary — Add salary record (hr_admin only)
 """
 
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, or_
@@ -20,6 +21,7 @@ from ..models.employee import Employee
 from ..models.role import Role
 from ..models.department import Department
 from ..models.salary_history import SalaryHistory
+from ..models.directory_view import EmployeeDirectoryView
 from ..schemas.employee import (
     EmployeeListItem, EmployeeCreate, EmployeeUpdate,
     EmployeeCreateResponse, EmployeeUpdateResponse, EmployeeDeactivateResponse,
@@ -32,7 +34,9 @@ router = APIRouter(prefix="/employees", tags=["Employees"])
 
 @router.get("", response_model=PaginatedResponse[EmployeeListItem])
 async def list_employees(
-    search: str = Query(None, description="Filter by name or email"),
+    search: Optional[str] = Query(None, description="Filter by name or email"),
+    department: Optional[str] = Query(None, description="Filter by department name"),
+    is_active: Optional[bool] = Query(None, description="Filter by active status"),
     page: int = Query(1, ge=1, description="Page number"),
     limit: int = Query(20, ge=1, le=100, description="Items per page"),
     current_user: User = Depends(get_current_user),
@@ -40,10 +44,73 @@ async def list_employees(
 ):
     """Retrieve the employee directory with search and pagination.
 
-    Joins employees → roles → departments and picks the latest salary
-    from salary_history via a correlated subquery.
+    Role-aware execution:
+    - compliance_auditor: Queries sanitized `v_employee_directory` view to enforce
+      PII shielding while granting access to active personnel for time-travel verification.
+    - hr_admin: Queries `employees` joined to `roles` and `departments`.
     """
-    # Subquery: latest salary per employee
+    if current_user.role == "compliance_auditor":
+        latest_salary = (
+            select(SalaryHistory.amount)
+            .where(SalaryHistory.employee_id == EmployeeDirectoryView.employee_id)
+            .order_by(SalaryHistory.effective_date.desc())
+            .limit(1)
+            .correlate(EmployeeDirectoryView)
+            .scalar_subquery()
+        )
+
+        query = select(
+            EmployeeDirectoryView.employee_id,
+            EmployeeDirectoryView.full_name,
+            EmployeeDirectoryView.email,
+            EmployeeDirectoryView.role_title,
+            EmployeeDirectoryView.department_name,
+            latest_salary.label("salary"),
+            EmployeeDirectoryView.date_hired,
+            EmployeeDirectoryView.is_active,
+        )
+
+        if search:
+            clean_search = search.strip().lstrip("#").upper().replace("EMP-", "").strip()
+            pattern = f"%{search}%"
+            conditions = [
+                EmployeeDirectoryView.full_name.ilike(pattern),
+                EmployeeDirectoryView.email.ilike(pattern),
+            ]
+            if clean_search.isdigit():
+                conditions.append(EmployeeDirectoryView.employee_id == int(clean_search))
+            query = query.where(or_(*conditions))
+
+        if department and department.strip() and department.strip().lower() != "all":
+            query = query.where(EmployeeDirectoryView.department_name.ilike(department.strip()))
+        if is_active is not None:
+            query = query.where(EmployeeDirectoryView.is_active == is_active)
+
+        count_query = select(func.count()).select_from(query.subquery())
+        total = await session.scalar(count_query) or 0
+
+        pages = math.ceil(total / limit) if total > 0 else 0
+        query = query.order_by(EmployeeDirectoryView.employee_id).offset((page - 1) * limit).limit(limit)
+        result = await session.execute(query)
+        rows = result.all()
+
+        items = [
+            EmployeeListItem(
+                employee_id=row.employee_id,
+                full_name=row.full_name,
+                email=row.email,
+                role_title=row.role_title,
+                department_name=row.department_name,
+                salary=row.salary,
+                date_hired=row.date_hired,
+                is_active=row.is_active,
+            )
+            for row in rows
+        ]
+
+        return PaginatedResponse(items=items, total=total, page=page, pages=pages)
+
+    # Subquery: latest salary per employee (hr_admin)
     latest_salary = (
         select(SalaryHistory.amount)
         .where(SalaryHistory.employee_id == Employee.employee_id)
@@ -53,7 +120,7 @@ async def list_employees(
         .scalar_subquery()
     )
 
-    # Base query
+    # Base query (hr_admin)
     query = (
         select(
             Employee.employee_id,
@@ -71,13 +138,20 @@ async def list_employees(
 
     # Search filter
     if search:
+        clean_search = search.strip().lstrip("#").upper().replace("EMP-", "").strip()
         pattern = f"%{search}%"
-        query = query.where(
-            or_(
-                Employee.full_name.ilike(pattern),
-                Employee.email.ilike(pattern),
-            )
-        )
+        conditions = [
+            Employee.full_name.ilike(pattern),
+            Employee.email.ilike(pattern),
+        ]
+        if clean_search.isdigit():
+            conditions.append(Employee.employee_id == int(clean_search))
+        query = query.where(or_(*conditions))
+
+    if department and department.strip() and department.strip().lower() != "all":
+        query = query.where(Department.name.ilike(department.strip()))
+    if is_active is not None:
+        query = query.where(Employee.is_active == is_active)
 
     # Total count
     count_query = select(func.count()).select_from(query.subquery())

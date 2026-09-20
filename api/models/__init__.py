@@ -6,6 +6,7 @@ from .employee import Employee
 from .salary_history import SalaryHistory
 from .audit_log import AuditLog
 from .suspicious_activity_flag import SuspiciousActivityFlag
+from .directory_view import EmployeeDirectoryView
 
 __all__ = [
     "Base",
@@ -16,4 +17,6 @@ __all__ = [
     "SalaryHistory",
     "AuditLog",
     "SuspiciousActivityFlag",
+    "EmployeeDirectoryView",
 ]
+

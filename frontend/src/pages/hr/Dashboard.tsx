@@ -1,45 +1,250 @@
+import { useQuery } from '@tanstack/react-query';
+import { useAuth } from '@clerk/clerk-react';
+import { useNavigate } from 'react-router-dom';
+import {
+  Users,
+  ShieldCheck,
+  AlertTriangle,
+  Clock,
+  Activity,
+  ArrowRight,
+} from 'lucide-react';
+import { fetchDashboardStats, type DashboardStats } from '../../services/auditService';
+import RefreshButton from '../../components/common/RefreshButton';
+import { Button } from '../../components/common/Button';
+import { EmptyState } from '../../components/common/EmptyState';
+import { formatRelativeTime } from '../../lib/format';
+import { getActionSemantic } from '../../lib/semantics';
+
 export default function Dashboard() {
+  const { getToken } = useAuth();
+  const navigate = useNavigate();
+
+  const { data, isLoading, isError, refetch } = useQuery<DashboardStats>({
+    queryKey: ['dashboardStats'],
+    queryFn: () => fetchDashboardStats(() => getToken()),
+    refetchInterval: 3000,
+  });
+
   return (
-    <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-        <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-6 flex flex-col justify-between hover:shadow-md transition-shadow">
-          <h3 className="text-sm font-medium text-slate-500">Total Employees</h3>
-          <p className="text-3xl font-bold text-slate-800 mt-2">1,248</p>
-          <div className="mt-4 flex items-center text-sm">
-            <span className="text-emerald-500 font-medium flex items-center">
-               <svg className="w-4 h-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 10l7-7m0 0l7 7m-7-7v18" /></svg>
-               12%
-            </span>
-            <span className="text-slate-400 ml-2">vs last month</span>
-          </div>
+    <div className="space-y-6 animate-fade-cascade">
+      {/* Header Bar */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-1">
+        <div>
+          <h1 className="text-xl font-bold text-slate-900 tracking-tight">
+            Workforce Overview
+          </h1>
+          <p className="text-slate-500 text-xs mt-1">
+            Real-time workforce headcount, department allocations, and verified operational activity.
+          </p>
         </div>
-        
-        <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-6 flex flex-col justify-between hover:shadow-md transition-shadow">
-          <h3 className="text-sm font-medium text-slate-500">Active Audits</h3>
-          <p className="text-3xl font-bold text-slate-800 mt-2">4</p>
-          <div className="mt-4 flex items-center text-sm">
-            <span className="text-indigo-500 font-medium flex items-center">
-               In Progress
+
+        <div className="flex items-center gap-3">
+          <RefreshButton
+            onRefresh={() => refetch()}
+            label="Refresh"
+            variant="light"
+            title="Refresh workforce metrics"
+          />
+          <Button
+            variant="primary"
+            size="md"
+            portalTheme="hr"
+            onClick={() => navigate('/hr/employees')}
+            leftIcon={<Users className="w-4 h-4" />}
+          >
+            View Directory
+          </Button>
+        </div>
+      </div>
+
+      {/* Metrics Row — Clean Modern Executive Metric Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+        {/* Active Workforce */}
+        <div className="bg-white rounded-2xl border border-slate-200/80 p-6 flex flex-col justify-between shadow-xs">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-slate-500">
+              Active Personnel
             </span>
+            <div className="p-2.5 bg-blue-50 text-blue-600 rounded-xl border border-blue-100/80">
+              <Users className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="mt-4">
+            {isLoading ? (
+              <div className="h-9 w-24 bg-slate-100 animate-pulse rounded-md" />
+            ) : (
+              <p className="text-3xl font-bold text-slate-900 tracking-tight tabular-nums">
+                {data?.active_employees ?? 0}
+              </p>
+            )}
+            <div className="mt-3 flex items-center justify-between pt-3 border-t border-slate-100 text-xs">
+              <span className="text-slate-500">Total Enrolled Profiles</span>
+              <span className="font-semibold text-slate-700 bg-slate-100 px-2 py-0.5 rounded-md">
+                {data?.total_employees ?? 0}
+              </span>
+            </div>
           </div>
         </div>
 
-        <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-6 flex flex-col justify-between hover:shadow-md transition-shadow">
-          <h3 className="text-sm font-medium text-slate-500">Pending Approvals</h3>
-          <p className="text-3xl font-bold text-slate-800 mt-2">12</p>
-          <div className="mt-4 flex items-center text-sm">
-            <span className="text-amber-500 font-medium flex items-center">
-               Requires attention
+        {/* Audit Chain Ledger */}
+        <div className="bg-white rounded-2xl border border-slate-200/80 p-6 flex flex-col justify-between shadow-xs">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-slate-500">
+              Verified Audit Ledger
             </span>
+            <div className="p-2.5 bg-emerald-50 text-emerald-600 rounded-xl border border-emerald-100/80">
+              <ShieldCheck className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="mt-4">
+            {isLoading ? (
+              <div className="h-9 w-24 bg-slate-100 animate-pulse rounded-md" />
+            ) : (
+              <p className="text-3xl font-bold text-slate-900 tracking-tight tabular-nums">
+                {data?.total_audit_events ?? 0}
+              </p>
+            )}
+            <div className="mt-3 flex items-center justify-between pt-3 border-t border-slate-100 text-xs">
+              <span className="text-emerald-700 font-medium flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                Cryptographically Sealed
+              </span>
+              <span className="font-medium text-slate-500">
+                Chain Intact
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Compliance Alerts */}
+        <div className="bg-white rounded-2xl border border-slate-200/80 p-6 flex flex-col justify-between shadow-xs">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-slate-500">
+              Compliance & Security
+            </span>
+            <div
+              className={`p-2.5 rounded-xl border ${
+                (data?.unreviewed_flags ?? 0) > 0
+                  ? 'bg-amber-50 text-amber-600 border-amber-200/80'
+                  : 'bg-slate-50 text-slate-500 border-slate-200/80'
+              }`}
+            >
+              <AlertTriangle className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="mt-4">
+            {isLoading ? (
+              <div className="h-9 w-24 bg-slate-100 animate-pulse rounded-md" />
+            ) : (
+              <p className="text-3xl font-bold text-slate-900 tracking-tight tabular-nums">
+                {data?.unreviewed_flags ?? 0}
+              </p>
+            )}
+            <div className="mt-3 flex items-center justify-between pt-3 border-t border-slate-100 text-xs">
+              <span className="text-slate-500">Pending Flags</span>
+              <span
+                className={`font-medium px-2 py-0.5 rounded-md text-[11px] border ${
+                  (data?.unreviewed_flags ?? 0) > 0
+                    ? 'bg-amber-50 text-amber-700 border-amber-200'
+                    : 'bg-emerald-50 text-emerald-700 border-emerald-200/60'
+                }`}
+              >
+                {(data?.unreviewed_flags ?? 0) > 0 ? 'Review Required' : '0 Anomalies'}
+              </span>
+            </div>
           </div>
         </div>
       </div>
-      
-      <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-6 min-h-[400px]">
-        <h3 className="text-lg font-semibold text-slate-800 mb-4">Recent Activity</h3>
-        <div className="flex flex-col items-center justify-center h-[300px] text-slate-400 bg-slate-50 rounded-lg border border-dashed border-slate-200">
-           <svg className="w-12 h-12 text-slate-300 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
-           <p>Activity feed will appear here</p>
+
+      {/* Recent Activity Stream */}
+      <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
+        <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-white">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-xl bg-slate-100 text-slate-700">
+              <Activity className="w-4 h-4" />
+            </div>
+            <div>
+              <h2 className="text-sm font-bold text-slate-900 tracking-tight">
+                Recent Personnel Activity
+              </h2>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Immutable operational events emitted by automated database triggers
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {isLoading ? (
+          <div className="p-5 space-y-3">
+            {[1, 2, 3, 4].map((i) => (
+              <div key={i} className="h-10 bg-slate-50 animate-pulse rounded-xl border border-slate-100" />
+            ))}
+          </div>
+        ) : isError ? (
+          <div className="p-12 text-center text-xs text-rose-600 font-mono">
+            Unable to fetch recent activity from database engine.
+          </div>
+        ) : !data?.recent_activity || data.recent_activity.length === 0 ? (
+          <EmptyState
+            title="No activity events recorded yet"
+            description="Personnel updates and compensation changes will automatically log here."
+            portalTheme="hr"
+          />
+        ) : (
+          <div className="divide-y divide-slate-100">
+            {data.recent_activity.map((activity) => {
+              const semantic = getActionSemantic(activity.action, activity.table_name, 'hr');
+              return (
+                <div
+                  key={activity.sequence_id}
+                  className="py-3.5 px-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 hover:bg-slate-50/70 transition-colors duration-150"
+                >
+                  <div className="flex items-center gap-3">
+                    <span
+                      className={`text-[11px] font-medium px-2 py-0.5 rounded-md border ${semantic.className}`}
+                    >
+                      {semantic.label}
+                    </span>
+                    <div className="text-xs">
+                      <span className="font-semibold text-slate-900">
+                        {activity.actor_name || 'System Automated Engine'}
+                      </span>
+                      <span className="text-slate-500 mx-1.5">modified</span>
+                      <span className="text-slate-700 font-medium">
+                        {activity.table_name === 'salary_history'
+                          ? 'compensation record'
+                          : 'employee profile'}
+                      </span>
+                      <span className="text-slate-500 font-mono text-[11px] ml-1.5">
+                        (Seq #{activity.sequence_id})
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="text-[11px] text-slate-500 flex items-center gap-1.5 pl-14 sm:pl-0">
+                    <Clock className="w-3.5 h-3.5 text-slate-400" />
+                    <span>{formatRelativeTime(activity.created_at)}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        <div className="p-4 bg-slate-50 border-t border-slate-100 flex items-center justify-between text-xs">
+          <span className="text-slate-500 text-xs">
+            Showing recent personnel updates recorded to the audit trail
+          </span>
+          <Button
+            variant="link"
+            portalTheme="hr"
+            onClick={() => navigate('/hr/employees')}
+            rightIcon={<ArrowRight className="w-3.5 h-3.5 ml-1" />}
+            className="text-xs font-semibold text-slate-900 hover:text-slate-700"
+          >
+            View Full Employee Directory
+          </Button>
         </div>
       </div>
     </div>

@@ -1,0 +1,92 @@
+import pytest
+from httpx import AsyncClient
+from unittest.mock import AsyncMock, MagicMock
+
+pytestmark = pytest.mark.asyncio
+
+async def test_dashboard_stats_hr(client_hr: AsyncClient, mock_db_session: AsyncMock):
+    m_active = MagicMock(); m_active.scalar.return_value = 15
+    m_total = MagicMock(); m_total.scalar.return_value = 17
+    m_audits = MagicMock(); m_audits.scalar.return_value = 49
+    m_flags = MagicMock(); m_flags.scalar.return_value = 2
+    m_recent = MagicMock(); m_recent.all.return_value = [
+        (101, 'INSERT', 'employees', 'HR Admin', 'INFO', '2026-09-12T10:00:00Z')
+    ]
+    mock_db_session.execute.side_effect = [m_active, m_total, m_audits, m_flags, m_recent]
+
+    response = await client_hr.get('/api/dashboard/stats')
+    assert response.status_code == 200
+    data = response.json()
+    assert data['total_employees'] == 17
+    assert data['active_employees'] == 15
+    assert data['total_audit_events'] == 49
+    assert data['unreviewed_flags'] == 2
+    assert len(data['recent_activity']) == 1
+    assert data['recent_activity'][0]['actor_name'] == 'HR Admin'
+
+async def test_dashboard_stats_unauth(client_unauth: AsyncClient):
+    response = await client_unauth.get('/api/dashboard/stats')
+    assert response.status_code == 401
+
+async def test_departments_and_roles(client_hr: AsyncClient, mock_db_session: AsyncMock):
+    m_dept = MagicMock()
+    m_dept.all.return_value = [(1, 'Engineering'), (2, 'HR')]
+    m_roles = MagicMock()
+    m_roles.all.return_value = [(1, 'Senior Dev', 1, 'Engineering', 80000, 150000)]
+    
+    mock_db_session.execute.side_effect = [m_dept, m_roles]
+
+    dept_res = await client_hr.get('/api/departments')
+    assert dept_res.status_code == 200
+    assert len(dept_res.json()) == 2
+    assert dept_res.json()[0]['name'] == 'Engineering'
+
+    roles_res = await client_hr.get('/api/roles')
+    assert roles_res.status_code == 200
+    assert len(roles_res.json()) == 1
+    assert roles_res.json()[0]['title'] == 'Senior Dev'
+
+async def test_system_metrics_auditor(client_auditor: AsyncClient, mock_db_session: AsyncMock):
+    m_hit = MagicMock(); m_hit.scalar.return_value = 98.5
+    m_sz = MagicMock(); m_sz.first.return_value = ('8500 kB', '250 kB')
+    m_cnt = MagicMock(); m_cnt.scalar.return_value = 49
+    m_chk_cnt = MagicMock(); m_chk_cnt.scalar.return_value = 2
+    m_tables = MagicMock(); m_tables.all.return_value = [
+        ('audit_log', 10, 25, 45, 0)
+    ]
+    m_pgcrypto = MagicMock(); m_pgcrypto.scalar.return_value = 1
+    m_perm = MagicMock(); m_perm.scalar.return_value = False
+    m_match = MagicMock(); m_match.scalar.return_value = True
+
+    mock_db_session.execute.side_effect = [
+        m_hit, m_sz, m_cnt, m_chk_cnt, m_tables, m_pgcrypto, m_perm, m_match
+    ]
+
+    response = await client_auditor.get('/api/analytics/system-metrics')
+    assert response.status_code == 200
+    data = response.json()
+    assert data['cache_hit_rate'] == 98.5
+    assert data['db_size'] == '8500 kB'
+    assert data['audit_log_size'] == '250 kB'
+    assert len(data['table_stats']) == 1
+    assert data['security_score'] == 100
+    assert data['security_checks']['pgcrypto_active'] is True
+    assert data['security_checks']['role_isolation'] is True
+    assert data['security_checks']['chain_continuous'] is True
+
+async def test_system_metrics_hr_forbidden(client_hr: AsyncClient):
+    response = await client_hr.get('/api/analytics/system-metrics')
+    assert response.status_code == 403
+
+async def test_concurrency_run_auditor(client_auditor: AsyncClient, mock_db_session: AsyncMock):
+    m_tail = MagicMock(); m_tail.scalar.return_value = 49
+    m_row = MagicMock(); m_row.first.return_value = (49, 'hash')
+    mock_db_session.execute.side_effect = [m_tail, m_row, m_row, m_row]
+
+    response = await client_auditor.post('/api/analytics/diagnostics/concurrency-benchmark', json={'workers': 3})
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data['workers'] == 3
+    assert data['success_count'] == 3
+    assert len(data['logs']) == 3

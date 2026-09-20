@@ -1,28 +1,43 @@
 import { useState } from 'react';
+import { UserPlus } from 'lucide-react';
 import EmployeeTable from '../../components/EmployeeTable';
 import EmployeeForm from '../../components/forms/EmployeeForm';
+import { Button } from '../../components/common/Button';
 
 export default function EmployeeList() {
   const [isFormOpen, setIsFormOpen] = useState(false);
 
   return (
-    <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 space-y-6">
-      <div className="flex justify-between items-center">
+    <div className="space-y-6 animate-fade-cascade">
+      {/* Header Bar */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-1">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Employees</h1>
-          <p className="text-slate-500 mt-1">Manage your workforce, roles, and salary history.</p>
+          <h1 className="text-xl font-bold text-slate-900 tracking-tight">
+            Workforce Directory
+          </h1>
+          <p className="text-slate-500 text-xs mt-1">
+            Institutional personnel records, role assignments, encrypted credentials, and compensation history.
+          </p>
         </div>
-        <button 
-          onClick={() => setIsFormOpen(true)}
-          className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors shadow-sm ring-1 ring-indigo-600 ring-offset-2 ring-offset-slate-50 focus:outline-none focus:ring-2"
-        >
-          + Add Employee
-        </button>
+
+        <div className="flex items-center gap-3">
+          <Button
+            variant="primary"
+            size="md"
+            portalTheme="hr"
+            onClick={() => setIsFormOpen(true)}
+            leftIcon={<UserPlus className="w-4 h-4" />}
+          >
+            Add Personnel
+          </Button>
+        </div>
       </div>
 
+      {/* Workforce Table with Compound Primitives & Slide-Over Sheet */}
       <EmployeeTable />
 
-      {isFormOpen && <EmployeeForm onClose={() => setIsFormOpen(false)} />}
+      {/* Personnel Registration Modal */}
+      <EmployeeForm isOpen={isFormOpen} onClose={() => setIsFormOpen(false)} />
     </div>
   );
 }

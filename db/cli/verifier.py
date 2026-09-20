@@ -23,15 +23,22 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures
+import datetime
 import hashlib
 import json
 import logging
 import os
 import sys
+import time
 from typing import Any
 
 import psycopg2
 import psycopg2.extras
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 # ---------------------------------------------------------------------------
 # Logging setup
@@ -449,6 +456,160 @@ def _cmd_create_checkpoint(args: argparse.Namespace) -> int:
         conn.close()
 
 
+def _cmd_auto_checkpoint(args: argparse.Namespace) -> int:
+    """Handle the ``auto-checkpoint`` subcommand (HARDEN-007).
+
+    Runs a continuous daemon or one-shot evaluation of dual-trigger checkpointing.
+    A checkpoint is triggered whenever:
+    - N entries accumulate (default: 25) OR
+    - T seconds elapse (default: 60s)
+
+    Quantifies T=60s as the explicit upper bound on the maximum undetectable tampering
+    window against an administrative adversary (A_DBA).
+
+    Args:
+        args: Parsed CLI arguments.
+
+    Returns:
+        Exit code — 0 on success, 1 on error.
+    """
+    try:
+        from db.cli.checkpoint_store import (
+            create_dual_trigger_checkpoint,
+            DEFAULT_MAX_ENTRIES,
+            DEFAULT_MAX_SECONDS,
+            MAX_UNDETECTABLE_TAMPERING_WINDOW_SECONDS,
+        )
+    except ImportError:
+        from checkpoint_store import (  # type: ignore[no-redef]
+            create_dual_trigger_checkpoint,
+            DEFAULT_MAX_ENTRIES,
+            DEFAULT_MAX_SECONDS,
+            MAX_UNDETECTABLE_TAMPERING_WINDOW_SECONDS,
+        )
+
+    db_url = args.db_url or os.environ.get("DATABASE_URL", "")
+    if not db_url:
+        logger.error("No database URL provided. Use --db-url or set DATABASE_URL.")
+        return 1
+
+    max_entries = getattr(args, "max_entries", None) or DEFAULT_MAX_ENTRIES
+    max_seconds = getattr(args, "max_seconds", None) or DEFAULT_MAX_SECONDS
+    poll_interval = getattr(args, "poll_interval", 5.0)
+    run_once = getattr(args, "run_once", False)
+    sign_checkpoints = getattr(args, "sign", False)
+    key_path = getattr(args, "key_path", None)
+    anchor_checkpoints = getattr(args, "anchor", False)
+
+    signer = None
+    key_id = getattr(args, "key_id", "local:ed25519:v1")
+    if sign_checkpoints or key_path:
+        try:
+            from db.cli.keygen import load_private_key, get_default_key_dir
+            from db.cli.signer import LocalFileSigner
+        except ImportError:
+            from keygen import load_private_key, get_default_key_dir  # type: ignore[no-redef]
+            from signer import LocalFileSigner  # type: ignore[no-redef]
+
+        actual_key_path = key_path or os.path.join(get_default_key_dir(), "signing_key.pem")
+        if not os.path.exists(actual_key_path):
+            logger.error("Signing requested but private key not found at '%s'", actual_key_path)
+            return 1
+        priv_key = load_private_key(actual_key_path)
+        signer = LocalFileSigner(private_key=priv_key, key_id=key_id)
+
+    logger.info(
+        "Auto-checkpoint service started: N=%d entries, T=%.1fs elapsed (Max Undetectable Tampering Window = %.1fs)",
+        max_entries,
+        max_seconds,
+        max_seconds,
+    )
+
+    def _process_tick() -> dict | None:
+        conn = get_connection(db_url)
+        try:
+            res = create_dual_trigger_checkpoint(
+                conn,
+                max_entries=max_entries,
+                max_seconds=max_seconds,
+                signer=signer,
+                key_id=key_id,
+            )
+            if res is not None and anchor_checkpoints:
+                try:
+                    from db.cli.anchor_store import get_anchor_store
+                    anchor_cfg = {"type": getattr(args, "anchor_type", "local")}
+                    if anchor_cfg["type"] == "local":
+                        anchor_cfg["path"] = getattr(args, "anchor_path", "./anchors")
+                    anchor_store = get_anchor_store(anchor_cfg)
+                    payload = json.dumps({
+                        "checkpoint_id": res["checkpoint_id"],
+                        "sequence_id": res["checkpoint_sequence_id"],
+                        "checkpoint_hash": res["checkpoint_hash"],
+                        "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                    })
+                    ref = anchor_store.push(res["checkpoint_id"] or 0, payload)
+                    res["anchor_reference"] = ref
+                except Exception as a_exc:
+                    logger.warning("Failed to anchor checkpoint: %s", a_exc)
+
+            return res
+        finally:
+            conn.close()
+
+    try:
+        if run_once:
+            result = _process_tick()
+            if result:
+                print(json.dumps(result))
+                print(f"✅ Checkpoint created at sequence_id={result['checkpoint_sequence_id']} (Reason: {result['trigger_reason']})")
+            else:
+                print(json.dumps({
+                    "event": "checkpoint_skipped",
+                    "status": "threshold_not_reached",
+                    "max_entries": max_entries,
+                    "max_seconds": max_seconds,
+                }))
+                print(f"ℹ️ Checkpoint skipped: thresholds not reached (N={max_entries}, T={max_seconds}s).")
+            return 0
+
+        # Continuous daemon loop
+        import signal
+        running = True
+
+        def _handle_signal(sig, frame):
+            nonlocal running
+            logger.info("Received termination signal, stopping auto-checkpoint daemon...")
+            running = False
+
+        signal.signal(signal.SIGINT, _handle_signal)
+        signal.signal(signal.SIGTERM, _handle_signal)
+
+        while running:
+            try:
+                result = _process_tick()
+                if result:
+                    print(json.dumps(result))
+                    logger.info("Checkpoint created at seq %d (%s)", result["checkpoint_sequence_id"], result["trigger_reason"])
+            except Exception as loop_exc:
+                logger.error("Error in auto-checkpoint evaluation: %s", loop_exc)
+
+            for _ in range(int(poll_interval * 10)):
+                if not running:
+                    break
+                time.sleep(0.1)
+
+        logger.info("Auto-checkpoint daemon shut down cleanly.")
+        return 0
+
+    except KeyboardInterrupt:
+        logger.info("Auto-checkpoint daemon interrupted by user.")
+        return 0
+    except Exception as exc:
+        logger.error("Auto-checkpoint daemon failed: %s", exc)
+        return 1
+
+
 def _cmd_sign_checkpoint(args: argparse.Namespace) -> int:
     """Handle the ``sign-checkpoint`` subcommand (CRYPTO-002 integration).
 
@@ -490,25 +651,36 @@ def _cmd_sign_checkpoint(args: argparse.Namespace) -> int:
 
         # Sign
         signature = sign_checkpoint(private_key, checkpoint["checkpoint_hash"])
+        key_id = getattr(args, "key_id", "local:ed25519:v1")
         logger.info(
-            "Signed checkpoint %d (sig=%s…)",
+            "Signed checkpoint %d with key_id='%s' (sig=%s…)",
             args.checkpoint_id,
+            key_id,
             signature.hex()[:16],
         )
 
-        # Update the signature in the database
+        # Update the signature and key_id in the database
         with conn.cursor() as cur:
-            cur.execute(
-                "UPDATE chain_checkpoints SET signature = %s "
-                "WHERE checkpoint_id = %s",
-                (psycopg2.Binary(signature), args.checkpoint_id),
-            )
+            try:
+                cur.execute(
+                    "UPDATE chain_checkpoints SET signature = %s, key_id = %s "
+                    "WHERE checkpoint_id = %s",
+                    (psycopg2.Binary(signature), key_id, args.checkpoint_id),
+                )
+            except Exception:
+                conn.rollback()
+                cur.execute(
+                    "UPDATE chain_checkpoints SET signature = %s "
+                    "WHERE checkpoint_id = %s",
+                    (psycopg2.Binary(signature), args.checkpoint_id),
+                )
         conn.commit()
 
         print(json.dumps({
             "event": "checkpoint_signed",
             "checkpoint_id": args.checkpoint_id,
             "checkpoint_hash": checkpoint["checkpoint_hash"],
+            "key_id": key_id,
             "signature_hex": signature.hex(),
         }))
         return 0
@@ -635,9 +807,21 @@ def _cmd_backup(args: argparse.Namespace) -> int:
         Exit code — 0 on success, 1 on failure.
     """
     try:
-        from db.cli.backup import dump_and_hash, record_backup, verify_backup
+        from db.cli.backup import (
+            dump_and_hash,
+            export_backup_manifest,
+            record_backup,
+            verify_backup,
+            verify_backup_manifest,
+        )
     except ImportError:
-        from backup import dump_and_hash, record_backup, verify_backup  # type: ignore[no-redef]
+        from backup import (  # type: ignore[no-redef]
+            dump_and_hash,
+            export_backup_manifest,
+            record_backup,
+            verify_backup,
+            verify_backup_manifest,
+        )
 
     if args.backup_action == "dump":
         db_url: str = args.db_url or os.environ.get("DATABASE_URL", "")
@@ -649,10 +833,11 @@ def _cmd_backup(args: argparse.Namespace) -> int:
 
         output_path: str = args.output
         checkpoint_id = getattr(args, "checkpoint_id", None)
+        manifest_path = getattr(args, "manifest_path", None)
 
         try:
             logger.info("Starting backup dump to '%s' …", output_path)
-            backup_hash = dump_and_hash(db_url, output_path)
+            backup_hash = dump_and_hash(db_url, output_path, manifest_path=manifest_path)
             logger.info("Dump complete.  SHA-256: %s", backup_hash)
 
             # Record in the backups table
@@ -667,13 +852,17 @@ def _cmd_backup(args: argparse.Namespace) -> int:
             finally:
                 conn.close()
 
-            print(json.dumps({
+            payload = {
                 "event": "backup_created",
                 "backup_id": backup_id,
                 "backup_hash": backup_hash,
                 "file_reference": os.path.abspath(output_path),
                 "chain_checkpoint_id": checkpoint_id,
-            }))
+            }
+            if manifest_path is not None:
+                payload["manifest_path"] = os.path.abspath(manifest_path)
+
+            print(json.dumps(payload))
             return 0
 
         except FileNotFoundError as exc:
@@ -684,32 +873,63 @@ def _cmd_backup(args: argparse.Namespace) -> int:
             return 1
 
     elif args.backup_action == "verify":
-        conn = get_connection(args.db_url)
-        try:
-            is_valid = verify_backup(conn, args.backup_id)
-            status = "VALID" if is_valid else "TAMPERED"
-            print(json.dumps({
-                "event": "backup_verified",
-                "backup_id": args.backup_id,
-                "status": status,
-            }))
-            if is_valid:
-                print(f"✅ Backup {args.backup_id} integrity verified.")
-            else:
-                print(f"❌ Backup {args.backup_id} integrity FAILED — file has been modified.")
-            return 0 if is_valid else 1
+        manifest_path = getattr(args, "manifest_path", None)
+        backup_id = getattr(args, "backup_id", None)
+        file_path = getattr(args, "file", None)
 
-        except ValueError as exc:
-            logger.error("Verification failed: %s", exc)
+        if backup_id is None and (not file_path or not manifest_path):
+            logger.error("Must provide either --backup-id or both --file and --manifest-path")
             return 1
-        except FileNotFoundError as exc:
-            logger.error("Backup file missing: %s", exc)
-            return 1
-        except Exception as exc:
-            logger.error("Verification failed: %s", exc)
-            return 1
-        finally:
-            conn.close()
+
+        if backup_id is not None:
+            conn = get_connection(args.db_url)
+            try:
+                is_valid = verify_backup(conn, backup_id, manifest_path=manifest_path)
+                status = "VALID" if is_valid else "TAMPERED"
+                res_payload = {
+                    "event": "backup_verified",
+                    "backup_id": backup_id,
+                    "status": status,
+                }
+                if manifest_path:
+                    res_payload["manifest_path"] = os.path.abspath(manifest_path)
+                print(json.dumps(res_payload))
+                if is_valid:
+                    print(f"✅ Backup {backup_id} integrity verified{' (cross-verified with off-host manifest)' if manifest_path else ''}.")
+                else:
+                    print(f"❌ Backup {backup_id} integrity FAILED — hash mismatch or file modified.")
+                return 0 if is_valid else 1
+
+            except ValueError as exc:
+                logger.error("Verification failed: %s", exc)
+                return 1
+            except FileNotFoundError as exc:
+                logger.error("Backup file or manifest missing: %s", exc)
+                return 1
+            except Exception as exc:
+                logger.error("Verification failed: %s", exc)
+                return 1
+            finally:
+                conn.close()
+        else:
+            # Standalone off-host manifest verification without database connection
+            try:
+                is_valid = verify_backup_manifest(file_path, manifest_path)
+                status = "VALID" if is_valid else "TAMPERED"
+                print(json.dumps({
+                    "event": "backup_manifest_verified",
+                    "file": os.path.abspath(file_path),
+                    "manifest_path": os.path.abspath(manifest_path),
+                    "status": status,
+                }))
+                if is_valid:
+                    print(f"✅ Backup file '{file_path}' verified against off-host manifest '{manifest_path}'.")
+                else:
+                    print(f"❌ Backup file '{file_path}' integrity FAILED against manifest '{manifest_path}'.")
+                return 0 if is_valid else 1
+            except Exception as exc:
+                logger.error("Manifest verification failed: %s", exc)
+                return 1
 
     else:
         logger.error("Unknown backup action: %s", args.backup_action)
@@ -825,6 +1045,74 @@ def build_parser() -> argparse.ArgumentParser:
         help="Batch size for keyset pagination (default: 500)",
     )
 
+    # ---- auto-checkpoint ----
+    p_auto = subparsers.add_parser(
+        "auto-checkpoint",
+        help="Run dual-trigger checkpoint daemon (bounds tampering window T to 60s)",
+    )
+    p_auto.add_argument(
+        "--db-url",
+        default=None,
+        help="PostgreSQL connection string (default: DATABASE_URL env var)",
+    )
+    p_auto.add_argument(
+        "--max-entries",
+        type=int,
+        default=25,
+        help="Threshold of uncheckpointed entries before firing (default: 25)",
+    )
+    p_auto.add_argument(
+        "--max-seconds",
+        type=float,
+        default=60.0,
+        help=(
+            "Maximum elapsed seconds before firing checkpoint (default: 60.0). "
+            "Quantifies the maximum undetectable tampering window against A_DBA."
+        ),
+    )
+    p_auto.add_argument(
+        "--poll-interval",
+        type=float,
+        default=5.0,
+        help="Seconds between dual-trigger evaluation cycles (default: 5.0)",
+    )
+    p_auto.add_argument(
+        "--run-once",
+        action="store_true",
+        help="Evaluate dual-trigger condition once and exit (for cron or batch runs)",
+    )
+    p_auto.add_argument(
+        "--sign",
+        action="store_true",
+        help="Automatically sign created checkpoints using Ed25519 private key",
+    )
+    p_auto.add_argument(
+        "--key-path",
+        default=None,
+        help="Path to Ed25519 private key PEM file for signing",
+    )
+    p_auto.add_argument(
+        "--anchor",
+        action="store_true",
+        help="Automatically push created checkpoint to external anchor store",
+    )
+    p_auto.add_argument(
+        "--anchor-type",
+        choices=["local", "github"],
+        default="local",
+        help="External anchor store type (default: local)",
+    )
+    p_auto.add_argument(
+        "--anchor-path",
+        default="./anchors",
+        help="Directory path for local anchor store (default: ./anchors)",
+    )
+    p_auto.add_argument(
+        "--key-id",
+        default="local:ed25519:v1",
+        help="Key identifier string for key rotation tracking (default: local:ed25519:v1)",
+    )
+
     # ---- sign-checkpoint ----
     p_sign = subparsers.add_parser(
         "sign-checkpoint",
@@ -840,6 +1128,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--key-path",
         default=None,
         help="Path to Ed25519 private key PEM (default: ~/.argus/signing_key.pem)",
+    )
+    p_sign.add_argument(
+        "--key-id",
+        default="local:ed25519:v1",
+        help="Key identifier string for key rotation tracking (default: local:ed25519:v1)",
     )
 
     # ---- anchor ----
@@ -922,17 +1215,42 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Optional checkpoint ID to associate with this backup",
     )
+    p_backup_dump.add_argument(
+        "--manifest-path",
+        default=None,
+        help="Optional path to export off-host backup verification manifest",
+    )
+    p_backup_dump.add_argument(
+        "--db-url",
+        default=None,
+        help="PostgreSQL connection string (default: DATABASE_URL env var)",
+    )
 
     # backup verify
     p_backup_verify = backup_sub.add_parser(
         "verify",
-        help="Re-hash a stored backup and compare against stored hash",
+        help="Re-hash a stored backup and compare against stored hash or off-host manifest",
+    )
+    p_backup_verify.add_argument(
+        "--db-url",
+        default=None,
+        help="PostgreSQL connection string (default: DATABASE_URL env var)",
     )
     p_backup_verify.add_argument(
         "--backup-id",
         type=int,
-        required=True,
-        help="ID of the backup record to verify",
+        default=None,
+        help="ID of the backup record to verify (in database)",
+    )
+    p_backup_verify.add_argument(
+        "--file",
+        default=None,
+        help="Path to backup file (for standalone off-host manifest verification)",
+    )
+    p_backup_verify.add_argument(
+        "--manifest-path",
+        default=None,
+        help="Optional path to off-host manifest for external integrity verification",
     )
 
     return parser
@@ -960,6 +1278,7 @@ def main() -> int:
     dispatch = {
         "verify-chain": _cmd_verify_chain,
         "create-checkpoint": _cmd_create_checkpoint,
+        "auto-checkpoint": _cmd_auto_checkpoint,
         "sign-checkpoint": _cmd_sign_checkpoint,
         "anchor": _cmd_anchor,
         "backup": _cmd_backup,

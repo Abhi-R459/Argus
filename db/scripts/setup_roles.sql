@@ -28,10 +28,12 @@ GRANT SELECT, INSERT, UPDATE ON users TO hr_admin;
 GRANT SELECT, INSERT, UPDATE ON employees TO hr_admin;
 GRANT SELECT, INSERT, UPDATE ON salary_history TO hr_admin;
 
--- HR Admin may READ audit records for their own actions but CANNOT modify them.
--- Append-only enforcement: REVOKE UPDATE, DELETE (Decision #12).
+-- HR Admin may READ audit records for their own actions but CANNOT modify or forge them.
+-- Append-only enforcement: REVOKE INSERT, UPDATE, DELETE, TRUNCATE (Decisions #12, #33).
+-- All audit_log writes MUST flow strictly through SECURITY DEFINER triggers owned by postgres.
+REVOKE ALL PRIVILEGES ON audit_log FROM PUBLIC;
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON audit_log FROM hr_admin, compliance_auditor, PUBLIC;
 GRANT SELECT ON audit_log TO hr_admin;
-REVOKE UPDATE, DELETE ON audit_log FROM hr_admin;
 
 -- Suspicious flags: HR Admin can read flags but cannot modify audit records.
 GRANT SELECT ON suspicious_activity_flags TO hr_admin;
@@ -47,14 +49,18 @@ GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO hr_admin;
 GRANT CONNECT ON DATABASE argus TO compliance_auditor;
 GRANT USAGE ON SCHEMA public TO compliance_auditor;
 
--- Audit chain tables (read-only — cannot modify any audit data)
+-- Audit chain tables (read-only — cannot modify or forge any audit data)
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON audit_log FROM compliance_auditor;
 GRANT SELECT ON audit_log TO compliance_auditor;
-REVOKE INSERT, UPDATE, DELETE ON audit_log FROM compliance_auditor;
 
-GRANT SELECT ON suspicious_activity_flags TO compliance_auditor;
+GRANT SELECT, UPDATE ON suspicious_activity_flags TO compliance_auditor;
 GRANT SELECT ON chain_state TO compliance_auditor;
 GRANT SELECT ON chain_checkpoints TO compliance_auditor;
 GRANT SELECT ON backups TO compliance_auditor;
+
+-- Metadata tables for audit trail actor & time-travel resolution
+GRANT SELECT ON users TO compliance_auditor;
+GRANT SELECT ON departments, roles, salary_history TO compliance_auditor;
 
 -- Views
 GRANT SELECT ON v_compliance_overview TO compliance_auditor;

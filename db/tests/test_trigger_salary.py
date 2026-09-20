@@ -58,20 +58,29 @@ def test_employee(pg_conn):
         cur.execute(
             "INSERT INTO users (clerk_user_id, full_name, email, role) "
             "VALUES ('clerk_sal_test', 'Salary HR', 'salaryhr@test.com', 'hr_admin') "
-            "RETURNING user_id"
+            "ON CONFLICT (clerk_user_id) DO NOTHING RETURNING user_id"
         )
-        user_id = cur.fetchone()[0]
+        row = cur.fetchone()
+        user_id = row[0] if row else None
+        if user_id is None:
+            cur.execute("SELECT user_id FROM users WHERE clerk_user_id='clerk_sal_test'")
+            user_id = cur.fetchone()[0]
 
         cur.execute(
             """
             INSERT INTO employees
                 (full_name, email, role_id, national_id_encrypted, contact_info_encrypted, date_hired)
             VALUES ('Bob Jones', 'bob@test.com', %s, %s, %s, '2024-06-01')
+            ON CONFLICT (email) DO NOTHING
             RETURNING employee_id
             """,
             (role_id, b"\x01\x02\x03", b"\x04\x05\x06")
         )
-        emp_id = cur.fetchone()[0]
+        row = cur.fetchone()
+        emp_id = row[0] if row else None
+        if emp_id is None:
+            cur.execute("SELECT employee_id FROM employees WHERE email='bob@test.com'")
+            emp_id = cur.fetchone()[0]
         pg_conn.commit()
 
     return {"emp_id": emp_id, "user_id": user_id, "role_id": role_id}
