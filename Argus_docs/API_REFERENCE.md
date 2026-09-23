@@ -29,18 +29,25 @@ Argus enforces strict Role-Based Access Control (RBAC):
 - `GET /api/health`: Public endpoint to check system status.
 - `POST /api/auth/sync`: Syncs a newly authenticated Clerk user with the Argus PostgreSQL database. Must be called immediately after login.
 
-### 2. Employee Management (HR Admin)
-- `GET /api/employees`: List employees with pagination and search.
-- `POST /api/employees`: Onboard a new employee.
-- `PUT /api/employees/{id}`: Update an existing employee.
+### 2. Employee Management & Workforce (HR Admin)
+- `GET /api/employees`: List employees with pagination, search, and department filtering.
+- `POST /api/employees`: Onboard a new employee (triggers database-level `pgcrypto` column encryption).
+- `PUT /api/employees/{id}`: Update an existing employee profile.
 - `POST /api/employees/{id}/deactivate`: Soft-delete an employee.
-- `POST /api/employees/{id}/salary`: Append a new salary record (history).
+- `POST /api/employees/{id}/salary`: Append a new salary record (enforcing in-engine $>30\%$ drop blocks and self-modification blocks).
+- `GET /api/dashboard/stats`: Retrieve workforce aggregate metrics, headcount, and department salary distributions.
 
-### 3. Audit & Compliance (Compliance Auditor)
-- `GET /api/audit-logs`: Query tamper-evident audit logs with pagination and filters.
+### 3. Audit, Compliance & Forensics (Compliance Auditor)
+- `GET /api/audit-logs`: Query tamper-evident audit logs with keyset pagination, action/table/severity filters, and server-side HMAC blind index lookups.
+- `GET /api/audit-logs/chain`: Keyset-paginated live audit chain blocks for deep block inspection.
 - `GET /api/audit-logs/export`: Download a digitally signed JSON artifact containing the full evidence chain.
-- `POST /api/verify`: Trigger the `verifier` process to cryptographically validate the integrity of the database against the anchor.
-- `GET /api/suspicious-activity`: Retrieve anomalous database behaviors identified by PostgreSQL triggers.
+- `GET /api/audit-logs/export-pack`: Stream portable, air-gapped `.arguspack` evidence zip archives embedding zero-dependency pure-Python RFC 8032 verifiers.
+- `GET /api/audit-logs/time-travel/{id}`: Reconstruct historical employee state as of an exact microsecond timestamp via PostgreSQL stored function `reconstruct_employee_state()`.
+- `GET /api/audit-logs/anchor-status`: Inspect multi-target external anchor health, commit deltas, and timestamp synchronization (Local File, GitHub, RFC 3161 TSA, AWS S3 WORM).
+- `GET /api/audit-logs/telemetry`: Query live PostgreSQL system telemetry (buffer cache hit ratios, relation sizes) and compute real-time security posture score (0–100).
+- `POST /api/audit-logs/concurrency-race`: Trigger parallel concurrent write transactions to empirically demonstrate Two-Phase Locking (2PL) serialization without gaps.
+- `POST /api/verify`: Trigger on-demand cryptographic chain verification against the external anchor store.
+- `GET /api/suspicious-activity`: Retrieve anomalous database behaviors identified by in-engine triggers.
 - `POST /api/suspicious-activity/{id}/review`: Mark a suspicious activity flag as reviewed by the auditor.
 
 ## Responses & Errors

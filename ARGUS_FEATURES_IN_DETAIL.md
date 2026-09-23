@@ -32,7 +32,7 @@
    - [Feature 15: Standalone Hash Verification Engine](#feature-15-standalone-hash-verification-engine)
    - [Feature 16: Cryptographic Anomaly Detection Subsystem (Mismatches, Gaps, Orphans)](#feature-16-cryptographic-anomaly-detection-subsystem-mismatches-gaps-orphans)
    - [Feature 17: Asymmetric Ed25519 Checkpoint Signing & Key Management](#feature-17-asymmetric-ed25519-checkpoint-signing--key-management)
-   - [Feature 18: Pluggable External Anchor Store Engine (Local File & GitHub Repository)](#feature-18-pluggable-external-anchor-store-engine-local-file--github-repository)
+   - [Feature 18: Pluggable External Anchor Store Engine (Local File, GitHub, RFC 3161 TSA, AWS S3 WORM)](#feature-18-pluggable-external-anchor-store-engine-local-file-github-rfc-3161-tsa-aws-s3-worm)
    - [Feature 19: High-Throughput Parallel Segment Verification Engine (6.19x Speedup)](#feature-19-high-throughput-parallel-segment-verification-engine-619x-speedup)
    - [Feature 20: Cross-Segment Boundary Continuity Verification Protocol](#feature-20-cross-segment-boundary-continuity-verification-protocol)
    - [Feature 21: Air-Gapped Turnkey Standalone Verifier (`verify_standalone.py`)](#feature-21-air-gapped-turnkey-standalone-verifier-verify_standalonepy)
@@ -92,7 +92,7 @@
    - [Feature 46: Checkpoint Interval Optimization Sweep (10 to 1000)](#feature-46-checkpoint-interval-optimization-sweep-10-to-1000)
    - [Feature 47: Multiprocess Parallel Verification Scaling Benchmark (1, 2, 4, 8 Cores)](#feature-47-multiprocess-parallel-verification-scaling-benchmark-1-2-4-8-cores)
    - [Feature 48: Automated SVG Benchmark Visualization Plotter](#feature-48-automated-svg-benchmark-visualization-plotter)
-   - [Feature 49: Comprehensive 114+ Automated Test Suites](#feature-49-comprehensive-114-automated-test-suites)
+   - [Feature 49: Comprehensive 204+ Automated Test Suites (231 Items Collected)](#feature-49-comprehensive-204-automated-test-suites-231-items-collected)
 8. [Strategic Cryptographic Frontiers & Academic Novelties](#8-strategic-cryptographic-frontiers--academic-novelties)
    - [Feature 50: GDPR Article 17 "Crypto-Shredding" Engine](#feature-50-gdpr-article-17-crypto-shredding-engine)
    - [Feature 51: Selective-Disclosure Evidence Capsules (`.arguscap`) via Merkle Proofs](#feature-51-selective-disclosure-evidence-capsules-arguscap-via-merkle-proofs)
@@ -503,15 +503,17 @@ Generates periodic cryptographic checkpoints signed with an asymmetric Ed25519 p
 
 ---
 
-## Feature 18: Pluggable External Anchor Store Engine (Local File & GitHub Repository)
+## Feature 18: Pluggable External Anchor Store Engine (Local File, GitHub, RFC 3161 TSA, AWS S3 WORM)
 ### What It Does
 Pushes signed checkpoints outside the PostgreSQL database cluster to prevent the **"recompute-and-hide" attack** (where a superuser modifies a historical row and recalculates all forward hashes).
 
 ### How It Does It
-`AnchorStore` abstraction with two production adapters:
-1. `LocalFileAnchorStore`: Commits signed checkpoints to an independent filesystem or WORM (Write-Once-Read-Many) storage volume.
+Module `db/cli/anchor_store.py` provides the `AnchorStore` abstraction with four production-grade adapters:
+1. `LocalFileAnchorStore`: Commits signed checkpoints to an independent filesystem directory or local volume for development and baseline testing.
 2. `GitHubAnchorStore`: Uses the GitHub API (`urllib.request`) to push signed checkpoint JSON blobs to an external Git commit tree.
-3. If a rogue DBA alters a row and recalculates internal database hashes, the database tail will diverge from the immutable external anchor store, triggering an instant alert.
+3. `Rfc3161AnchorStore`: Submits SHA-256 checkpoint digests via the RFC 3161 DER protocol to a Time-Stamping Authority (TSA). Stores notarized `.tsr` tokens and metadata for offline cryptographic verification using zero-dependency pure-Python ASN.1 DER parsing.
+4. `S3WormAnchorStore`: Uploads checkpoint payloads to AWS S3 with Object Lock in `COMPLIANCE` mode, enforcing Write-Once-Read-Many (WORM) retention where no user (including root cloud accounts) can alter or delete records before the retention period expires.
+5. If a rogue DBA alters a row and recalculates internal database hashes, the database tail will diverge from the immutable external anchor store, triggering an instant tamper alert.
 
 ---
 
@@ -880,9 +882,11 @@ Delivers fluid, tactile micro-interactions with high framerate rendering, avoidi
   - "Time-Travel" button opens `/auditor/time-travel` for that specific employee and timestamp.
 
 ### 42L: Interactive Time-Travel Forensic Workbench & Mutation Timeline Scrubber
-- Dropdown selector for employees.
-- Interactive timeline showing all historical mutations.
-- One-click reconstruction of the employee's exact historical state.
+- **Zero-Latency Typeahead Combobox:** Synchronous client-side filtering over employee names, roles, departments, emails, and ID patterns (`#1`, `EMP-0001`, `1`) without debounce delays.
+- **High-Precision Seconds Picker & Sub-Second Ceiling:** Datetime picker with seconds granularity (`step="1"`, `HH:mm:ss`) backed by backend `buildTargetTimestamp` ceiling arithmetic, guaranteeing `created_at <= p_as_of` correctly captures all mutations in that second.
+- **Quick Presets Bar:** 1-click jumps to `Now (Current State)`, `Latest Event (Seq #X)`, and `Initial Creation (Seq #Y)`.
+- **Chronological Mutation Timeline:** Interactive timeline displaying all historical mutations for the selected employee with one-click ledger timestamp snapping (`handleJumpToMutation`).
+- **Contextual Forensic Recovery:** Detects pre-creation queries, displays the first recorded ledger timestamp, and provides one-click auto-recovery buttons.
 
 ### 42M: Suspicious Activity Flag Investigation & Review Workflow
 - Forensic investigation panel displaying automated risk alerts with context and "Mark Safe / Reviewed" controls.
@@ -949,15 +953,16 @@ Delivers fluid, tactile micro-interactions with high framerate rendering, avoidi
 
 ---
 
-## Feature 49: Comprehensive 114+ Automated Test Suites
-- Exhaustive pytest suite validating:
-  - Database migrations (`test_migration_001.py` through `004.py`).
+## Feature 49: Comprehensive 204+ Automated Test Suites (231 Items Collected)
+- Exhaustive pytest suite validating 204 passing tests (27 live DB tests cleanly skipped when database is offline) across 231 collected items:
+  - Database migrations (`test_migration_001.py` through `004.py`, across all 13 Alembic versions).
   - Triggers and business rules (`test_trigger_employees.py`, `test_trigger_salary.py`, `test_business_rules.py`).
-  - Blind indexing (`test_blind_indexing_db.py`, `test_blind_search_api.py`).
-  - Standalone verifier and Ed25519 signing (`test_verify_standalone.py`, `test_checkpoint_store.py`).
+  - Blind indexing (`test_blind_indexing.py`, `test_blind_indexing_db.py`, `test_blind_search_api.py`).
+  - Standalone verifier and Ed25519 signing (`test_verify_standalone.py`, `test_checkpoint_store.py`, `test_signer_providers.py`).
+  - Multi-target anchor stores (`test_anchor_store.py` validating Local File, GitHub, RFC 3161 TSA with pure-Python ASN.1 DER parser, and AWS S3 WORM Object Lock).
   - Backup integrity (`test_backup.py`).
   - Adversary Red Team CLI and all 6 attack demos (`test_adversary_cli.py`, `test_attack_demos.py`).
-  - Full-stack API routes and telemetry (`test_audits.py`, `test_bridge_endpoints.py`, `test_live_telemetry.py`).
+  - Full-stack API routes, chain explorer, and live telemetry (`test_audits.py`, `test_bridge_endpoints.py`, `test_chain_explorer_api.py`, `test_employees.py`, `test_live_telemetry.py`).
 
 ---
 
@@ -965,7 +970,7 @@ Delivers fluid, tactile micro-interactions with high framerate rendering, avoidi
 
 > [!NOTE]
 > **Architectural Boundary & Scoping Distinction:**
-> While Features 1 through 49 represent the active, verified, and continuously tested codebase of Argus (124+ automated tests), Features 50 through 53 represent **formal architectural specifications and research designs** for advanced production extensions. These specifications explore cutting-edge cryptographic tensions—such as GDPR erasure within immutable ledgers and zero-knowledge selective disclosure—grounded in dedicated architectural documents.
+> While Features 1 through 49 represent the active, verified, and continuously tested codebase of Argus (204+ automated tests across 231 items), Features 50 through 53 represent **formal architectural specifications and research designs** for advanced production extensions. These specifications explore cutting-edge cryptographic tensions—such as GDPR erasure within immutable ledgers and zero-knowledge selective disclosure—grounded in dedicated architectural documents.
 
 ## Feature 50: GDPR Article 17 "Crypto-Shredding" Engine
 - **Specification Document:** [`docs/CRYPTO_SHREDDING_ANALYSIS.md`](docs/CRYPTO_SHREDDING_ANALYSIS.md)
@@ -1027,7 +1032,7 @@ The following master matrix cross-references every single feature in Argus acros
 | **15** | Standalone Hash Verifier | Python CLI | `db/cli/hash_verifier.py` | Standalone Engine | $O(N)$ sequential | Independent Verification |
 | **16** | Anomaly Detection System | Python CLI | `db/cli/hash_verifier.py` | Standalone Engine | $O(N)$ | Root Cause Forensic Attribution |
 | **17** | Ed25519 Checkpoint Signer| Python CLI | `db/cli/signer.py` | Auditor | $O(1)$ sign | RFC 8032, NIST FIPS 186-5 (software implementation) |
-| **18** | External Anchor Stores | Python CLI | `db/cli/anchor_store.py` | $A_{\text{DBA}}$ | $O(1)$ push | Out-of-Band Integrity, Supports WORM Storage Controls |
+| **18** | Pluggable Anchor Stores | Python CLI | `db/cli/anchor_store.py` | $A_{\text{DBA}}$ | $O(1)$ push | Local File, GitHub, RFC 3161 TSA, AWS S3 WORM Object Lock |
 | **19** | Parallel Segment Verifier | Python Multiprocess | `db/cli/verifier.py` | Standalone Engine | $O(N/P)$ parallel | High-Throughput Compliance Auditing |
 | **20** | Cross-Segment Continuity | Python CLI | `db/cli/verifier.py` | Standalone Engine | $O(P)$ cross-check | Partition Boundary Blind Spot Defense |
 | **21** | Air-Gapped Verifier | Pure Python (0-dep) | `db/cli/verify_standalone.py` | Regulators | $O(N)$ | Air-Gapped Courtroom Evidence |
@@ -1063,7 +1068,7 @@ The following master matrix cross-references every single feature in Argus acros
 | **46** | Checkpoint Sweep Suite | Python Benchmark | `bench_checkpoint_sweep.py`| Benchmark | Optimization curve | Algorithmic Parameter Tuning |
 | **47** | Parallel Scaling Suite | Python Benchmark | `db/bench/bench_parallel.py`| Benchmark | Speedup measurement | Multi-Core Scaling Validation |
 | **48** | Benchmark Plotter | Python Matplotlib | `db/bench/plot_benchmarks.py`| Benchmark | Vector rendering | Publication-Quality Reporting |
-| **49** | 124+ Automated Tests | Pytest / Playwright| `db/tests/*`, `api/tests/*` | Quality Assurance | Test automation | Continuous Integration (CI/CD) |
+| **49** | 204+ Automated Tests | Pytest / Playwright| `db/tests/*`, `api/tests/*` | Quality Assurance | Test automation | 204 passed, 27 skipped (231 collected); CI/CD |
 | **50** | GDPR Crypto-Shredding | Cryptographic Design| `docs/CRYPTO_SHREDDING_ANALYSIS.md` | Data Subjects | $O(1)$ key zeroize | Supports GDPR Art. 17 ("Right to be Forgotten") objectives |
 | **51** | Merkle Evidence Capsules| Cryptographic Design| `docs/MERKLE_TREE_SPEC.md` | Third Parties | $O(\log K)$ inclusion | Selective Disclosure, Zero Neighbor Leak |
 | **52** | Dual-Witness Anchoring | Distributed Anchor | `docs/MULTI_WITNESS_SPEC.md` | Cloud Root, $A_{\text{DBA}}$ | Multi-party consensus| Decentralized Witness Co-Signing (transparency-dev) |
@@ -1102,5 +1107,5 @@ A rigorous security engineering methodology requires transparently articulating 
 
 ---
 
-*This concludes the exhaustive architectural compendium for Argus. Features 1–49 represent shipped, production-grade capabilities verified across 124+ automated tests in the database kernel, verification engine, backend API, and forensic frontend. Features 50–53 represent formal strategic specifications and mathematical designs established in dedicated research papers.*
+*This concludes the exhaustive architectural compendium for Argus. Features 1–49 represent shipped, production-grade capabilities verified across 204+ automated tests (231 items collected) in the database kernel, verification engine, backend API, and forensic frontend. Features 50–53 represent formal strategic specifications and mathematical designs established in dedicated research papers.*
 

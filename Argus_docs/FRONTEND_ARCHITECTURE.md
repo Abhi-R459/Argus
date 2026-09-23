@@ -25,28 +25,43 @@ frontend/src/
 - **TailwindCSS**: Utility-first CSS for all styling.
 - **Lucide React**: Icon library.
 
-## Dashboards (Role-Based Views)
+## Dashboards & Dual-Theme Architecture
 
-Argus utilizes two distinct dashboards based on the logged-in user's role. Routing is strictly enforced via `<ProtectedRoute>` wrappers that check both authentication and RBAC roles.
+Argus utilizes two distinct dashboards based on the logged-in user's role, enforcing strict aesthetic and cognitive isolation:
+- **HR Admin Dashboard (`src/layouts/HRAdminLayout.tsx`, `src/pages/hr/`):**
+  - **Theme:** Clean, high-legibility enterprise light mode (`.hr-light` / Slate-50 canvas, crisp white cards, Slate-200 borders, distinct status pills).
+  - **Purpose:** Full CRUD capabilities over workforce directory, employee profiles, and salary adjustments.
+  - **Key Components:**
+    - `EmployeeList.tsx`: Paginated employee directory with live search and department filtering.
+    - `EmployeeTable.tsx`: Tabular view with inline status badges and keyboard selection.
+    - `EmployeeSheet.tsx`: Slide-over lateral drawer for fast personnel inspection, compensation timelines, and PII status.
+    - `forms/EmployeeForm.tsx` & `EmployeeEditForm.tsx`: Zod-validated react-hook-form modals for onboarding and updates.
+- **Compliance Auditor Dashboard (`src/layouts/AuditorLayout.tsx`, `src/pages/auditor/`):**
+  - **Theme:** Immersive Linear-inspired dark mode (`#0c0d0e` / Neutral 950 canvas, `#16181d` cards, hairline borders, monospace digests, glowing emerald/crimson integrity badges).
+  - **Purpose:** Tamper-evident forensic analysis, cryptographic verification, and out-of-band audit trail exploration.
+  - **Key Components:**
+    - `AuditChainPage.tsx` & `ChainVisualization.tsx`: Dedicated full-page audit chain block visualizer with keyset pagination and sequence deep-linking.
+    - `DetailSheet.tsx`: Origin-aware sliding block inspector drawer with field-level syntax-highlighted diffs (`DiffViewer.tsx`).
+    - `VerificationControl.tsx` & `SecurityPosture.tsx`: On-demand cryptographic verifier trigger with live 0-100 SVG posture dial.
+    - `AuditLogTable.tsx`: Forensic log explorer with keyset pagination, multi-filtering, and HMAC blind index search.
+    - `TimeTravelView.tsx`: Zero-latency typeahead combobox with sub-second datetime precision (`HH:mm:ss`), quick presets, and chronological mutation timeline replay.
+    - `ExportControl.tsx`: Secure exporter streaming signed evidence JSON and air-gapped `.arguspack` bundles.
+    - `RiskPanel.tsx` & `ConcurrencyLab.tsx`: Real-time risk alert reviews and live 2PL multi-worker race testing.
 
-### 1. HR Admin Dashboard
-Located under `src/layouts/HRAdminLayout.tsx` and `src/pages/hr/`.
-- **Purpose**: Provides full CRUD capabilities over the `employees` table, including adding salary history.
-- **Key Components**:
-  - `EmployeeList.tsx`: Page containing the paginated employee directory.
-  - `EmployeeTable.tsx`: Displays the employee grid.
-  - `forms/EmployeeForm.tsx` & `EmployeeEditForm.tsx`: Zod-validated react-hook-form implementations for onboarding/modifying personnel.
+## Motion Physics & Transition Engineering
 
-### 2. Compliance Auditor Dashboard
-Located under `src/layouts/AuditorLayout.tsx` and `src/pages/auditor/`.
-- **Purpose**: A tamper-evident analysis suite. It surfaces the cryptographic verification tools, the immutable audit trail, and anomalous behavior alerts.
-- **Key Components**:
-  - `VerificationControl.tsx`: Triggers the cryptographic chain verification and surfaces the success/failure state of the anchor check.
-  - `AuditLogTable.tsx`: A paginated, filterable grid of all database events (INSERTS, UPDATES, DELETES) captured by the PostgreSQL triggers.
-  - `DiffViewer.tsx`: A visual component that compares the `old_value` and `new_value` JSONB payloads from an audit log entry.
-  - `ExportControl.tsx`: A secure download trigger that streams the cryptographically signed `evidence.json` directly from the backend.
-  - `RiskPanel.tsx` & `ConcurrencyLab.tsx`: Real-time surfacing of suspicious activity flags and tools to test/monitor concurrent transactions.
-  - `TimeTravelView.tsx`: A specialized view enabling the auditor to reconstruct the exact state of an employee record at any historical timestamp.
+Argus avoids jarring layout pop-ins or uncoordinated DOM destruction through dedicated physics hooks:
+1. **Two-Way Lateral Drawers (`DetailSheet.tsx`, `EmployeeSheet.tsx`):**
+   - Uses CSS lateral drawer classes (`.drawer-slide-right` ➔ `.drawer-slide-right-open`) with Apple/Linear 240ms deceleration curves (`cubic-bezier(0.16, 1, 0.3, 1)`).
+   - Content and domain entities are cached across unmount cycles (`cachedContent`, `cachedEmployee`) to ensure zero visual flashing during dismissal.
+2. **Two-Way Spring Modals (`useModalTransition`):**
+   - Coordinates double `requestAnimationFrame` entries (`scale(0.95)`, `opacity: 0` ➔ `scale(1.0)`, `opacity: 1`) and delays unmounting until exit animations complete.
+3. **Table Row Accordion Animation (`useAccordionTransition`):**
+   - Animates table row expansions smoothly using CSS Grid fractional height tracks (`grid-template-rows: 0fr` ➔ `1fr`) with rotating 180° chevrons.
+
+## Keyboard Ergonomics & Form Defense
+- **Keyboard Navigation (`useKeyboardNav`):** `J` / `K` for table row selection, `Enter` to open side-sheets, `Escape` to close drawers/modals, and `/` to focus search bars.
+- **Browser Autofill Suppression:** All search inputs enforce `autoComplete="off"`, `autoCorrect="off"`, `spellCheck={false}`, and password manager suppression attributes (`data-lpignore="true"`), preventing address/contact dropdowns over search inputs.
 
 ## Authentication Flow & API Integration
 1. The user logs in via Clerk components.

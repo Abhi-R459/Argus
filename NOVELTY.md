@@ -13,7 +13,7 @@ Most database management systems force enterprises into an unacceptable compromi
 
 Argus occupies a distinctive architectural position: it delivers **mathematical tamper-evidence, asymmetric digital signatures, and external non-repudiation natively inside standard PostgreSQL 15+**.
 
-This document catalogs the **11 core systems novelties** of Argus, spanning its implemented foundation (Phases 1–6), its active Phase 7 compliance additions, and its planned cryptographic privacy breakthroughs.
+This document catalogs the **11 core systems novelties** of Argus, spanning its implemented foundation (Phases 1–6), its compliance and evidence portability engine (Phases 7–10), and its formal cryptographic privacy specifications and reference implementations (Phases 11–12).
 
 ---
 
@@ -100,9 +100,10 @@ This document catalogs the **11 core systems novelties** of Argus, spanning its 
 
 ---
 
-### Pillar III: Advanced Cryptographic Frontiers (Strategic Roadmap)
+### Pillar III: Advanced Cryptographic Frontiers (Specifications & Implementations)
 
 #### Novelty 8: GDPR Article 17 "Crypto-Shredding" Dual-Envelope Engine
+- **Specification Document:** [`docs/CRYPTO_SHREDDING_ANALYSIS.md`](docs/CRYPTO_SHREDDING_ANALYSIS.md)
 - **The Grand Dilemma:** How can an organization comply with GDPR Article 17 ("Right to be Forgotten") when operating an append-only immutable audit trail where deleting any past record breaks the cryptographic chain?
 - **Argus's Breakthrough:** 
   - Each employee entity is assigned a per-subject **Data Encryption Key (DEK)**.
@@ -113,18 +114,22 @@ This document catalogs the **11 core systems novelties** of Argus, spanning its 
   - The historical personal data is reduced to irreversible mathematical entropy, satisfying European Data Protection Board (EDPB) erasure standards without violating database integrity.
 
 #### Novelty 9: Selective-Disclosure Evidence Capsules (`.arguscap`) via Merkle Proofs
+- **Specification Document:** [`docs/MERKLE_TREE_SPEC.md`](docs/MERKLE_TREE_SPEC.md)
 - **The Gap:** Proving a single transaction's validity to an external party typically requires sharing the entire linear log, leaking all other employees' confidential records.
 - **Argus's Solution:** Argus pairs the linear chain with **Hierarchical Merkle Checkpoints**. When evidence is requested for transaction $R_k$, Argus generates an $O(\log K)$ Merkle inclusion proof branch up to the signed checkpoint.
 - **Systems Impact:** The auditor mathematically verifies that transaction $R_k$ belongs to the signed, anchored checkpoint **without receiving or viewing any other row in the database**.
 
-#### Novelty 10: Multi-Witness Threshold Anchoring (Cloud WORM + Git Transparency Tree)
+#### Novelty 10: Multi-Witness Threshold Anchoring (Cloud WORM + RFC 3161 + Git Transparency Tree)
+- **Specification & Implementation:** [`docs/MULTI_WITNESS_SPEC.md`](docs/MULTI_WITNESS_SPEC.md) & [`db/cli/anchor_store.py`](db/cli/anchor_store.py) (`S3WormAnchorStore`, `Rfc3161AnchorStore`)
 - **The Gap:** Single-anchor architectures fail if the cloud bucket or repository is compromised.
-- **Argus's Solution:** Checkpoint publishing requires co-signing (2-of-2 Ed25519 threshold) by both the automated verification service and an independent auditor security key, anchored simultaneously to:
-  1. An immutable **S3/MinIO Object Lock** in `COMPLIANCE` WORM mode (un-deletable even by cloud root accounts).
-  2. A public or consortium **Git Transparency Commit Tree**.
+- **Argus's Solution:** Checkpoint publishing requires multi-target anchoring and threshold witness notarization across independent operational boundaries:
+  1. An immutable **AWS S3 Object Lock** in `COMPLIANCE` WORM mode (un-deletable even by cloud root accounts).
+  2. An **RFC 3161 Time-Stamping Authority (TSA)** notarization token (`.tsr`) with pure-Python ASN.1 DER verification.
+  3. A public or consortium **Git Transparency Commit Tree** via GitHub REST API.
 - **Systems Impact:** An adversary would need to simultaneously compromise PostgreSQL superuser access, the verifier machine, cloud WORM storage locks, and the Git commit history to falsify audit logs.
 
 #### Novelty 11: Counterfactual "What-If" Provenance Replay
+- **Specification Document:** [`docs/Final_Paper.md`](docs/Final_Paper.md) §16.6
 - **The Gap:** Traditional database time-travel is strictly descriptive ("what was"), never counterfactual ("what if").
 - **Argus's Solution:** Built on Argus's stored state-reconstruction function, an auditor can select a fraudulent or anomalous historical transaction $R_{\text{bad}}$ and simulate: *"What would our current department payroll and employee headcount look like if $R_{\text{bad}}$ had been rejected?"*
 - **Systems Impact:** Turns the audit log into an active **incident-response and blast-radius simulation engine**, replaying subsequent valid transactions in a virtual session while skipping the anomalous transaction.
@@ -146,7 +151,7 @@ The table below contrasts Argus across all 11 novelties against 7 major systems:
 | **7. Air-Gapped Evidence Bundles (.arguspack)**| ❌ | ❌ | ❌ | ⚠️ (JSON Dump)| ❌ | ✅ (Bundle) | ❌ | **✅ Standalone Verifier** |
 | **8. GDPR Article 17 Crypto-Shredding** | ❌ | ❌ (Violates) | ❌ (Violates) | ⚠️ (Manual) | ❌ (Violates) | ❌ | ❌ | **✅ Dual-Envelope DEK** |
 | **9. Selective-Disclosure Merkle Proofs** | ❌ | ⚠️ (Block Root) | ❌ | ✅ Merkle Proof| ✅ Merkle Proof| ⚠️ (Diff DAG) | ❌ | **✅ $O(\log K)$ Capsules** |
-| **10. Multi-Witness WORM Anchoring** | ❌ | ⚠️ (Azure only)| ⚠️ (Local lock) | ⚠️ (S3 Export) | ⚠️ (S3 Export) | ⚠️ (Cloud) | ❌ | **✅ S3 WORM + Git Tree** |
+| **10. Multi-Witness WORM Anchoring** | ❌ | ⚠️ (Azure only)| ⚠️ (Local lock) | ⚠️ (S3 Export) | ⚠️ (S3 Export) | ⚠️ (Cloud) | ❌ | **✅ S3 WORM + RFC 3161 + Git** |
 | **11. Counterfactual "What-If" Simulation** | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ⚠️ (Branches) | **✅ Virtual Replay Engine** |
 
 ---

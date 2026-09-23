@@ -43,7 +43,7 @@ graph TD
 
     subgraph External["External (outside PostgreSQL + hr_admin reach)"]
         D2[Verifier CLI — holds private signing key]
-        D1[/AnchorStore: protected local file or separate GitHub repository/]
+        D1[/AnchorStore: Local File, GitHub, RFC 3161 TSA, or AWS S3 WORM/]
     end
 
     A1 --> B0
@@ -261,7 +261,7 @@ sequenceDiagram
     participant API as FastAPI
     participant Ver as Verifier CLI
     participant DB as PostgreSQL
-    participant Anc as AnchorStore (local file / private GitHub repo)
+    participant Anc as AnchorStore (Local File / GitHub / RFC 3161 / S3 WORM)
 
     Aud->>Dash: Click "Run Verification"
     Dash->>API: POST /verify
@@ -340,7 +340,7 @@ Both exist to back real dashboard functionality — neither is a throwaway artif
 
 - **Containerization:** Docker Compose locally (`postgres`, `api`, `frontend` services); images pushed to Docker Hub
 - **Cloud target:** Neon Free hosts PostgreSQL; Render Free hosts FastAPI; Render Static Site or Vercel Hobby hosts React. Render Free Postgres is deliberately not used because it expires after 30 days and has no backups
-- **External anchor:** `AnchorStore` writes to a protected local file during development and a separate private GitHub repository for the deployed demo. The database-superuser threat model excludes compromise of GitHub, its token, or the signing key
+- **External anchor:** `AnchorStore` supports pluggable adapters: local filesystem for development, GitHub repository commits, RFC 3161 Time-Stamping Authority notarization (`.tsr`), and AWS S3 Object Lock in `COMPLIANCE` WORM mode. The database-superuser threat model excludes compromise of the external anchor, its token, or the signing key
 - **Secrets:** `.env` / deployment secrets, excluded via `.gitignore` — Neon URLs, Clerk keys, GitHub anchor token, and signing key paths are never hardcoded or committed
 - **Backup/recovery:** native `pg_dump` / `pg_restore`, hashed and verified per Section 5.11 — this already exceeds what the rubric asks for (verified integrity, not just a backup existing)
 

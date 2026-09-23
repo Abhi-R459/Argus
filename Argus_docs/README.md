@@ -44,7 +44,7 @@ Full requirements, threat model, and research framing live in [`PRD_Argus.md`](.
 | Auth | Clerk Hobby: prebuilt login/logout, OAuth, managed sessions; local `users.role` authorizes Argus access |
 | Containerization | Docker Compose |
 | Deployment | Neon Free PostgreSQL, Render Free FastAPI, Render Static Site or Vercel Hobby React frontend |
-| External anchor | Protected local file for development; separate private GitHub repository for deployed checkpoints |
+| External anchor | Pluggable: Local File, GitHub repository, RFC 3161 TSA (.tsr), and AWS S3 Object Lock (COMPLIANCE WORM) |
 
 **ORM boundary, briefly:** standard CRUD, local user/RBAC lookups, and dashboard reads go through SQLAlchemy. Raw SQL/PL-pgSQL is used only where the course rubric explicitly allows it — triggers, locking, the time-travel function, the suspicious-activity procedure, and the verifier's chain walk.
 
