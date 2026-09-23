@@ -32,6 +32,14 @@ import sys
 import time
 from typing import Any
 
+# Ensure environment variables from .env are loaded for all processes (including workers)
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except Exception:
+    # dotenv is optional; ignore if unavailable
+    pass
+
 import psycopg2
 import psycopg2.extras
 
@@ -63,12 +71,42 @@ def _configure_logging(level_name: str) -> None:
 # ---------------------------------------------------------------------------
 # Database connection helper
 # ---------------------------------------------------------------------------
+def resolve_db_url(db_url: str | None = None) -> str:
+    """Resolve PostgreSQL connection string for superuser administration/verification."""
+    if db_url:
+        url = db_url
+    else:
+        try:
+            from dotenv import load_dotenv
+            load_dotenv()
+        except Exception:
+            pass
+        url = os.environ.get("DATABASE_URL") or os.environ.get("DATABASE_URL_MIGRATIONS")
+
+    if not url and os.path.exists(".env"):
+        with open(".env", "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith("DATABASE_URL_MIGRATIONS="):
+                    url = line.split("=", 1)[1].strip().strip('"').strip("'")
+                    break
+                elif line.startswith("DATABASE_URL=") and not url:
+                    url = line.split("=", 1)[1].strip().strip('"').strip("'")
+
+    if not url:
+        url = "postgresql://postgres:password@localhost:5433/argus"
+
+    if url.startswith("postgresql+asyncpg://"):
+        url = url.replace("postgresql+asyncpg://", "postgresql://", 1)
+
+    return url
+
+
 def get_connection(db_url: str | None = None) -> Any:
     """Create a psycopg2 connection from a URL.
 
     Args:
-        db_url: PostgreSQL connection string.  Falls back to the
-            ``DATABASE_URL`` environment variable when *None*.
+        db_url: PostgreSQL connection string. Falls back to environment/dotenv.
 
     Returns:
         A ``psycopg2`` connection object.
@@ -76,19 +114,7 @@ def get_connection(db_url: str | None = None) -> Any:
     Raises:
         SystemExit: If no database URL is available.
     """
-    try:
-        from dotenv import load_dotenv
-        load_dotenv()
-    except Exception:
-        pass
-
-    url = db_url or os.environ.get("DATABASE_URL") or os.environ.get("DATABASE_URL_MIGRATIONS")
-    if not url:
-        logger.error(
-            "No database URL provided. Use --db-url or set DATABASE_URL / DATABASE_URL_MIGRATIONS."
-        )
-        sys.exit(1)
-
+    url = resolve_db_url(db_url)
     logger.debug("Connecting to database …")
     try:
         conn = psycopg2.connect(url)
@@ -256,7 +282,7 @@ def _cmd_verify_chain(args: argparse.Namespace) -> int:
         # ------------------------------------------------------------------
         # Parallel path.
         # ------------------------------------------------------------------
-        db_url: str = args.db_url or os.environ.get("DATABASE_URL", "")
+        db_url: str = resolve_db_url(args.db_url)
         max_workers: int = args.workers if args.workers > 0 else None  # type: ignore[assignment]
         page_size: int = args.page_size
 
@@ -494,10 +520,7 @@ def _cmd_auto_checkpoint(args: argparse.Namespace) -> int:
             MAX_UNDETECTABLE_TAMPERING_WINDOW_SECONDS,
         )
 
-    db_url = args.db_url or os.environ.get("DATABASE_URL", "")
-    if not db_url:
-        logger.error("No database URL provided. Use --db-url or set DATABASE_URL.")
-        return 1
+    db_url = resolve_db_url(args.db_url)
 
     max_entries = getattr(args, "max_entries", None) or DEFAULT_MAX_ENTRIES
     max_seconds = getattr(args, "max_seconds", None) or DEFAULT_MAX_SECONDS
@@ -517,7 +540,11 @@ def _cmd_auto_checkpoint(args: argparse.Namespace) -> int:
             from keygen import load_private_key, get_default_key_dir  # type: ignore[no-redef]
             from signer import LocalFileSigner  # type: ignore[no-redef]
 
-        actual_key_path = key_path or os.path.join(get_default_key_dir(), "signing_key.pem")
+        actual_key_path = key_path or (
+            "keys/signing_key.pem"
+            if os.path.exists("keys/signing_key.pem")
+            else os.path.join(get_default_key_dir(), "signing_key.pem")
+        )
         if not os.path.exists(actual_key_path):
             logger.error("Signing requested but private key not found at '%s'", actual_key_path)
             return 1
@@ -641,8 +668,10 @@ def _cmd_sign_checkpoint(args: argparse.Namespace) -> int:
 
     try:
         # Load private key
-        key_path = args.key_path or os.path.join(
-            get_default_key_dir(), "signing_key.pem"
+        key_path = args.key_path or (
+            "keys/signing_key.pem"
+            if os.path.exists("keys/signing_key.pem")
+            else os.path.join(get_default_key_dir(), "signing_key.pem")
         )
         logger.info("Loading signing key from %s", key_path)
         private_key = load_private_key(key_path)
@@ -749,8 +778,10 @@ def _cmd_anchor(args: argparse.Namespace) -> int:
 
         # Optionally verify signature before anchoring
         if args.verify_sig:
-            pub_path = args.public_key_path or os.path.join(
-                get_default_key_dir(), "public_key.pem"
+            pub_path = args.public_key_path or (
+                "keys/public_key.pem"
+                if os.path.exists("keys/public_key.pem")
+                else os.path.join(get_default_key_dir(), "public_key.pem")
             )
             pub_key = load_public_key(pub_path)
             if not verify_signature(
@@ -830,12 +861,7 @@ def _cmd_backup(args: argparse.Namespace) -> int:
         )
 
     if args.backup_action == "dump":
-        db_url: str = args.db_url or os.environ.get("DATABASE_URL", "")
-        if not db_url:
-            logger.error(
-                "No database URL provided.  Use --db-url or set DATABASE_URL."
-            )
-            return 1
+        db_url: str = resolve_db_url(args.db_url)
 
         output_path: str = args.output
         checkpoint_id = getattr(args, "checkpoint_id", None)

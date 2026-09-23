@@ -125,7 +125,7 @@ export default function AuditorLayout() {
         <div className="p-3.5 border-t border-linear-hairline">
           {incident.isCompromised ? (
             <Link
-              to={`/auditor/chain${incident.tamperedSeqId ? `?seq=${incident.tamperedSeqId}` : ''}`}
+              to={`/auditor/chain${incident.tamperedSeqId ? `?seq=${incident.tamperedSeqId}&inspect=true` : ''}`}
               className="flex items-center space-x-2.5 px-3 py-2 rounded-lg bg-grafana-orange/10 border border-grafana-orange/35 hover:bg-grafana-orange/20 transition-colors duration-150 group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-grafana-orange"
               title="Click to inspect cryptographic breach in Chain Explorer"
             >
@@ -220,7 +220,7 @@ export default function AuditorLayout() {
                 </div>
               </div>
               <Link
-                to={`/auditor/chain${incident.tamperedSeqId ? `?seq=${incident.tamperedSeqId}` : ''}`}
+                to={`/auditor/chain${incident.tamperedSeqId ? `?seq=${incident.tamperedSeqId}&inspect=true` : ''}`}
                 className="shrink-0 flex items-center space-x-1.5 px-3.5 py-1.5 rounded-lg bg-grafana-orange hover:bg-grafana-orange-hover border border-grafana-orange text-white text-xs font-semibold transition-colors duration-150 shadow-xs group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
               >
                 <span>Inspect Compromised Block {incident.tamperedSeqId ? `#${incident.tamperedSeqId}` : ''}</span>

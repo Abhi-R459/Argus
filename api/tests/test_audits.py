@@ -123,3 +123,50 @@ async def test_time_travel_hr_forbidden(client_hr: AsyncClient):
     response = await client_hr.get("/api/employees/42/time-travel?timestamp=2024-06-01T12:00:00Z")
     assert response.status_code == 403
 
+
+async def test_time_travel_decoded_url_timestamp(client_auditor: AsyncClient, mock_db_session: AsyncMock):
+    from unittest.mock import MagicMock
+    mock_recon = MagicMock()
+    mock_recon.scalar.return_value = {
+        "employee_id": 42,
+        "full_name": "Audited User",
+        "email": "audited@example.com",
+        "role_id": 1,
+        "date_hired": "2024-01-01T00:00:00Z",
+        "is_active": True,
+    }
+    mock_db_session.execute.return_value = mock_recon
+
+    # Simulate URL-decoded + as space: '2024-06-01T12:00:00.123456 00:00'
+    response = await client_auditor.get("/api/employees/42/time-travel?timestamp=2024-06-01T12:00:00.123456%2000:00")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["employee_id"] == 42
+    assert payload["full_name"] == "Audited User"
+
+
+async def test_time_travel_with_sequence_id(client_auditor: AsyncClient, mock_db_session: AsyncMock):
+    from unittest.mock import MagicMock
+    mock_res = MagicMock()
+    mock_res.fetchall.return_value = [
+        ("INSERT", {
+            "employee_id": 42,
+            "full_name": "Audited User",
+            "email": "audited@example.com",
+            "role_id": 1,
+            "date_hired": "2024-01-01T00:00:00Z",
+            "is_active": True,
+        })
+    ]
+    mock_res.scalar.return_value = 150000.0
+    mock_res.first.return_value = ("Security Engineer", "Engineering")
+    mock_db_session.execute.return_value = mock_res
+
+    response = await client_auditor.get("/api/employees/42/time-travel?timestamp=2024-06-01T12:00:00Z&sequence_id=124")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["employee_id"] == 42
+    assert payload["full_name"] == "Audited User"
+    assert payload["sequence_id"] == 124
+
+

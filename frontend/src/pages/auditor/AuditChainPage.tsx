@@ -43,6 +43,19 @@ export default function AuditChainPage() {
     !isNaN(Number(initialSeq)) && initialSeq !== null ? initialSeq : null
   );
   const [seqInput, setSeqInput] = useState<string>(activeAroundSeq ? String(activeAroundSeq) : '');
+
+  // Keep activeAroundSeq synced when URL searchParams (?seq=) changes
+  useEffect(() => {
+    const s = searchParams.get('seq');
+    const parsed = s ? parseInt(s, 10) : null;
+    if (parsed !== null && !isNaN(parsed)) {
+      setActiveAroundSeq(parsed);
+      setSeqInput(String(parsed));
+    } else if (s === null && activeAroundSeq !== null) {
+      setActiveAroundSeq(null);
+      setSeqInput('');
+    }
+  }, [searchParams]);
   const [selectedTable, setSelectedTable] = useState<string>('');
   const [selectedAction, setSelectedAction] = useState<string>('');
   const [pageOffset, setPageOffset] = useState<number>(0);
@@ -147,15 +160,23 @@ export default function AuditChainPage() {
     }
   };
 
-  // Sync selectedBlock if around_seq changes via URL
+  // Sync selectedBlock only if inspect=true is requested (e.g. clicking the orange button)
   useEffect(() => {
     if (activeAroundSeq && displayEntries.length > 0) {
-      const match = displayEntries.find((e) => e.entry_id === activeAroundSeq);
-      if (match) {
-        setSelectedBlock(match);
+      const matchIndex = displayEntries.findIndex((e) => e.entry_id === activeAroundSeq);
+      if (matchIndex !== -1) {
+        setFocusedRowIndex(matchIndex);
+        setTimeout(() => {
+          rowRefs.current[matchIndex]?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }, 50);
+
+        const shouldInspect = searchParams.get('inspect') === 'true';
+        if (shouldInspect) {
+          setSelectedBlock(displayEntries[matchIndex]);
+        }
       }
     }
-  }, [activeAroundSeq, displayEntries]);
+  }, [activeAroundSeq, displayEntries, searchParams]);
 
   // Keyboard navigation hook
   useKeyboardNav({

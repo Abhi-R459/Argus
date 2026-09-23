@@ -118,8 +118,25 @@ def action_attack_scenario(scenario: str, db_url: Optional[str] = None) -> None:
     }
     desc = scenario_names.get(scenario, scenario)
 
-    console.print(f"\n[bold yellow]Preparing Attack Scenario: [bold red]{desc}[/bold red][/bold yellow]")
-    
+    # Active attack guard: enforce single active attack to preserve deterministic recovery
+    if os.path.exists(DEFAULT_SNAPSHOT_PATH):
+        console.print("[bold red][!] An attack simulation is already active![/bold red]")
+        console.print("[yellow]Argus stages one attack scenario at a time to guarantee deterministic self-healing.[/yellow]\n")
+        auto_heal = Confirm.ask("  Would you like to self-heal the active attack first before staging this one?", default=True)
+        if auto_heal:
+            action_heal(db_url)
+            # Re-check if heal succeeded
+            if os.path.exists(DEFAULT_SNAPSHOT_PATH):
+                console.print("[dim]Active attack could not be cleared. Attack cancelled.[/dim]")
+                _pause()
+                return
+        else:
+            overwrite = Confirm.ask("  Overwrite existing snapshot anyway? (Warning: prior pre-attack baseline will be replaced)", default=False)
+            if not overwrite:
+                console.print("[dim]Attack cancelled.[/dim]")
+                _pause()
+                return
+
     # Check candidates from DB
     candidates = _get_target_candidates(db_url)
     target_seq = None
@@ -197,19 +214,44 @@ def run_adversary_tui(db_url: Optional[str] = None) -> None:
             _clear_screen()
             _print_header()
 
-            # Check if attack snapshot exists
-            attack_active = os.path.exists(DEFAULT_SNAPSHOT_PATH)
+            # Check system integrity and active attack state
+            status_data: Dict[str, Any] = {}
+            conn = _safe_connect(db_url)
+            if conn:
+                try:
+                    status_data = get_adversary_status(conn)
+                except Exception:
+                    pass
+                finally:
+                    conn.close()
+
+            attack_active = (
+                os.path.exists(DEFAULT_SNAPSHOT_PATH)
+                or status_data.get("attack_active", False)
+            )
+
             if attack_active:
+                scenario_name = status_data.get("active_scenario") or "Active Adversary Simulation"
+                anomalies = []
+                if not status_data.get("chain_valid", True):
+                    anomalies.append("Hash Chain Broken")
+                if not status_data.get("checkpoints_valid", True):
+                    inv_count = len(status_data.get("invalid_checkpoints", []))
+                    anomalies.append(f"{inv_count} Checkpoint Forgery Detected")
+                if not status_data.get("anchor_intact", True):
+                    anomalies.append("Anchor Discrepancy")
+
+                anomaly_str = f" [{', '.join(anomalies)}]" if anomalies else ""
                 console.print(
                     Panel(
-                        "[bold red][!] RED TEAM ATTACK CURRENTLY ACTIVE[/bold red]\n"
-                        "[yellow]Database has active simulated tampering. Run Option [6] to heal.[/yellow]",
+                        f"[bold red][!] RED TEAM ATTACK / BREACH ACTIVE: {scenario_name}{anomaly_str}[/bold red]\n"
+                        f"[yellow]Database has active simulated tampering. Run Option [6] to heal.[/yellow]",
                         border_style="red",
                         box=box.ROUNDED,
                     )
                 )
             else:
-                console.print("[bold green]System Status: Normal (No active adversary attack)[/bold green]\n")
+                console.print("[bold green]System Status: Normal (Zero Tampering - All Checkpoints Signed & Valid)[/bold green]\n")
 
             menu = Table(box=box.SIMPLE, show_header=False, padding=(0, 2))
             menu.add_column("Key", style="bold red", width=6)
@@ -220,7 +262,7 @@ def run_adversary_tui(db_url: Optional[str] = None) -> None:
             menu.add_row("[3]", "Execute Attack: [bold yellow]recompute-and-hide[/bold yellow] (Recalculate Forward Hashes)")
             menu.add_row("[4]", "Execute Attack: [bold yellow]checkpoint-forgery[/bold yellow] (Corrupt Checkpoint Signature)")
             menu.add_row("[5]", "Execute Attack: [bold yellow]delete-audit-row[/bold yellow] (Delete Historical Row via SQL)")
-            menu.add_row("[6]", "[bold green]Self-Healing Recovery (Restore Pristine State from Snapshot)[/bold green]")
+            menu.add_row("[6]", "[bold green]Self-Healing Recovery (Restore Pristine State & Auto-Repair Signatures)[/bold green]")
             menu.add_row("[0]", "[bold white]Exit / Return to Launcher[/bold white]")
 
             console.print(menu)
