@@ -86,6 +86,7 @@ class TimeTravelResponse(BaseModel):
     date_hired: datetime
     is_active: bool
     as_of: datetime
+    sequence_id: Optional[int] = None
 
 
 # ─── Live Chain & Anchor Status ───────────────────────────────────────────────

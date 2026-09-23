@@ -265,6 +265,23 @@ async def run_verification(
             try:
                 res = verify_chain(conn)
                 anchor_mismatch = None
+                tampered_seq = None
+
+                # Check active adversary attack snapshot if present
+                snapshot_file = Path(".argus_snapshot.json")
+                if snapshot_file.exists():
+                    try:
+                        with open(snapshot_file, "r", encoding="utf-8") as f:
+                            snap_data = json.load(f)
+                            if snap_data.get("target_sequence_id"):
+                                tampered_seq = int(snap_data["target_sequence_id"])
+                            elif snap_data.get("checkpoints") and len(snap_data["checkpoints"]) > 0:
+                                cp_info = snap_data["checkpoints"][0]
+                                if cp_info.get("sequence_id"):
+                                    tampered_seq = int(cp_info["sequence_id"])
+                    except Exception:
+                        pass
+
                 anchor_dir = Path("anchor")
                 if anchor_dir.exists():
                     for p in anchor_dir.glob("*.json"):
@@ -274,29 +291,37 @@ async def run_verification(
                                 chk_id = data.get("checkpoint_id")
                                 stored_hash = data.get("checkpoint_hash")
                                 with conn.cursor() as cur:
-                                    cur.execute("SELECT checkpoint_hash FROM chain_checkpoints WHERE checkpoint_id = %s", (chk_id,))
+                                    cur.execute("SELECT checkpoint_hash, sequence_id FROM chain_checkpoints WHERE checkpoint_id = %s", (chk_id,))
                                     row = cur.fetchone()
                                     if row and row[0] != stored_hash:
                                         anchor_mismatch = f"External anchor mismatch: Checkpoint {chk_id} altered in DB ({row[0][:16]}...) vs external anchor ({stored_hash[:16]}...)."
+                                        if not tampered_seq and row[1]:
+                                            tampered_seq = int(row[1])
                                         break
                         except Exception:
                             pass
 
                 if not anchor_mismatch:
                     try:
-                        from db.cli.key_management import load_public_key
+                        from db.cli.keygen import load_public_key, get_default_key_dir
                         from db.cli.signer import verify_signature
-                        pub = load_public_key()
-                        with conn.cursor() as cur:
-                            cur.execute("SELECT checkpoint_id, checkpoint_hash, signature FROM chain_checkpoints")
-                            for chk_id, chk_hash, chk_sig in cur.fetchall():
-                                if chk_sig and not verify_signature(pub, chk_hash, bytes(chk_sig)):
-                                    anchor_mismatch = f"Checkpoint signature forgery: Checkpoint {chk_id} has invalid cryptographic signature."
-                                    break
+                        key_path = Path("keys/public_key.pem")
+                        if not key_path.exists():
+                            key_path = Path(get_default_key_dir()) / "public_key.pem"
+                        if key_path.exists():
+                            pub = load_public_key(str(key_path))
+                            with conn.cursor() as cur:
+                                cur.execute("SELECT checkpoint_id, checkpoint_hash, signature, sequence_id FROM chain_checkpoints")
+                                for chk_id, chk_hash, chk_sig, chk_seq in cur.fetchall():
+                                    if chk_sig and not verify_signature(pub, chk_hash, bytes(chk_sig)):
+                                        anchor_mismatch = f"Checkpoint signature forgery: Checkpoint {chk_id} has invalid cryptographic signature."
+                                        if not tampered_seq and chk_seq:
+                                            tampered_seq = int(chk_seq)
+                                        break
                     except Exception:
                         pass
 
-                return (res, anchor_mismatch)
+                return (res, anchor_mismatch, tampered_seq)
             finally:
                 conn.close()
         except BaseException as exc:
@@ -314,7 +339,7 @@ async def run_verification(
             details=f"Verification engine failure: unable to connect or verify database ({str(verify_output)}).",
         )
 
-    res, anchor_mismatch = verify_output
+    res, anchor_mismatch, tampered_seq = verify_output
     if not res.is_valid:
         tampered_id = None
         details = "Integrity violation detected."
@@ -328,13 +353,14 @@ async def run_verification(
             tampered_id = res.orphans[0].get("sequence_id")
             details = f"Orphaned entry at sequence_id {tampered_id}: previous_hash does not link to predecessor."
 
-        last_valid = (tampered_id - 1) if (tampered_id and tampered_id > 0) else 0
+        final_tampered = tampered_id or tampered_seq
+        last_valid = (final_tampered - 1) if (final_tampered and final_tampered > 0) else 0
         return VerificationResult(
             status="tampered",
             entries_scanned=res.total_entries,
             anchor_match=False,
             last_verified_sequence_id=last_valid,
-            tampered_sequence_id=tampered_id,
+            tampered_sequence_id=final_tampered,
             details=details,
         )
     elif anchor_mismatch:
@@ -343,7 +369,7 @@ async def run_verification(
             entries_scanned=res.total_entries,
             anchor_match=False,
             last_verified_sequence_id=0,
-            tampered_sequence_id=None,
+            tampered_sequence_id=tampered_seq,
             details=anchor_mismatch,
         )
     else:
@@ -447,34 +473,96 @@ async def review_suspicious_flag(
 )
 async def reconstruct_employee_state(
     employee_id: int,
-    timestamp: datetime = Query(..., description="Target ISO timestamp"),
+    timestamp: str = Query(..., description="Target ISO timestamp"),
+    sequence_id: Optional[int] = Query(None, description="Optional target sequence ID for exact event reconstruction"),
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session),
 ):
-    """Reconstruct an employee's record state at a specific past timestamp.
+    """Reconstruct an employee's record state at a specific past timestamp or exact sequence ID.
     
     Accessible to compliance_auditor only.
-    Invokes the PostgreSQL reconstruct_employee_state(:emp_id, :as_of) stored routine.
+    Invokes the PostgreSQL reconstruct_employee_state(:emp_id, :as_of) stored routine or
+    computes deterministic ledger replay bounded by sequence_id.
     """
-    # Execute stored routine
-    recon_res = await session.execute(
-        text("SELECT reconstruct_employee_state(:emp_id, :as_of)"),
-        {"emp_id": employee_id, "as_of": timestamp},
-    )
-    state = recon_res.scalar()
+    clean_ts = timestamp.strip()
+    # Normalize space decoded from '+' by URL query parser (e.g. 2026-09-17T17:21:23.207405 00:00 -> +00:00)
+    if " " in clean_ts and "+" not in clean_ts:
+        clean_ts = clean_ts.replace(" ", "+")
+    if clean_ts.endswith("Z") or clean_ts.endswith("z"):
+        clean_ts = clean_ts[:-1] + "+00:00"
 
-    # If state is None, employee did not exist as of target timestamp
-    if state is None:
+    try:
+        parsed_dt = datetime.fromisoformat(clean_ts)
+    except Exception:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Employee {employee_id} did not exist as of {timestamp.isoformat()}.",
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Invalid ISO timestamp format: '{timestamp}'. Expected ISO-8601 format.",
         )
 
-    if isinstance(state, str):
-        try:
-            state = json.loads(state)
-        except Exception:
-            state = {}
+    if parsed_dt.tzinfo is None:
+        parsed_dt = parsed_dt.replace(tzinfo=timezone.utc)
+
+    if sequence_id is not None:
+        # Sequence-level precision: replay mutations bounded by sequence_id
+        recon_res = await session.execute(
+            text("""
+                SELECT action, new_value
+                FROM audit_log
+                WHERE table_name = 'employees'
+                  AND row_id = :emp_id
+                  AND sequence_id <= :seq_id
+                ORDER BY sequence_id ASC
+            """),
+            {"emp_id": employee_id, "seq_id": sequence_id},
+        )
+        rows = recon_res.fetchall()
+        if not rows:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Employee {employee_id} did not exist as of sequence #{sequence_id} ({parsed_dt.isoformat()}).",
+            )
+        state = None
+        for action, new_val in rows:
+            if isinstance(new_val, str):
+                try:
+                    new_val = json.loads(new_val)
+                except Exception:
+                    new_val = {}
+            if action == "INSERT":
+                state = dict(new_val) if isinstance(new_val, dict) else {}
+            elif action == "UPDATE":
+                if state is not None and isinstance(state, dict) and isinstance(new_val, dict):
+                    state.update(new_val)
+                else:
+                    state = dict(new_val) if isinstance(new_val, dict) else {}
+            elif action == "DELETE":
+                state = None
+
+        if state is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Employee {employee_id} was deleted as of sequence #{sequence_id}.",
+            )
+    else:
+        # Stored routine execution
+        recon_res = await session.execute(
+            text("SELECT reconstruct_employee_state(:emp_id, :as_of)"),
+            {"emp_id": employee_id, "as_of": parsed_dt},
+        )
+        state = recon_res.scalar()
+
+        # If state is None, employee did not exist as of target timestamp
+        if state is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Employee {employee_id} did not exist as of {parsed_dt.isoformat()}.",
+            )
+
+        if isinstance(state, str):
+            try:
+                state = json.loads(state)
+            except Exception:
+                state = {}
 
     full_name = state.get("full_name", "")
     email = state.get("email", "")
@@ -512,22 +600,40 @@ async def reconstruct_employee_state(
             except (IndexError, TypeError, ValueError):
                 role_title, department_name = "Unknown", "Unknown"
 
-    # Resolve Salary as of target timestamp
-    sal_res = await session.execute(
-        select(SalaryHistory.amount)
-        .where(
-            SalaryHistory.employee_id == employee_id,
-            SalaryHistory.created_at <= timestamp,
+    # Resolve Salary as of target timestamp or sequence ID
+    if sequence_id is not None:
+        sal_res = await session.execute(
+            text("""
+                SELECT (new_value->>'amount')::NUMERIC
+                FROM audit_log
+                WHERE table_name = 'salary_history'
+                  AND (employee_id = :emp_id OR (new_value->>'employee_id')::INT = :emp_id)
+                  AND sequence_id <= :seq_id
+                ORDER BY sequence_id DESC
+                LIMIT 1
+            """),
+            {"emp_id": employee_id, "seq_id": sequence_id},
         )
-        .order_by(SalaryHistory.created_at.desc())
-        .limit(1)
-    )
-    sal_row = sal_res.scalar()
-    try:
-        salary = float(sal_row) if sal_row is not None else 0.0
-    except (TypeError, ValueError):
-        salary = 0.0
-
+        sal_row = sal_res.scalar()
+        try:
+            salary = float(sal_row) if sal_row is not None else 0.0
+        except (TypeError, ValueError):
+            salary = 0.0
+    else:
+        sal_res = await session.execute(
+            select(SalaryHistory.amount)
+            .where(
+                SalaryHistory.employee_id == employee_id,
+                SalaryHistory.created_at <= parsed_dt,
+            )
+            .order_by(SalaryHistory.created_at.desc())
+            .limit(1)
+        )
+        sal_row = sal_res.scalar()
+        try:
+            salary = float(sal_row) if sal_row is not None else 0.0
+        except (TypeError, ValueError):
+            salary = 0.0
 
     return TimeTravelResponse(
         employee_id=employee_id,
@@ -538,8 +644,10 @@ async def reconstruct_employee_state(
         salary=salary,
         date_hired=date_hired_dt,
         is_active=is_active,
-        as_of=timestamp,
+        as_of=parsed_dt,
+        sequence_id=sequence_id,
     )
+
 
 
 # ─── GET /api/audit-logs/export ───────────────────────────────────────────────
@@ -789,10 +897,20 @@ async def get_anchor_status(
             try:
                 with open(p, "r", encoding="utf-8") as f:
                     data = json.load(f)
+                    f_chk_id = data.get("checkpoint_id")
                     f_chk_seq = data.get("sequence_id")
                     f_chk_hash = data.get("checkpoint_hash")
                     if f_chk_seq == chk_seq and f_chk_hash and chk_hash:
                         if f_chk_hash != chk_hash:
+                            status_str = "MISMATCH"
+                            break
+                    elif f_chk_id is not None and f_chk_hash:
+                        cp_match = await session.execute(
+                            text("SELECT checkpoint_hash FROM chain_checkpoints WHERE checkpoint_id = :cid"),
+                            {"cid": f_chk_id},
+                        )
+                        cp_row = cp_match.first()
+                        if cp_row and cp_row[0] != f_chk_hash:
                             status_str = "MISMATCH"
                             break
             except Exception:

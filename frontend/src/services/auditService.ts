@@ -281,14 +281,21 @@ export interface TimeTravelResult {
   date_hired: string; // ISO timestamp
   is_active: boolean;
   as_of: string; // ISO timestamp
+  sequence_id?: number | null;
 }
 
 export async function fetchTimeTravelState(
   employeeId: number,
   timestamp: string,
   getToken: () => Promise<string | null>,
+  sequenceId?: number | null,
 ): Promise<TimeTravelResult> {
-  return fetchWithAuth(`/employees/${employeeId}/time-travel?timestamp=${encodeURIComponent(timestamp)}`, {}, getToken);
+  const seqParam = sequenceId !== undefined && sequenceId !== null ? `&sequence_id=${sequenceId}` : '';
+  return fetchWithAuth(
+    `/employees/${employeeId}/time-travel?timestamp=${encodeURIComponent(timestamp)}${seqParam}`,
+    {},
+    getToken,
+  );
 }
 
 // ─── INT-006: Signed JSON Evidence Export ─────────────────────────────────────

@@ -37,7 +37,13 @@ export async function fetchWithAuth(
     let errorDetail = 'An unexpected API error occurred';
     try {
       const errorData = await response.json();
-      errorDetail = errorData.detail || errorDetail;
+      if (typeof errorData.detail === 'string') {
+        errorDetail = errorData.detail;
+      } else if (Array.isArray(errorData.detail)) {
+        errorDetail = errorData.detail.map((d: any) => d.msg || JSON.stringify(d)).join('; ');
+      } else if (errorData.detail) {
+        errorDetail = JSON.stringify(errorData.detail);
+      }
     } catch {
       // Ignore JSON parse errors for non-JSON error responses
     }
