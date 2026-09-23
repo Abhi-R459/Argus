@@ -631,6 +631,32 @@ UPDATE employees SET salary = salary + 10000.00 WHERE id = 1;
 
 ---
 
+## Interactive Terminal User Interfaces (TUI)
+
+For evaluators, compliance officers, and auditors who prefer an interactive console over memorizing CLI flags, Argus provides dedicated Terminal User Interfaces powered by Rich:
+
+```bash
+# 1. Master Security & Audit Console (Interactive Launcher)
+python -m db.cli.tui
+
+# 2. Verifier Engine TUI (Auditing, Checkpoints, Signing, Anchors, Backups, Air-Gapped Verifier)
+python -m db.cli.verifier --tui
+# or:
+python -m db.cli.verifier tui
+
+# 3. Adversary Engine TUI (Out-of-Band Red Team Attacks & Self-Healing)
+python -m db.cli.adversary --tui
+# or:
+python -m db.cli.adversary tui
+```
+
+All TUI consoles feature:
+- **Zero Flag Friction:** Interactive prompts with smart pre-filled defaults (e.g., `[default: 500]`). Pressing `[Enter]` applies recommended settings immediately.
+- **Live Visual Feedback:** Animated progress spinners, color-coded status badges (`[PASS]`, `[TAMPER DETECTED]`, `[ACTIVE ATTACK]`), and formatted tables with tail hashes and execution throughput.
+- **100% Backward Compatibility:** Direct command-line flag invocations (`python -m db.cli.verifier verify-chain ...`, `python -m db.cli.adversary attack ...`) remain fully functional and unchanged.
+
+---
+
 ## Standalone Cryptographic Verifier CLI
 
 Argus includes an offline verification CLI decoupled from the web application:

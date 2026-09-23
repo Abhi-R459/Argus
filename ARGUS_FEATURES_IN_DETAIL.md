@@ -584,6 +584,13 @@ Captures a pristine state snapshot in `.argus_snapshot.json` before mutating the
 - Restores original JSONB payloads and chain state from `.argus_snapshot.json`.
 - Runs `verify_chain()` to prove 100% mathematical integrity has been restored.
 
+### 22F: Interactive Dual-TUI Terminal Consoles (`tui.py`, `tui_verifier.py`, `tui_adversary.py`)
+- Provides interactive, menu-driven terminal consoles powered by `rich` (v15.0.0) for evaluators, compliance officers, and auditors who prefer not to memorize CLI flags.
+- **Master Launcher:** `python -m db.cli.tui` provides a 1-keystroke launchpad to select between the Verifier Engine and Adversary Engine.
+- **Verifier Console:** `python -m db.cli.verifier --tui` (or `tui`) wraps all Category 1 capabilities: sequential keyset verification, parallel multi-process verification, checkpoint creation, Ed25519 signing, external anchoring, backup verification, and RFC 8032 zero-dependency bundle verification.
+- **Adversary Console:** `python -m db.cli.adversary --tui` (or `tui`) wraps Category 2 capabilities: security posture diagnostics, scenario selection with automatic candidate sequence detection, and 1-click self-healing.
+- **Ergonomics & Safety:** Prompts feature smart pre-filled defaults in brackets, live animated spinners, structured result tables, and non-fatal connection safeguards. Direct command-line flag invocations remain 100% backward-compatible.
+
 ---
 
 # 5. Enterprise Backend API & Data Bridge (FastAPI)
