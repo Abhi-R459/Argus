@@ -988,8 +988,16 @@ def build_parser() -> argparse.ArgumentParser:
         description="Argus Adversary Engine: Out-of-band Red Team administrative attack simulator.",
         parents=[parent_parser],
     )
+    parser.add_argument(
+        "--tui",
+        action="store_true",
+        help="Launch the interactive Terminal User Interface (TUI) for the adversary engine.",
+    )
 
     subparsers = parser.add_subparsers(dest="command", help="Adversary commands")
+
+    # tui
+    subparsers.add_parser("tui", parents=[parent_parser], help="Launch the interactive Terminal User Interface (TUI) for the adversary engine.")
 
     # attack
     p_attack = subparsers.add_parser("attack", parents=[parent_parser], help="Execute an out-of-band attack scenario.")
@@ -1027,6 +1035,11 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
+
+    if getattr(args, "tui", False) or args.command == "tui":
+        from db.cli.tui_adversary import run_adversary_tui
+        run_adversary_tui(args.db_url)
+        return 0
 
     if not args.command:
         parser.print_help()

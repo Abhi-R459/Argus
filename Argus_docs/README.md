@@ -44,7 +44,7 @@ Full requirements, threat model, and research framing live in [`PRD_Argus.md`](.
 | Auth | Clerk Hobby: prebuilt login/logout, OAuth, managed sessions; local `users.role` authorizes Argus access |
 | Containerization | Docker Compose |
 | Deployment | Neon Free PostgreSQL, Render Free FastAPI, Render Static Site or Vercel Hobby React frontend |
-| External anchor | Protected local file for development; separate private GitHub repository for deployed checkpoints |
+| External anchor | Pluggable: Local File, GitHub repository, RFC 3161 TSA (.tsr), and AWS S3 Object Lock (COMPLIANCE WORM) |
 
 **ORM boundary, briefly:** standard CRUD, local user/RBAC lookups, and dashboard reads go through SQLAlchemy. Raw SQL/PL-pgSQL is used only where the course rubric explicitly allows it — triggers, locking, the time-travel function, the suspicious-activity procedure, and the verifier's chain walk.
 
@@ -153,12 +153,20 @@ docker compose up --build
 ```
 This starts `postgres`, `api`, and `frontend` as separate services, matching the deployment architecture described in `Architecture.md`.
 
-### Running the verifier independently
-The verifier is intentionally a separate process from the web app:
+### Running the verifier and adversary engines
+The verifier and adversary simulator are intentionally standalone processes decoupled from the web app:
+
 ```bash
-cd db
-python verifier_cli.py --verify        # walk the chain, report status
-python verifier_cli.py --verify --parallel   # checkpoint-parallelized verification (Section 5.13)
+# Interactive Terminal User Interfaces (TUI):
+python -m db.cli.tui                 # Master launcher
+python -m db.cli.verifier --tui       # Verifier TUI
+python -m db.cli.adversary --tui      # Adversary TUI
+
+# Command-Line Interface (CLI):
+python -m db.cli.verifier verify-chain                 # Walk the chain, report status
+python -m db.cli.verifier verify-chain --parallel --workers 4  # Parallelized verification
+python -m db.cli.adversary status                      # Active attack diagnostics
+python -m db.cli.adversary heal                        # Restore pristine state
 ```
 
 ### Running the benchmark harness

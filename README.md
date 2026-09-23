@@ -3,7 +3,7 @@
 > **A tamper-evident, self-verifying audit trail engine for PostgreSQL**, demonstrated through an enterprise Employee Records management system.  
 > *Course Project for BCSE302L Database Systems — Abhinav & Nidhurshek.*
 
-[![Tests](https://img.shields.io/badge/tests-114%20passed-brightgreen.svg)](#running-automated-tests)
+[![Tests](https://img.shields.io/badge/tests-204%20passed-brightgreen.svg)](#running-automated-tests)
 [![Red Team Engine](https://img.shields.io/badge/Adversary%20CLI-Active-crimson.svg)](#part-2-testing-out-of-band-adversary-attacks-red-team-cli)
 [![Security](https://img.shields.io/badge/Security-Fail--Closed-009688.svg)](#overview)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15+-blue.svg)](https://www.postgresql.org/)
@@ -109,7 +109,7 @@ Traditional relational audit logs are stored in standard database tables. A mali
 │                    STANDALONE VERIFIER ENGINE                          │
 │  - Sequential & Parallel Segment Walks (`verify-chain`)                │
 │  - Ed25519 Checkpoint Signer (`sign-checkpoint`)                       │
-│  - External Anchor Storage Adapter (Local File & GitHub)               │
+│  - Pluggable Anchors (Local File, GitHub, RFC 3161 TSA, AWS S3 WORM)   │
 └────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -129,9 +129,10 @@ Traditional relational audit logs are stored in standard database tables. A mali
 - **Backend:** Python 3.12, FastAPI, SQLAlchemy 2 (asyncpg + psycopg2), Pydantic v2, Uvicorn.
 - **Frontend:** React 19, TypeScript, Vite, Tailwind CSS, TanStack React Query, Lucide React.
 - **Authentication:** Clerk Auth (JWT authentication and role sync).
-- **Cryptography:** Ed25519 (`cryptography`), SHA-256 (`hashlib`).
-- **Database Migrations:** Alembic (9 versions).
-- **Testing:** Pytest, pytest-asyncio, HTTPX, Playwright.
+- **Cryptography:** Ed25519 (`cryptography`), SHA-256 (`hashlib`), RFC 8032 pure-Python curve math, RFC 3161 ASN.1 DER parser.
+- **Database Migrations:** Alembic (13 versions, up to `013_tunable_pbkdf2_blind_index`).
+- **External Anchors:** Local File, GitHub Repository, RFC 3161 Time-Stamping Authority (`.tsr`), and AWS S3 WORM Object Lock (`COMPLIANCE` mode).
+- **Testing:** Pytest (204 passed, 27 skipped across 231 items), pytest-asyncio, pytest-benchmark, HTTPX, Playwright.
 
 ---
 
@@ -224,8 +225,13 @@ CHECKPOINT_INTERVAL=25
    docker exec -i argus-postgres psql -U postgres -d argus < db/scripts/setup_roles.sql
    ```
 
-4. *(Optional)* **Seed Benchmark / Demo Data:**
+4. *(Optional)* **Seed Curated Demo or Benchmark Data:**
    ```bash
+   # Option A: Curated Corporate Demo Dataset (Recommended for UI & Evaluator Demos)
+   # Wipes & seeds 60 curated employees across 6 departments, multi-stage promotion timelines, and hero personas:
+   python -m db.seed_demo
+
+   # Option B: Synthetic Benchmark Scale Dataset
    python -m db.bench.seed --num-employees 25 --num-changes 50
    ```
 
@@ -341,9 +347,16 @@ Argus enforces strict business rules directly inside PostgreSQL triggers rather 
    - Plaintext PII is never exposed to auditors or saved unencrypted in audit logs.
 
 #### 1.6 Compliance Auditor: Time-Travel Historical State Reconstruction
-1. Open an employee profile.
-2. Scrub backward along the **Time-Travel Date/Time Slider**.
-3. **Expected Result:** The interface calls PostgreSQL stored routine `reconstruct_employee_state(emp_id, as_of)`, sequentially rolling back mutations to render that employee's exact historical salary, department, and title as of the selected microsecond.
+1. In the Auditor navigation, open **Time-Travel** (`/auditor/time-travel`).
+2. Search for any employee using the zero-latency **Typeahead Combobox** (matches names, emails, roles, departments, or ID formats like `#1`, `EMP-0001`, `1` without debounce delays).
+3. Select an employee (e.g. Elena Rostova or Marcus Vance).
+4. Scrub or select target timestamps using the high-precision datetime picker with **seconds precision (`HH:mm:ss`)** or choose a **Quick Preset**:
+   - `Now (Current State)`: Reconstructs the live entity state.
+   - `Latest Event (Seq #X)`: Snaps directly to the latest recorded audit log sequence.
+   - `Initial Creation (Seq #Y)`: Rewinds to the employee's genesis onboarding record.
+5. Alternatively, click any historical mutation in the chronological **Mutation Timeline** to jump directly to that exact ledger timestamp.
+6. **Expected Result:** The interface calls PostgreSQL stored routine `reconstruct_employee_state(emp_id, as_of)`. The backend applies sub-second ceiling arithmetic (`buildTargetTimestamp`), guaranteeing that `created_at <= p_as_of` correctly captures all mutations in that interval. The UI renders the employee's exact historical salary, department, job role, and active status as of that precise moment in history.
+7. If queried prior to an employee's hire date, a contextual forensic card displays the first recorded ledger timestamp with one-click auto-recovery buttons.
 
 #### 1.7 Compliance Auditor: Live Concurrency Benchmark Lab
 1. In the Auditor navigation, click **Concurrency Lab**.
@@ -481,14 +494,16 @@ In your browser dashboard, click **"Verify Chain"** — the status badge should 
 
 #### Adversary Engine CLI Quick Reference
 
-| Command | Option | Description |
-|---|---|---|
-| `status` | — | Diagnoses active anomaly state, chain continuity, and anchor alignment |
-| `attack` | `--scenario dba-row-tamper` | Mutates historical audit row without updating hash |
-| `attack` | `--scenario recompute-and-hide` | Mutates row and rewrites all forward hashes to test anchor detection |
-| `attack` | `--scenario checkpoint-forgery` | Corrupts Ed25519 signature in database checkpoint table |
-| `attack` | `--scenario delete-audit-row` | Deletes historical audit log record to trigger sequence gap detection |
-| `heal` | — | Restores pristine database state from snapshot with 100% precision |
+| Command | Option | Target Subsystem | Description & Detection Mechanism |
+|---|---|---|---|
+| `status` | — | Verification Engine | Diagnoses active anomaly state, chain continuity, and external anchor alignment |
+| `attack` | `--scenario dba-row-tamper` | `audit_log` row | Mutates historical audit row via SQL without updating hash; detected by SHA-256 hash mismatch |
+| `attack` | `--scenario recompute-and-hide` | Entire forward chain | Mutates historical row and rewrites all forward hashes; caught by external Ed25519 Anchor Store mismatch |
+| `attack` | `--scenario checkpoint-forgery` | `chain_checkpoints` | Corrupts Ed25519 signature in database checkpoint table; detected by asymmetric signature verification failure |
+| `attack` | `--scenario delete-audit-row` | `audit_log` row | Deletes historical audit log record directly via superuser SQL; detected by sequence gap ($N-1 \to N+1$) and orphan pointer |
+| `heal` | — | All Subsystems | Deterministically restores pristine database state from `.argus_snapshot.json` with 100% cryptographic validity |
+
+> ℹ️ *For the full 6-scenario attack demonstration suite (including Demo 1 PostgreSQL Role REVOKE privilege isolation and Demos 3/4 in-engine business rule triggers), see [`docs/Attack_Demos_Rehearsal.md`](docs/Attack_Demos_Rehearsal.md) and [`docs/Adversary_Simulation_Guide.md`](docs/Adversary_Simulation_Guide.md).*
 
 ---
 
@@ -573,11 +588,14 @@ UPDATE employees SET salary = salary + 10000.00 WHERE id = 1;
 ## Application Walkthrough & Features
 
 ### HR Admin Portal
-- **Employee Directory Table:** Search, filter by department, paginate, and sort employees.
+- **Enterprise Light Mode Canvas:** Designed for high-clarity daily operations in Grafana-inspired light theme (`Slate-50`, crisp white cards, clean tabular layouts).
+- **Employee Directory Table:** Search, filter by department, paginate, and sort employees with inline status indicators.
+- **Slide-Over Personnel Inspector (`EmployeeSheet`):** Lateral slide-in sheet for reviewing employee profiles, compensation histories, and PII encryption status with zero-latency tab switching.
 - **Create & Edit Employee:** Validated modals capturing employee profile details. Sensitive fields (`national_id`, `contact_info`) are encrypted with `pgcrypto` at the database level.
 - **Salary Adjustments:** Dedicated modal enforcing business constraints (e.g. raises and $< 30\%$ adjustments allowed, self-modifications blocked).
 
 ### Compliance Auditor Portal
+- **Linear-Inspired Forensic Terminal:** Immersive high-density dark canvas (`#0c0d0e` / Neutral 950) with hairline borders, monospace cryptographic digests, and real-time status pills.
 - **Audit Log Explorer:** Live chronological stream of every database mutation. Filter by actor, action (`INSERT`/`UPDATE`/`DELETE`), target table, and severity (`INFO`, `WARNING`, `CRITICAL`).
 - **Side-by-Side Diff Viewer:** Click any audit entry to inspect exact before/after field mutations in an intuitive visual diff viewer rather than raw JSON strings.
 - **Chain Block Visualizer:** Visual interactive map of chained sequence blocks with direct indicators of previous hash links and tail continuity.
@@ -585,12 +603,24 @@ UPDATE employees SET salary = salary + 10000.00 WHERE id = 1;
 - **System Telemetry & Posture:** Live buffer cache hit ratio, database relation byte sizes, and dynamic security score (0–100) calculated from PostgreSQL catalog tables.
 
 ### Time-Travel Historical Reconstruction
-- Scrub backward through time using an interactive date/time slider on any employee profile.
-- Calls PostgreSQL's stored function:
+- Reconstruct any employee's profile as of any exact microsecond in history via PostgreSQL's stored function:
   ```sql
   SELECT reconstruct_employee_state(p_employee_id, p_as_of);
   ```
-- Replays recorded audit log deltas up to the requested microsecond, rendering their exact historical title, department, salary, and status.
+- **Zero-Latency Typeahead Combobox:** Synchronous client-side filtering over employee names, roles, departments, emails, and ID patterns (`#1`, `EMP-0001`, `1`).
+- **High-Precision Seconds Picker & Sub-Second Ceiling:** Datetime picker with seconds granularity (`HH:mm:ss`) backed by `buildTargetTimestamp` ceiling arithmetic, guaranteeing `created_at <= p_as_of` evaluates to true for all transactions committed in that second.
+- **Quick Presets & Mutation Timeline:** 1-click jumps to `Now (Current State)`, `Latest Event`, `Initial Creation`, or any chronological ledger mutation.
+- **Contextual Forensic Recovery:** Detects pre-creation queries, displays the first recorded ledger timestamp, and provides one-click auto-recovery.
+
+### Enterprise UI/UX Architecture & Motion Physics (Phase 12)
+- **Dual-Theme Isolation:** Strict domain-driven theme separation—Auditor terminal remains locked in Linear dark theme while HR Admin operates in clean enterprise light mode (`.hr-light`).
+- **Two-Way Smooth Micro-Animations:**
+  - **Lateral Slide-Over Drawers (`DetailSheet`, `EmployeeSheet`):** Smooth 240ms entry and exit transitions (`cubic-bezier(0.16, 1, 0.3, 1)`) with entity caching to prevent layout flicker on close.
+  - **Spring Modal Transitions (`useModalTransition`):** Coordinated double-`requestAnimationFrame` entries and smooth exits for all dialogs.
+  - **Table Row Accordion Animation (`useAccordionTransition`):** CSS Grid fractional track height animation (`grid-template-rows: 0fr` ➔ `1fr`) with rotating chevrons for smooth table row expansion.
+- **Keyboard Ergonomics & Autofill Suppression:**
+  - `J` / `K` keyboard navigation for row selection, `Enter` to inspect, `Escape` to dismiss side-sheets, `/` to focus search.
+  - Comprehensive suppression of browser address suggestions and password manager overlays (`data-lpignore="true"`, `autoComplete="off"`).
 
 ### Cryptographic Evidence Export
 - Click **"Export Signed Evidence"** to download tamper-evident JSON bundles digitally signed with Ed25519, or export air-gapped `.arguspack` bundles.
@@ -598,6 +628,32 @@ UPDATE employees SET salary = salary + 10000.00 WHERE id = 1;
 ### Concurrency Benchmark Lab
 - Dispatches parallel concurrent write transactions against PostgreSQL using asynchronous worker pools.
 - Verifies that row-level locking on `chain_state (id=1)` perfectly orders writes with zero deadlocks and zero sequence ID gaps.
+
+---
+
+## Interactive Terminal User Interfaces (TUI)
+
+For evaluators, compliance officers, and auditors who prefer an interactive console over memorizing CLI flags, Argus provides dedicated Terminal User Interfaces powered by Rich:
+
+```bash
+# 1. Master Security & Audit Console (Interactive Launcher)
+python -m db.cli.tui
+
+# 2. Verifier Engine TUI (Auditing, Checkpoints, Signing, Anchors, Backups, Air-Gapped Verifier)
+python -m db.cli.verifier --tui
+# or:
+python -m db.cli.verifier tui
+
+# 3. Adversary Engine TUI (Out-of-Band Red Team Attacks & Self-Healing)
+python -m db.cli.adversary --tui
+# or:
+python -m db.cli.adversary tui
+```
+
+All TUI consoles feature:
+- **Zero Flag Friction:** Interactive prompts with smart pre-filled defaults (e.g., `[default: 500]`). Pressing `[Enter]` applies recommended settings immediately.
+- **Live Visual Feedback:** Animated progress spinners, color-coded status badges (`[PASS]`, `[TAMPER DETECTED]`, `[ACTIVE ATTACK]`), and formatted tables with tail hashes and execution throughput.
+- **100% Backward Compatibility:** Direct command-line flag invocations (`python -m db.cli.verifier verify-chain ...`, `python -m db.cli.adversary attack ...`) remain fully functional and unchanged.
 
 ---
 
@@ -670,44 +726,56 @@ python -m pytest db/tests/ api/tests/
 **Verified Test Output (100% Pass Rate):**
 ```text
 ============================= test session starts =============================
-collected 130 items
+platform win32 -- Python 3.12.10, pytest-9.1.1, pluggy-1.6.0
+rootdir: C:\dev\Argus
+configfile: pytest.ini
+collected 231 items
 
-db\tests\test_adversary_cli.py ......                                    [  4%]
-db\tests\test_attack_demos.py ......                                     [  9%]
-db\tests\test_backup.py ...............                                  [ 20%]
-db\tests\test_benchmarks.py ........                                     [ 26%]
-db\tests\test_blind_indexing.py ...                                      [ 29%]
-db\tests\test_blind_indexing_db.py ...                                   [ 31%]
-db\tests\test_business_rules.py sssssss                                  [ 36%]
-db\tests\test_checkpoint_store.py ........                               [ 43%]
-db\tests\test_e2e_integration.py ...                                     [ 45%]
-db\tests\test_evidence_bundle.py ........                                [ 51%]
-db\tests\test_migration_001.py .                                         [ 52%]
-db\tests\test_migration_002.py .                                         [ 53%]
-db\tests\test_migration_003.py .                                         [ 53%]
-db\tests\test_migration_004.py .                                         [ 54%]
-db\tests\test_trigger_employees.py ssssss                                [ 59%]
-db\tests\test_trigger_salary.py sss                                      [ 61%]
-db\tests\test_verify_standalone.py ........                              [ 67%]
-api\tests\test_audits.py ............                                    [ 76%]
-api\tests\test_blind_search_api.py ....                                  [ 80%]
-api\tests\test_bridge_endpoints.py ........                              [ 86%]
-api\tests\test_employees.py ...                                          [ 88%]
-api\tests\test_export_pack.py ....                                       [ 91%]
-api\tests\test_hardened_endpoints.py ....                                [ 94%]
-api\tests\test_health.py .                                               [ 95%]
+db\tests\test_adversary_cli.py ......                                    [  3%]
+db\tests\test_anchor_store.py ...........................                [ 14%]
+db\tests\test_attack_demos.py ......                                     [ 17%]
+db\tests\test_audit_log_isolation.py ......                              [ 20%]
+db\tests\test_auditor_directory_permissions.py .....                     [ 22%]
+db\tests\test_backup.py ..........................                       [ 33%]
+db\tests\test_benchmarks.py ........                                     [ 37%]
+db\tests\test_blind_indexing.py ......                                   [ 39%]
+db\tests\test_blind_indexing_db.py ......                                [ 42%]
+db\tests\test_business_rules.py sssssss                                  [ 45%]
+db\tests\test_checkpoint_store.py ....................                   [ 54%]
+db\tests\test_e2e_integration.py ...                                     [ 55%]
+db\tests\test_evidence_bundle.py ........                                [ 58%]
+db\tests\test_migration_001.py .                                         [ 59%]
+db\tests\test_migration_002.py .                                         [ 59%]
+db\tests\test_migration_003.py .                                         [ 60%]
+db\tests\test_migration_004.py .                                         [ 60%]
+db\tests\test_reconstruct_null_fields.py sssss                           [ 62%]
+db\tests\test_signer_providers.py ................                       [ 69%]
+db\tests\test_trigger_employees.py ssssss                                [ 72%]
+db\tests\test_trigger_salary.py sss                                      [ 73%]
+db\tests\test_verify_standalone.py ........                              [ 77%]
+api\tests\test_audits.py ............                                    [ 82%]
+api\tests\test_blind_search_api.py ........                              [ 85%]
+api\tests\test_bridge_endpoints.py .........                             [ 89%]
+api\tests\test_chain_explorer_api.py .....                               [ 91%]
+api\tests\test_employees.py .....                                        [ 94%]
+api\tests\test_export_pack.py ....                                       [ 95%]
+api\tests\test_hardened_endpoints.py .....                               [ 97%]
+api\tests\test_health.py .                                               [ 98%]
 api\tests\test_live_telemetry.py ......                                  [100%]
 
-================= 114 passed, 16 skipped in 2.33s =================
+================= 204 passed, 27 skipped in 3.65s =================
 ```
 
 ### Key Test Suites Breakdown:
-- **`db/tests/test_adversary_cli.py` (6/6):** Red Team CLI argument parsing, all 4 attack vectors, pre-tamper snapshotting, and deterministic restoration.
-- **`api/tests/test_hardened_endpoints.py` (4/4):** Fail-closed verifier behavior on dropped connections, demo role switch gating, and diagnostic concurrency benchmark routing.
+- **`db/tests/test_anchor_store.py` (27/27):** Local File, GitHub, RFC 3161 TSA (pure-Python ASN.1 DER parser), and AWS S3 WORM Object Lock adapters with fail-closed edge cases.
+- **`db/tests/test_signer_providers.py` (16/16):** Polymorphic `Signer` provider abstractions, Cloud KMS / Vault mocking, key custody enforcement.
+- **`db/tests/test_adversary_cli.py` (6/6):** Red Team CLI argument parsing, out-of-band attack vectors, pre-tamper snapshotting, and deterministic restoration.
+- **`api/tests/test_hardened_endpoints.py` (5/5):** Fail-closed verifier behavior on dropped connections, demo role switch gating, and diagnostic concurrency benchmark routing.
 - **`db/tests/test_verify_standalone.py` (8/8):** Pure-Python RFC 8032 Ed25519 verifier tested against 5-scenario tamper matrices (content edit, signature alteration, key replacement).
-- **`db/tests/test_blind_indexing_db.py` & `api/tests/test_blind_search_api.py` (7/7):** HMAC blind index hashing and sub-5ms forensic expression index lookups.
+- **`db/tests/test_blind_indexing_db.py` & `api/tests/test_blind_search_api.py` (14/14):** HMAC blind index hashing and sub-5ms forensic expression index lookups.
 - **`api/tests/test_live_telemetry.py` (6/6):** Live PostgreSQL catalog queries (`pg_stat_database`, `pg_stat_user_tables`) and dynamic security score generation.
 - **`db/tests/test_attack_demos.py` (6/6):** Database-enforced business rule triggers and role privilege revocations.
+- **`api/tests/test_chain_explorer_api.py` (5/5):** Keyset pagination and boundary traversal for live chain inspection.
 
 ---
 
@@ -733,9 +801,15 @@ api\tests\test_live_telemetry.py ......                                  [100%]
 
 ## Project Documentation
 
+- **Feature Architecture & Specification Compendium:** [`ARGUS_FEATURES_IN_DETAIL.md`](ARGUS_FEATURES_IN_DETAIL.md) (Exhaustive 53-feature compendium & master crosswalk).
+- **Architectural Novelty & Systems Contributions:** [`NOVELTY.md`](NOVELTY.md) (11 core systems contributions and competitive novelty matrix).
+- **Feature Guide & Demo Manual:** [`docs/ARGUS_FEATURE_GUIDE_AND_DEMO_MANUAL.md`](docs/ARGUS_FEATURE_GUIDE_AND_DEMO_MANUAL.md) (Comprehensive viva walkthrough and operational runbook).
 - **Evaluator Demonstration Manual:** [`docs/Adversary_Simulation_Guide.md`](docs/Adversary_Simulation_Guide.md) (Step-by-step side-by-side terminal rehearsal script).
 - **Academic Research Paper:** [`docs/Final_Paper.md`](docs/Final_Paper.md) (Complete unified Section 16 research paper).
 - **Key Custody & Secrets Inventory:** [`docs/KEY_CUSTODY_AND_SECRETS_INVENTORY.md`](docs/KEY_CUSTODY_AND_SECRETS_INVENTORY.md) (NIST SP 800-57 secrets mapping, process boundaries, and rotation protocol).
+- **Merkle Tree Proofs Specification:** [`docs/MERKLE_TREE_SPEC.md`](docs/MERKLE_TREE_SPEC.md) (Hierarchical Merkle capsules & selective disclosure proofs).
+- **Multi-Witness WORM Anchoring Specification:** [`docs/MULTI_WITNESS_SPEC.md`](docs/MULTI_WITNESS_SPEC.md) (Decentralized threshold witness protocol & S3 WORM storage).
+- **GDPR Crypto-Shredding Analysis:** [`docs/CRYPTO_SHREDDING_ANALYSIS.md`](docs/CRYPTO_SHREDDING_ANALYSIS.md) (Per-subject DEK envelope encryption & Article 17 erasure analysis).
 - **Formal Algorithm & Invariants:** [`docs/16.4_Formal_Algorithm.md`](docs/16.4_Formal_Algorithm.md)
 - **Threat Model & Taxonomy:** [`docs/16.2_Threat_Model.md`](docs/16.2_Threat_Model.md)
 - **Complexity Analysis:** [`docs/16.5_Complexity_Analysis.md`](docs/16.5_Complexity_Analysis.md)
@@ -744,6 +818,9 @@ api\tests\test_live_telemetry.py ......                                  [100%]
 - **Benchmark Evaluation Report:** [`db/bench/results/benchmark_report.md`](db/bench/results/benchmark_report.md)
 - **System Architecture:** [`Argus_docs/Architecture.md`](Argus_docs/Architecture.md)
 - **API Reference:** [`Argus_docs/API_REFERENCE.md`](Argus_docs/API_REFERENCE.md)
+- **Frontend Architecture:** [`Argus_docs/FRONTEND_ARCHITECTURE.md`](Argus_docs/FRONTEND_ARCHITECTURE.md)
+- **Hardening & Practicality Audit Report:** [`argus_hardening_and_practicality_report.md`](argus_hardening_and_practicality_report.md)
+- **Frontend UI/UX Audit & Remediation Report:** [`argus_ui_ux_audit_report.md`](argus_ui_ux_audit_report.md)
 
 ---
 

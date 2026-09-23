@@ -76,10 +76,16 @@ def get_connection(db_url: str | None = None) -> Any:
     Raises:
         SystemExit: If no database URL is available.
     """
-    url = db_url or os.environ.get("DATABASE_URL")
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()
+    except Exception:
+        pass
+
+    url = db_url or os.environ.get("DATABASE_URL") or os.environ.get("DATABASE_URL_MIGRATIONS")
     if not url:
         logger.error(
-            "No database URL provided.  Use --db-url or set DATABASE_URL."
+            "No database URL provided. Use --db-url or set DATABASE_URL / DATABASE_URL_MIGRATIONS."
         )
         sys.exit(1)
 
@@ -969,11 +975,22 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
         help="Logging verbosity (default: INFO)",
     )
+    parser.add_argument(
+        "--tui",
+        action="store_true",
+        help="Launch the interactive Terminal User Interface (TUI) for the verifier engine.",
+    )
 
     subparsers = parser.add_subparsers(
         dest="command",
         title="commands",
         description="Available verification commands",
+    )
+
+    # ---- tui ----
+    subparsers.add_parser(
+        "tui",
+        help="Launch the interactive Terminal User Interface (TUI) for the verifier engine",
     )
 
     # ---- verify-chain ----
@@ -1270,6 +1287,11 @@ def main() -> int:
     args = parser.parse_args()
 
     _configure_logging(args.log_level)
+
+    if getattr(args, "tui", False) or args.command == "tui":
+        from db.cli.tui_verifier import run_verifier_tui
+        run_verifier_tui(args.db_url)
+        return 0
 
     if args.command is None:
         parser.print_help()
