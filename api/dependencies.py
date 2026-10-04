@@ -1,7 +1,7 @@
 from typing import AsyncGenerator, Callable, List
 from fastapi import Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from .middleware.clerk import verify_clerk_token
 from .database import get_session_factory
@@ -69,8 +69,20 @@ async def get_db_session(
     session_factory = get_session_factory(current_user.role)
     async with session_factory() as session:
         try:
+            # Bind authenticated actor identity to PostgreSQL session-local state for triggers
+            if current_user and getattr(current_user, "user_id", None) is not None:
+                await session.execute(
+                    text("SELECT set_config('argus.actor_user_id', :uid, true)"),
+                    {"uid": str(current_user.user_id)},
+                )
+            if current_user and getattr(current_user, "employee_id", None) is not None:
+                await session.execute(
+                    text("SELECT set_config('argus.actor_employee_id', :eid, true)"),
+                    {"eid": str(current_user.employee_id)},
+                )
             yield session
             await session.commit()
         except Exception:
             await session.rollback()
             raise
+

@@ -93,6 +93,8 @@ CREATE TABLE chain_checkpoints (
     checkpoint_hash CHAR(64) NOT NULL,
     signature BYTEA NOT NULL, -- Asymmetric signature (Ed25519)
     key_id VARCHAR(128) DEFAULT 'local:ed25519:v1', -- Key identifier supporting rotation
+    merkle_root TEXT, -- Hex-encoded RFC 6962 SHA-256 Merkle root hash
+    merkle_leaf_count INTEGER, -- Number of audit log leaves in Merkle tree
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 

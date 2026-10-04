@@ -16,7 +16,12 @@ export async function fetchWithAuth(
   options: RequestInit = {},
   getToken: () => Promise<string | null>
 ) {
-  const token = await getToken();
+  let token = null;
+  if (import.meta.env.DEV && typeof window !== 'undefined' && (window as any).__E2E_ROLE__) {
+    token = (window as any).__E2E_TOKEN__ || 'e2e-mock-token';
+  } else {
+    token = await getToken();
+  }
   
   const headers = new Headers(options.headers);
   if (token) {

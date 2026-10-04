@@ -204,7 +204,7 @@ async def create_employee(
     )
     if role_result.scalar_one_or_none() is None:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Role with id {data.role_id} does not exist.",
         )
 
@@ -297,7 +297,7 @@ async def update_employee(
         )
         if role_result.scalar_one_or_none() is None:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=f"Role with id {update_data['role_id']} does not exist.",
             )
 

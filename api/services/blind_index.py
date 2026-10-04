@@ -59,6 +59,11 @@ class BlindSearchRateLimiter:
                 q.popleft()
 
             count = len(q)
+            if count == 0:
+                if key in self._requests:
+                    del self._requests[key]
+                return True, 0, 0.0
+
             if count >= self.max_requests:
                 oldest = q[0]
                 retry_after = max(1.0, (oldest + self.window_seconds) - now)

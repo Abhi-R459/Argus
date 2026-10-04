@@ -1,4 +1,4 @@
-import { Anchor, ExternalLink, Clock, GitCommit } from 'lucide-react';
+import { Anchor, ExternalLink, Clock, GitCommit, ShieldCheck, CheckCircle2, XCircle } from 'lucide-react';
 import type { AnchorInfo } from '../../services/auditService';
 
 interface AnchorStatusProps {
@@ -59,10 +59,10 @@ export default function AnchorStatus({ data }: AnchorStatusProps) {
 
   return (
     <div
-      className={`rounded-2xl border p-5 flex flex-col space-y-4 ${style.border} ${style.bg} ${style.glow} transition-[border-color,background-color] duration-150 shadow-sm`}
+      className={`rounded-2xl border flex flex-col justify-between overflow-hidden shadow-sm h-full ${style.border} ${style.bg} ${style.glow} transition-[border-color,background-color] duration-150`}
     >
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between px-5 py-4 border-b border-linear-hairline shrink-0">
         <div className="flex items-center space-x-2.5">
           <div
             className={`w-9 h-9 rounded-xl flex items-center justify-center bg-linear-surface-2 border ${style.border}`}
@@ -70,7 +70,7 @@ export default function AnchorStatus({ data }: AnchorStatusProps) {
             <Anchor className={`w-4 h-4 ${style.icon}`} />
           </div>
           <div>
-            <p className="text-xs text-linear-ink-subtle uppercase tracking-wider font-semibold">Cryptographic Anchor</p>
+            <p className="text-[10px] text-linear-ink-subtle uppercase tracking-wider font-semibold">Cryptographic Anchor</p>
             <h3 className="text-sm font-semibold text-linear-ink">External Checkpoint</h3>
           </div>
         </div>
@@ -80,11 +80,9 @@ export default function AnchorStatus({ data }: AnchorStatusProps) {
         </span>
       </div>
 
-      {/* Divider */}
-      <div className="border-t border-linear-hairline" />
-
-      {/* Details grid */}
-      <div className="grid grid-cols-1 gap-3">
+      {/* Details body */}
+      <div className="p-5 flex-1 flex flex-col justify-between space-y-3.5">
+        <div className="grid grid-cols-1 gap-3">
         {/* Store location */}
         <div className="flex items-start space-x-3">
           <ExternalLink className="w-3.5 h-3.5 text-linear-ink-subtle mt-0.5 flex-shrink-0" />
@@ -127,14 +125,86 @@ export default function AnchorStatus({ data }: AnchorStatusProps) {
         </div>
       </div>
 
+      {/* Multi-Witness Quorum Telemetry (RFC 9162 / NOVEL-010) */}
+      {data.witness_report && (
+        <div className="border-t border-linear-hairline pt-3.5 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <ShieldCheck className="w-3.5 h-3.5 text-linear-primary" />
+              <p className="text-[11px] uppercase tracking-wider text-linear-ink font-semibold">
+                Witness Quorum (RFC 9162)
+              </p>
+            </div>
+            <span
+              className={`flex items-center space-x-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border ${
+                data.witness_report.quorum_satisfied
+                  ? 'bg-linear-success/15 text-linear-success border-linear-success/30'
+                  : 'bg-grafana-orange/15 text-grafana-orange border-grafana-orange/30'
+              }`}
+            >
+              {data.witness_report.quorum_satisfied ? (
+                <CheckCircle2 className="w-2.5 h-2.5" />
+              ) : (
+                <XCircle className="w-2.5 h-2.5" />
+              )}
+              <span>
+                {data.witness_report.cosigned_witnesses}/{data.witness_report.total_witnesses} Cosigned
+              </span>
+            </span>
+          </div>
+
+          <p className="text-[11px] text-linear-ink-subtle leading-relaxed">
+            Threshold: <strong className="text-linear-ink font-semibold">{data.witness_report.required_threshold}-of-{data.witness_report.total_witnesses}</strong> quorum verified. Mitigates split-view & equivocation attacks.
+          </p>
+
+          <div className="space-y-1.5 bg-linear-surface-2 p-2.5 rounded-xl border border-linear-hairline">
+            {data.witness_report.per_witness.map((w, idx) => {
+              const isValid = w.status === 'VALID';
+              return (
+                <div
+                  key={idx}
+                  className="flex items-center justify-between text-[11px] py-1 px-1.5 rounded hover:bg-linear-surface-1 transition-colors"
+                >
+                  <div className="flex items-center space-x-2 truncate pr-2">
+                    <span
+                      className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                        isValid ? 'bg-linear-success' : 'bg-grafana-orange'
+                      }`}
+                    />
+                    <span className="font-mono text-linear-ink truncate">{w.witness_name}</span>
+                  </div>
+                  <div className="flex items-center space-x-2 flex-shrink-0">
+                    {w.signature_hex && (
+                      <span className="font-mono text-[10px] text-linear-ink-subtle">
+                        {w.signature_hex.slice(0, 8)}...
+                      </span>
+                    )}
+                    <span
+                      className={`text-[9px] font-bold px-1.5 py-0.5 rounded border uppercase ${
+                        isValid
+                          ? 'bg-linear-success/10 text-linear-success border-linear-success/30'
+                          : 'bg-grafana-orange/10 text-grafana-orange border-grafana-orange/30'
+                      }`}
+                    >
+                      {w.status}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+      </div>
+
       {/* Footer: entries since anchor */}
-      <div className="border-t border-linear-hairline pt-3">
+      <div className="border-t border-linear-hairline px-5 py-3 shrink-0">
         <div className="flex items-center justify-between">
           <p className="text-xs text-linear-ink-subtle">
             Entries since last anchor
           </p>
           <span
-            className={`text-sm font-bold font-mono ${
+            className={`text-xs font-bold font-mono ${
               data.entries_since_anchor > 100 ? 'text-grafana-orange' : 'text-linear-ink'
             }`}
           >

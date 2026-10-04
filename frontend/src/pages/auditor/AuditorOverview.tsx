@@ -52,29 +52,29 @@ export default function AuditorOverview() {
     <div className="space-y-6">
 
       {/* Top row: VerificationControl, AnchorStatus, and ExportControl */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="animate-fade-cascade stagger-1">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-stretch">
+        <div className="animate-fade-cascade stagger-1 h-full flex flex-col">
           <VerificationControl onResult={(res) => setTamperedSeqId(res.tampered_sequence_id)} />
         </div>
         {isAnchorLoading ? (
-          <div className="animate-fade-cascade stagger-2 rounded-2xl border border-linear-hairline bg-linear-surface-1 p-5 flex flex-col items-center justify-center min-h-[220px]">
+          <div className="animate-fade-cascade stagger-2 rounded-2xl border border-linear-hairline bg-linear-surface-1 p-5 flex flex-col items-center justify-center min-h-[220px] h-full">
             <Loader2 className="w-6 h-6 text-linear-primary animate-fast-spin mb-2" />
             <span className="text-xs text-linear-ink-subtle font-mono">Syncing anchor status...</span>
           </div>
         ) : (
-          <div className="animate-fade-cascade stagger-2">
+          <div className="animate-fade-cascade stagger-2 h-full flex flex-col">
             <AnchorStatus data={anchorData ?? DEFAULT_ANCHOR} />
           </div>
         )}
-        <div className="animate-fade-cascade stagger-3">
+        <div className="animate-fade-cascade stagger-3 h-full flex flex-col">
           <ExportControl />
         </div>
       </div>
 
-      {/* Main content: Chain view + suspicious flags */}
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 items-start">
-        {/* Chain visualization — 2/3 width */}
-        <div className="xl:col-span-2 min-w-0 space-y-2 animate-fade-cascade stagger-4">
+      {/* Main content: Chain view (75% width) + suspicious flags (25% width) */}
+      <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
+        {/* Chain visualization — 75% width (extended to eliminate horizontal scrollbar) */}
+        <div className="xl:col-span-9 min-w-0 space-y-2 animate-fade-cascade stagger-4">
           <div className="flex items-center justify-between px-1">
             <span className="text-xs font-mono font-medium text-linear-ink-subtle">
               {tamperedSeqId ? `Focused window around violation #${tamperedSeqId}` : 'Recent Chain Blocks (Tail)'}
@@ -97,8 +97,8 @@ export default function AuditorOverview() {
           )}
         </div>
 
-        {/* Suspicious flags link panel — 1/3 viewport anchored */}
-        <div className="animate-fade-cascade stagger-5 bg-linear-surface-1 border border-linear-hairline hover:border-linear-hairline-strong rounded-2xl overflow-hidden flex flex-col items-center p-8 text-center relative group shadow-sm xl:sticky xl:top-6 self-start transition-all duration-200">
+        {/* Suspicious flags link panel — 25% viewport anchored */}
+        <div className="xl:col-span-3 animate-fade-cascade stagger-5 bg-linear-surface-1 border border-linear-hairline hover:border-linear-hairline-strong rounded-2xl overflow-hidden flex flex-col items-center p-6 text-center relative group shadow-sm xl:sticky xl:top-6 self-start transition-all duration-200">
           <div className="absolute inset-0 bg-gradient-to-br from-linear-primary/5 via-transparent to-transparent pointer-events-none" />
           <div className="w-14 h-14 rounded-2xl bg-linear-surface-2 border border-linear-hairline flex items-center justify-center mb-5 group-hover:border-linear-primary/40 transition-colors duration-200">
             <AlertTriangle className="w-7 h-7 text-linear-primary/80 group-hover:text-linear-primary transition-colors duration-150" />

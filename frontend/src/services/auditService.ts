@@ -31,7 +31,7 @@ export interface IncidentState {
 }
 
 export type VerificationStatus = 'VERIFIED' | 'TAMPERED' | 'PENDING';
-export type AnchorStoreType = 'local_file' | 'github_repo';
+export type AnchorStoreType = 'local_file' | 'github_repo' | 'multi_witness' | string;
 export type AuditOperation = 'INSERT' | 'UPDATE' | 'DELETE';
 export type Severity = 'low' | 'medium' | 'high' | 'critical';
 export type AuditLogSeverity = 'INFO' | 'WARNING' | 'CRITICAL';
@@ -50,6 +50,22 @@ export interface ChainEntry {
   new_value: Record<string, unknown> | null;
 }
 
+export interface WitnessItem {
+  witness_name: string;
+  status: 'VALID' | 'FAILED' | 'PENDING' | string;
+  signature_hex?: string | null;
+  timestamp?: string | null;
+}
+
+export interface WitnessReport {
+  quorum_satisfied: boolean;
+  required_threshold: number;
+  total_witnesses: number;
+  cosigned_witnesses: number;
+  message?: string | null;
+  per_witness: WitnessItem[];
+}
+
 export interface AnchorInfo {
   status: 'ANCHORED' | 'STALE' | 'MISSING' | 'MISMATCH';
   anchor_store: AnchorStoreType;
@@ -57,6 +73,7 @@ export interface AnchorInfo {
   last_anchored: string;       // ISO timestamp
   anchor_hash: string;
   entries_since_anchor: number;
+  witness_report?: WitnessReport | null;
 }
 
 export interface SuspiciousFlag {
@@ -537,6 +554,140 @@ export async function fetchMyProfile(
 ): Promise<UserProfile> {
   return fetchWithAuth('/auth/me', {}, getToken);
 }
+
+
+// ─── Counterfactual Replay (NOVEL-011) ───────────────────────────────────────
+
+export interface CounterfactualRequest {
+  employee_id: number;
+  skip_sequence_ids: number[];
+  as_of?: string;
+}
+
+export interface SkippedEventInfo {
+  sequence_id: number;
+  actor_user_id: number;
+  action: string;
+  table_name: string;
+  created_at: string;
+  severity: string;
+  delta_summary: string;
+  old_value?: Record<string, unknown> | null;
+  new_value?: Record<string, unknown> | null;
+}
+
+export interface BlastRadius {
+  salary_actual: number;
+  salary_counterfactual: number;
+  salary_overpaid_annual: number;
+  salary_overpaid_cumulative: number;
+  tenure_months: number;
+  skipped_events_count: number;
+  skipped_sequence_ids: number[];
+  first_fraud_event_timestamp?: string | null;
+  as_of_timestamp?: string | null;
+}
+
+export interface CounterfactualResult {
+  employee_id: number;
+  as_of: string;
+  skip_sequence_ids: number[];
+  actual_state: Record<string, unknown> | null;
+  counterfactual_state: Record<string, unknown> | null;
+  blast_radius: BlastRadius;
+  skipped_events: SkippedEventInfo[];
+  applied_events_count: number;
+  simulation_duration_ms: number;
+}
+
+export async function runCounterfactualSimulation(
+  payload: CounterfactualRequest,
+  getToken: () => Promise<string | null>,
+): Promise<CounterfactualResult> {
+  return fetchWithAuth(
+    '/audit-logs/counterfactual',
+    {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    },
+    getToken,
+  );
+}
+
+
+// ─── NOVEL-009: Selective Merkle Proof & .arguscap Capsule ───────────────────
+
+export interface MerkleAuditStep {
+  level: number;
+  direction: 'left' | 'right';
+  sibling_hash: string;
+}
+
+export interface MerkleProof {
+  sequence_id: number;
+  checkpoint_id: number;
+  leaf_index: number;
+  leaf_hash: string;
+  merkle_root: string;
+  tree_size: number;
+  audit_path_depth: number;
+  audit_path: MerkleAuditStep[];
+  created_at?: string | null;
+}
+
+export async function getMerkleProof(
+  seqId: number,
+  getToken: () => Promise<string | null>,
+): Promise<MerkleProof> {
+  return fetchWithAuth(`/audit-logs/${seqId}/proof`, {}, getToken);
+}
+
+export async function downloadCapsule(
+  seqId: number,
+  getToken: () => Promise<string | null>,
+): Promise<void> {
+  const token = await getToken();
+  const headers = new Headers();
+  if (token) {
+    headers.set('Authorization', `Bearer ${token}`);
+  }
+
+  const response = await fetch(`${API_BASE_URL}/audit-logs/${seqId}/capsule`, { headers });
+  
+  if (!response.ok) {
+    let errorDetail = 'Failed to export forensic capsule';
+    try {
+      const errorData = await response.json();
+      errorDetail = errorData.detail || errorDetail;
+    } catch {
+      // Ignore
+    }
+    throw new Error(errorDetail);
+  }
+
+  const blob = await response.blob();
+  
+  let filename = `proof_seq${seqId}.arguscap`;
+  const disposition = response.headers.get('Content-Disposition');
+  if (disposition && disposition.indexOf('filename=') !== -1) {
+    const matches = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/.exec(disposition);
+    if (matches != null && matches[1]) {
+      filename = matches[1].replace(/['"]/g, '');
+    }
+  }
+
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  window.URL.revokeObjectURL(url);
+  document.body.removeChild(a);
+}
+
+
+
 
 
 

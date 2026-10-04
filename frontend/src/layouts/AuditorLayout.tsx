@@ -3,7 +3,8 @@ import { Outlet, Link, useLocation } from 'react-router-dom';
 import { UserButton } from '@clerk/clerk-react';
 import {
   ShieldCheck, Activity, FileSearch, LayoutDashboard, GitBranch,
-  AlertTriangle, History, ShieldAlert, ArrowRight, Lock, Menu, X,
+  AlertTriangle, History, ShieldAlert, ArrowRight, Lock, Menu, X, GitCompare,
+  FileCheck,
 } from 'lucide-react';
 import { useIncidentStatus } from '../services/auditService';
 import RealtimeClock from '../components/common/RealtimeClock';
@@ -24,6 +25,8 @@ export default function AuditorLayout() {
     { name: 'Audit Chain', path: '/auditor/chain', icon: GitBranch },
     { name: 'Audit Log', path: '/auditor/log', icon: FileSearch },
     { name: 'Time Travel', path: '/auditor/time-travel', icon: History },
+    { name: 'Counterfactual', path: '/auditor/counterfactual', icon: GitCompare },
+    { name: 'Forensic Evidence', path: '/auditor/forensic-evidence', icon: FileCheck },
     { name: 'Activity & Risk', path: '/auditor/activity', icon: AlertTriangle },
     { name: 'System Analytics', path: '/auditor/analytics', icon: Activity },
   ];
@@ -36,7 +39,7 @@ export default function AuditorLayout() {
       {/* Mobile Drawer Backdrop */}
       {isMobileMenuOpen && (
         <div
-          className="fixed inset-0 bg-black/60 backdrop-blur-xs z-40 lg:hidden transition-opacity"
+          className="fixed inset-0 bg-black/60 backdrop-blur-xs z-40 lg:hidden transition-opacity duration-200 ease-out"
           onClick={() => setIsMobileMenuOpen(false)}
           aria-hidden="true"
         />
@@ -44,7 +47,7 @@ export default function AuditorLayout() {
 
       {/* Sidebar - Linear Terminal Style (Responsive Off-Canvas on <lg) */}
       <aside
-        className={`fixed inset-y-0 left-0 z-50 w-64 bg-linear-surface-1 border-r border-linear-hairline shadow-sm flex flex-col transform transition-transform duration-200 ease-in-out lg:translate-x-0 lg:static lg:z-20 shrink-0 ${
+        className={`fixed inset-y-0 left-0 z-50 w-64 bg-linear-surface-1 border-r border-linear-hairline shadow-sm flex flex-col transform transition-transform duration-240 ease-emil-drawer lg:translate-x-0 lg:static lg:z-20 shrink-0 ${
           isMobileMenuOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full'
         }`}
       >

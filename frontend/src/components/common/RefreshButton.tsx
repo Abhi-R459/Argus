@@ -28,8 +28,8 @@ export default function RefreshButton({
     if (isRefreshing) return;
 
     setIsRefreshing(true);
-    // Guarantee a satisfying, smooth spin animation (min 650ms) to avoid glitchy flashes
-    const minSpinTimer = new Promise((resolve) => setTimeout(resolve, 650));
+    // Guarantee a satisfying, snappy spin animation (min 250ms) to avoid glitchy flashes
+    const minSpinTimer = new Promise((resolve) => setTimeout(resolve, 250));
     try {
       await Promise.allSettled([Promise.resolve(onRefresh()), minSpinTimer]);
     } finally {

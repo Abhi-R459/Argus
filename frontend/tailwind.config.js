@@ -85,6 +85,7 @@ export default {
         linear: {
           canvas: '#010102',
           surface: {
+            DEFAULT: '#0f1011',
             1: '#0f1011',
             2: '#141516',
             3: '#18191a',

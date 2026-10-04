@@ -16,6 +16,19 @@ import ActivityPage from './pages/auditor/ActivityPage';
 import AnalyticsPage from './pages/auditor/AnalyticsPage';
 import TimeTravelPage from './pages/auditor/TimeTravelPage';
 import AuditChainPage from './pages/auditor/AuditChainPage';
+import CounterfactualPage from './pages/auditor/CounterfactualPage';
+import ForensicEvidencePage from './pages/auditor/ForensicEvidencePage';
+
+function ProtectedPortal({ allowedRole, children }: { allowedRole: 'hr_admin' | 'compliance_auditor'; children: React.ReactNode }) {
+  if (import.meta.env.DEV && typeof window !== 'undefined' && (window as any).__E2E_ROLE__) {
+    return <RoleGuard allowedRole={allowedRole}>{children}</RoleGuard>;
+  }
+  return (
+    <SignedIn>
+      <RoleGuard allowedRole={allowedRole}>{children}</RoleGuard>
+    </SignedIn>
+  );
+}
 
 function App() {
   return (
@@ -43,11 +56,9 @@ function App() {
 
             {/* HR Admin routes */}
             <Route path="/hr" element={
-              <SignedIn>
-                <RoleGuard allowedRole="hr_admin">
-                  <HRAdminLayout />
-                </RoleGuard>
-              </SignedIn>
+              <ProtectedPortal allowedRole="hr_admin">
+                <HRAdminLayout />
+              </ProtectedPortal>
             }>
               <Route index element={<Navigate to="dashboard" replace />} />
               <Route path="dashboard" element={<Dashboard />} />
@@ -57,17 +68,17 @@ function App() {
 
             {/* Compliance Auditor routes */}
             <Route path="/auditor" element={
-              <SignedIn>
-                <RoleGuard allowedRole="compliance_auditor">
-                  <AuditorLayout />
-                </RoleGuard>
-              </SignedIn>
+              <ProtectedPortal allowedRole="compliance_auditor">
+                <AuditorLayout />
+              </ProtectedPortal>
             }>
               <Route index element={<Navigate to="overview" replace />} />
               <Route path="overview" element={<AuditorOverview />} />
               <Route path="chain" element={<AuditChainPage />} />
               <Route path="log" element={<AuditLogPage />} />
               <Route path="time-travel" element={<TimeTravelPage />} />
+              <Route path="counterfactual" element={<CounterfactualPage />} />
+              <Route path="forensic-evidence" element={<ForensicEvidencePage />} />
               <Route path="activity" element={<ActivityPage />} />
               <Route path="analytics" element={<AnalyticsPage />} />
             </Route>

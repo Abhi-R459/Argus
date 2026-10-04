@@ -85,7 +85,7 @@ export function SegmentedControl<T extends string = string>({
             tabIndex={isSelected ? 0 : -1}
             onClick={() => onChange(opt.value)}
             onKeyDown={(e) => handleKeyDown(e, idx)}
-            className={`flex items-center ${fullWidth ? 'flex-1 justify-center' : ''} gap-1.5 rounded-md transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 ${
+            className={`flex items-center ${fullWidth ? 'flex-1 justify-center' : ''} gap-1.5 rounded-md transition-[color,background-color,border-color,box-shadow] duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 ${
               isAuditor ? 'focus-visible:ring-linear-primary' : 'focus-visible:ring-slate-400'
             } ${sizeClasses} ${itemClasses}`}
           >

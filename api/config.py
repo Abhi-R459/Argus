@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     BLIND_INDEX_ITERATIONS: int = 1000
     BLIND_INDEX_MODE: str = "pbkdf2"  # "pbkdf2" or "hmac"
     BLIND_INDEX_RATE_LIMIT_PER_MINUTE: int = 10
-    ALLOW_DEMO_ROLE_SWITCH: bool = True
+    ALLOW_DEMO_ROLE_SWITCH: bool = False
 
     model_config = SettingsConfigDict(
         env_file=".env",

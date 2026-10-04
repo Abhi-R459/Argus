@@ -33,6 +33,7 @@ const AuditRow = React.forwardRef<
   {
     entry: AuditLogItem;
     isTampered?: boolean;
+    tamperDetails?: string | null;
     isTargetSeq?: boolean;
     isSelected?: boolean;
     isFocused?: boolean;
@@ -44,6 +45,7 @@ const AuditRow = React.forwardRef<
     {
       entry,
       isTampered,
+      tamperDetails,
       isTargetSeq,
       isSelected,
       isFocused,
@@ -169,6 +171,9 @@ const AuditRow = React.forwardRef<
                     oldValue={entry.old_value}
                     newValue={entry.new_value}
                     operation={entry.action}
+                    isTampered={isTampered}
+                    tamperDetails={tamperDetails}
+                    sequenceId={entry.sequence_id}
                   />
                   <div className="flex items-center justify-end space-x-2 pt-2 border-t border-linear-hairline/60">
                     <Button
@@ -475,6 +480,7 @@ export default function AuditLogTable() {
                 }}
                 entry={entry}
                 isTampered={incident.tamperedSeqId === entry.sequence_id}
+                tamperDetails={incident.tamperedSeqId === entry.sequence_id ? incident.details : undefined}
                 isTargetSeq={targetSeqId === entry.sequence_id}
                 isSelected={openRowSeq === entry.sequence_id}
                 isFocused={focusedRowIndex === idx}

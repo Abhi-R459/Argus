@@ -699,7 +699,7 @@ export function EmployeeSheet({
       {/* Styled Deactivation Modal (F-37) */}
       {isDeactivateModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs animate-in fade-in duration-150">
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-xl max-w-md w-full p-6 space-y-4">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-xl max-w-md w-full p-6 space-y-4 animate-modal-enter">
             <div className="flex items-center gap-3 text-rose-600">
               <div className="w-10 h-10 rounded-xl bg-rose-100 flex items-center justify-center shrink-0">
                 <UserX className="w-5 h-5" />
@@ -745,7 +745,7 @@ export function EmployeeSheet({
       {/* Discard Unsaved Changes Modal (F-40, F-124) */}
       {showDiscardConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs animate-in fade-in duration-150">
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-xl max-w-sm w-full p-5 space-y-3">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-xl max-w-sm w-full p-5 space-y-3 animate-modal-enter">
             <h3 className="text-sm font-semibold text-slate-900">Discard unsaved changes?</h3>
             <p className="text-xs text-slate-500 leading-relaxed">
               You have modified input fields that have not been saved. If you leave now, your changes will be lost.

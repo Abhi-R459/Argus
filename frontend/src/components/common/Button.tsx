@@ -118,7 +118,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
 
     const baseClass = isLink
       ? 'inline-flex items-center cursor-pointer transition-colors'
-      : `inline-flex items-center justify-center font-sans tracking-tight transition-all duration-150 cursor-pointer ${pressClass}`;
+      : `inline-flex items-center justify-center font-sans tracking-tight transition-[transform,background-color,border-color,color,box-shadow] duration-120 cursor-pointer ${pressClass}`;
 
     const variantClass = VARIANT_MAP[portalTheme][variant] || VARIANT_MAP.auditor.secondary;
     const sizeClass = isLink ? '' : SIZE_MAP[size] || SIZE_MAP.md;

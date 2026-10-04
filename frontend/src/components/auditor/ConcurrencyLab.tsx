@@ -70,7 +70,7 @@ export default function ConcurrencyLab() {
   };
 
   return (
-    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 mt-6">
+    <div className="space-y-6 animate-fade-cascade mt-6">
       <div className="bg-linear-surface-1 border border-linear-hairline rounded-2xl p-6 flex flex-col justify-center relative overflow-hidden shadow-sm">
         <h2 className="text-xl font-bold text-linear-ink flex items-center space-x-2">
           <Activity className="w-6 h-6 text-linear-primary" />

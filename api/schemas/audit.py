@@ -109,6 +109,22 @@ class ChainEntry(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class WitnessItem(BaseModel):
+    witness_name: str
+    status: str                         # VALID | FAILED | PENDING
+    signature_hex: Optional[str] = None
+    timestamp: Optional[str] = None
+
+
+class WitnessReport(BaseModel):
+    quorum_satisfied: bool
+    required_threshold: int = 2
+    total_witnesses: int = 3
+    cosigned_witnesses: int = 3
+    message: Optional[str] = None
+    per_witness: List[WitnessItem] = []
+
+
 class AnchorInfo(BaseModel):
     """Response from GET /api/anchor/status."""
 
@@ -118,5 +134,81 @@ class AnchorInfo(BaseModel):
     last_anchored: datetime
     anchor_hash: str
     entries_since_anchor: int
+    witness_report: Optional[WitnessReport] = None
 
     model_config = {"from_attributes": True}
+
+
+# ─── Counterfactual Replay ───────────────────────────────────────────────────
+
+class CounterfactualRequest(BaseModel):
+    """Request payload for POST /api/audit-logs/counterfactual."""
+
+    employee_id: int
+    skip_sequence_ids: List[int]
+    as_of: Optional[str] = None
+
+
+class SkippedEventSchema(BaseModel):
+    """Forensic metadata for an excluded audit entry in counterfactual simulation."""
+
+    sequence_id: int
+    actor_user_id: int
+    action: str
+    table_name: str
+    created_at: str
+    severity: str
+    delta_summary: str
+    old_value: Optional[Dict[str, Any]] = None
+    new_value: Optional[Dict[str, Any]] = None
+
+
+class BlastRadiusSchema(BaseModel):
+    """Quantified blast radius from skipping designated anomalous transactions."""
+
+    salary_actual: float
+    salary_counterfactual: float
+    salary_overpaid_annual: float
+    salary_overpaid_cumulative: float
+    tenure_months: float
+    skipped_events_count: int
+    skipped_sequence_ids: List[int]
+    first_fraud_event_timestamp: Optional[str] = None
+    as_of_timestamp: Optional[str] = None
+
+
+class CounterfactualResponse(BaseModel):
+    """Response from POST /api/audit-logs/counterfactual."""
+
+    employee_id: int
+    as_of: str
+    skip_sequence_ids: List[int]
+    actual_state: Optional[Dict[str, Any]] = None
+    counterfactual_state: Optional[Dict[str, Any]] = None
+    blast_radius: BlastRadiusSchema
+    skipped_events: List[SkippedEventSchema]
+    applied_events_count: int
+    simulation_duration_ms: float
+
+
+# ─── Merkle Proof & Selective Capsules ───────────────────────────────────────
+
+class MerkleAuditStep(BaseModel):
+    level: int
+    direction: str
+    sibling_hash: str
+
+
+class MerkleProofResponse(BaseModel):
+    """Forensic Merkle inclusion proof metadata for a single audit sequence (NOVEL-009)."""
+
+    sequence_id: int
+    checkpoint_id: int
+    leaf_index: int
+    leaf_hash: str
+    merkle_root: str
+    tree_size: int
+    audit_path_depth: int
+    audit_path: List[MerkleAuditStep]
+    created_at: Optional[str] = None
+

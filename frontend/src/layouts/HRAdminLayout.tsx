@@ -28,7 +28,7 @@ export default function HRAdminLayout() {
       {/* Mobile Drawer Backdrop */}
       {isMobileMenuOpen && (
         <div
-          className="fixed inset-0 bg-slate-900/30 backdrop-blur-xs z-40 lg:hidden transition-opacity"
+          className="fixed inset-0 bg-slate-900/30 backdrop-blur-xs z-40 lg:hidden transition-opacity duration-200 ease-out"
           onClick={() => setIsMobileMenuOpen(false)}
           aria-hidden="true"
         />
@@ -36,7 +36,7 @@ export default function HRAdminLayout() {
 
       {/* Sidebar - Clean Modern Enterprise Canvas (Responsive Off-Canvas on <lg) */}
       <aside
-        className={`fixed inset-y-0 left-0 z-50 w-64 bg-white border-r border-slate-200 flex flex-col transform transition-transform duration-200 ease-in-out lg:translate-x-0 lg:static lg:z-20 shrink-0 ${
+        className={`fixed inset-y-0 left-0 z-50 w-64 bg-white border-r border-slate-200 flex flex-col transform transition-transform duration-240 ease-emil-drawer lg:translate-x-0 lg:static lg:z-20 shrink-0 ${
           isMobileMenuOpen ? 'translate-x-0 shadow-xl' : '-translate-x-full'
         }`}
       >
@@ -75,7 +75,7 @@ export default function HRAdminLayout() {
               <Link
                 key={item.name}
                 to={item.path}
-                className={`flex items-center px-3.5 py-2.5 rounded-xl text-sm transition-all duration-150 group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/10 ${
+                className={`flex items-center px-3.5 py-2.5 rounded-xl text-sm transition-colors duration-150 ease-out group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/10 ${
                   isActive
                     ? 'bg-slate-100 text-slate-900 font-semibold border border-slate-200/80 shadow-2xs'
                     : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900 font-medium border border-transparent'

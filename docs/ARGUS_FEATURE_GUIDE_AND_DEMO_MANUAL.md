@@ -36,7 +36,10 @@ Argus solves this by turning standard PostgreSQL relational tables into a **math
 | 11 | [Automated Risk & Fraud Detection Engine](#11-automated-risk--fraud-detection-engine) | PL/pgSQL Procedure & UI (`/auditor/risk`) | Compliance Auditor | Automated anomaly detection, SOX fraud alerts |
 | 12 | [Self-Contained Evidence Pack Export](#12-self-contained-cryptographic-evidence-pack-export) | Export Service (`.arguspack`) | External Regulators | Third-party independent verification without DB access |
 | 13 | [High-Throughput Concurrency Lab](#13-high-throughput-concurrency-lab) | FastAPI & React (`/auditor/concurrency`) | Evaluators / QA | Proof of Two-Phase Locking (2PL) write serialization |
-| 14 | [Out-of-Band Adversary Simulation CLI](#14-out-of-band-adversary-simulation-cli) | Standalone CLI (`db/cli/adversary.py`) | Red Team / Evaluator | Live demonstration of rogue DBA attacks and healing |
+| 14 | [Out-of-Band Adversary Simulation CLI](#14-out-of-band-red-team-adversary-simulation-cli) | Standalone CLI (`db/cli/adversary.py`) | Red Team / Evaluator | Live demonstration of rogue DBA attacks and healing |
+| 15 | [Counterfactual "What-If" Provenance Replay](#15-counterfactual-what-if-provenance-replay) | Python CLI & React (`/auditor/counterfactual`) | Compliance Auditor | Prescriptive incident response & financial blast radius |
+| 16 | [Selective Merkle Proofs & Capsules (`.arguscap`)](#16-selective-disclosure-merkle-capsules-arguscap) | Merkle Tree & Verifier (`verify_capsule.py`) | External Regulators | $O(\log K)$ single-row proof with zero neighbor leak |
+| 17 | [Multi-Witness WORM Anchoring & RFC 9162 Quorum](#17-multi-witness-worm-anchoring--rfc-9162-quorum) | Witness Protocol & Anchor Store | Cloud Root / Auditor | Eliminates split-view forking via 2-of-3 threshold quorum |
 
 ---
 
@@ -344,6 +347,96 @@ Provides an interactive demonstration tool simulating real-world insider attacks
 
 ---
 
+## 15. Counterfactual "What-If" Provenance Replay
+
+### What It Is For
+Standard audit logs function as passive historical records — they answer descriptive questions (*"What was employee #42's compensation on March 3rd?"*). Counterfactual Provenance Replay transforms Argus into an **active incident response and simulation engine** answering prescriptive governance questions (*"What would the organization's payroll and departmental state look like today if the fraudulent salary hike at sequence #71 had been blocked?"*).
+
+### How to Use It
+1. **Auditor Portal UI:** Navigate to **Counterfactual Simulator** (`/auditor/counterfactual`).
+2. Select an employee (e.g. Employee #42).
+3. Specify the fraudulent sequence IDs to skip (e.g. `71`).
+4. Click **Run Counterfactual Simulation**.
+5. The view displays a side-by-side comparative matrix (Actual State vs. Counterfactual State) with delta highlights and a hero blast-radius card quantifying:
+   - Annual payroll overpayment: $\Delta_{\text{annual}} = \text{Salary}_{\text{actual}} - \text{Salary}_{\text{counterfactual}}$
+   - Cumulative overpaid compensation: $\Delta_{\text{annual}} \times (\text{tenure\_months} / 12)$
+6. **API / CLI Access:**
+   ```bash
+   curl -X POST http://localhost:8000/api/audit-logs/counterfactual \
+     -H "Authorization: Bearer <auditor_jwt>" \
+     -H "Content-Type: application/json" \
+     -d '{"employee_id": 42, "skip_sequence_ids": [71]}'
+   ```
+
+### Real-World Benefit & Regulatory Compliance
+- **SOX 404 & Corporate Governance:** Enables legal counsel and compliance officers to definitively quantify the financial damage of insider fraud for insurance claims and judicial restitution.
+- **Zero Database Mutation Risk:** Operates strictly within virtual Python memory over an in-memory chronological stream walk, guaranteeing zero alterations to PostgreSQL table rows or cryptographic hash chains.
+
+### How to Explain and Demonstrate It (Viva & Presentation)
+- **Explanation Script:**
+  > *"Examiners, standard audit logs only tell you that fraud happened. Argus's counterfactual replay engine tells you what should have happened. By walking the audit stream and skipping designated fraudulent transactions in a virtual session, Argus mathematically computes the pristine counterfactual present state and measures the precise cumulative financial damage without mutating the live database."*
+
+---
+
+## 16. Selective-Disclosure Merkle Capsules (`.arguscap`)
+
+### What It Is For
+In a standard linear hash chain, proving to an external auditor or regulator that transaction $R_{71}$ occurred requires handing over the entire linear segment between checkpoints. This creates a severe privacy leak: external parties observe all unrelated employees' compensation changes and transfers. Selective Merkle Capsules solve this by providing **$O(\log K)$ zero-leakage inclusion proofs** packaged into a self-verifying, air-gapped `.arguscap` archive.
+
+### How to Use It
+1. **Auditor Portal UI:** Navigate to **Forensic Evidence** (`/auditor/forensic-evidence`).
+2. Enter the target `sequence_id` (e.g., `71`) and click **Generate Merkle Proof**.
+3. Inspect the live interactive visualizer displaying the sibling hash path up to the signed checkpoint Merkle root.
+4. Click **Download `.arguscap` Capsule**.
+5. **Air-Gapped Standalone Verification:** Transfer the bundle to an offline machine and run the embedded standard-library verifier (zero pip dependencies):
+   ```bash
+   python db/cli/verify_capsule.py --bundle proof_seq71.arguscap
+   ```
+6. The terminal outputs:
+   - `[PASS] Ed25519 signature valid (checkpoint bound to root)`
+   - `[PASS] Leaf hash verified (0x00 domain prefix)`
+   - `[PASS] Merkle proof path verified (depth 5, root match)`
+   - `VALID: Transaction seq_id=71 proven included in checkpoint #3`
+
+### Real-World Benefit & Regulatory Compliance
+- **GDPR & Privacy Compliance:** Enables disclosure of a specific required audit event to third-party regulators without disclosing adjacent confidential personal data.
+- **Cryptographic Security (CVE-2012-2459 Immunity):** Implements RFC 6962 domain prefixes (`0x00` leaf, `0x01` internal) and odd-leaf promotion, eliminating second-preimage and duplicate-leaf vulnerabilities.
+
+### How to Explain and Demonstrate It (Viva & Presentation)
+- **Explanation Script:**
+  > *"Examiners, in a linear hash chain, proving one record requires disclosing the whole block. In Argus, each checkpoint constructs an RFC 6962 binary Merkle tree over its interval. To prove transaction #71, we generate an O(log K) audit path of only 5 hashes. The resulting .arguscap bundle can be independently verified on an air-gapped computer with zero third-party software, proving transaction inclusion without leaking a single neighboring row."*
+
+---
+
+## 17. Multi-Witness WORM Anchoring & RFC 9162 Quorum
+
+### What It Is For
+Single-origin checkpoint anchors (e.g. one private key pushing to one storage bucket) remain vulnerable to **Split-View (Forking) Attacks**: a rogue administrator could mint two conflicting checkpoints for the same sequence ID, presenting a sanitized history to external regulators and another to internal compliance. Multi-Witness WORM Anchoring eliminates this vulnerability by requiring **decentralized multi-party cosigning** across heterogeneous storage targets.
+
+### How to Use It
+1. **Auditor Portal UI:** Navigate to **System Overview** (`/auditor/overview`).
+2. Inspect the **Witness Quorum (RFC 9162)** telemetry panel inside the Anchor Status widget.
+3. Observe live cosigning status across 3 heterogeneous witnesses:
+   - `witness.s3worm.aws/v1` (AWS S3 Object Lock WORM bucket)
+   - `witness.rfc3161.tsa/v1` (RFC 3161 cryptographic Timestamp Authority)
+   - `witness.github.git/v1` (GitHub Git commit ledger)
+4. Confirm **Quorum Satisfied: 3/3 (Threshold: 2-of-3 required)**.
+5. **CLI Verification:**
+   ```bash
+   python -m db.cli.verifier verify-chain --multi-witness
+   ```
+   Outputs per-witness cosignature checks and quorum satisfaction confirmation.
+
+### Real-World Benefit & Regulatory Compliance
+- **Fork Detection via Proof of Misbehavior:** If an adversary attempts to present conflicting checkpoint roots for the same sequence ID, the verifier automatically generates a `ProofOfMisbehavior` artifact, permanently exposing the split-view attack.
+- **Regulatory Non-Repudiation:** Adheres to Google Transparency Dev (`transparency-dev/witness`) standards.
+
+### How to Explain and Demonstrate It (Viva & Presentation)
+- **Explanation Script:**
+  > *"Examiners, if an audit system relies on a single external repository, an attacker who compromises that repository can present two different truths to two different auditors. Argus eliminates this via RFC 9162 multi-witness cosigning. Three independent witnesses—S3 WORM, an RFC 3161 TSA, and Git—must cosign every checkpoint with a 2-of-3 threshold quorum. Any attempt to fork history is mathematically trapped."*
+
+---
+
 ## Complete Viva & Interview Demonstration Runbook
 
 Follow this step-by-step walkthrough during an evaluation, presentation, or interview to deliver a high-impact, professional demonstration:
@@ -400,18 +493,67 @@ Follow this step-by-step walkthrough during an evaluation, presentation, or inte
    - Anchor returns to **`MATCH`**.
    - Chain status returns to **`Active Monitoring`**.
 
+### Step 6: Demonstrate Counterfactual Replay & Blast Radius Simulation (90 Seconds)
+1. Navigate to **[http://localhost:5173/auditor/counterfactual](http://localhost:5173/auditor/counterfactual)**.
+2. Select an employee (e.g. Employee #42) from the dropdown.
+3. Input sequence ID `71` (or any historical mutation) into the "Skip Sequence IDs" field.
+4. Click **Run Counterfactual Simulation**:
+   - The side-by-side table compares the actual state against the counterfactual simulation.
+   - The **Financial Blast Radius** hero banner highlights the calculated annual delta and cumulative payroll damage.
+5. Explain to the audience:
+   > *"Notice how the audit chain isn't just a record of history—it's an interactive forensic engine. We simulated what the company's ledger would look like had sequence #71 never happened, quantifying the exact overpayment without touching a single production database record."*
+
+### Step 7: Demonstrate Selective Merkle Capsule & Air-Gapped Verification (90 Seconds)
+1. Navigate to **[http://localhost:5173/auditor/forensic-evidence](http://localhost:5173/auditor/forensic-evidence)**.
+2. Enter `sequence_id = 71` and click **Generate Merkle Proof**.
+3. Point out the interactive Merkle tree audit path visualizer showing the $O(\log K)$ sibling hashes leading to the dual-binding checkpoint root.
+4. Click **Download `.arguscap` Bundle**.
+5. Switch to a terminal and run the self-contained verifier on the capsule:
+   ```powershell
+   & .\.venv\Scripts\python.exe db/cli/verify_capsule.py --bundle proof_seq71.arguscap
+   ```
+6. Show the output:
+   - `[PASS] Ed25519 signature valid (checkpoint bound to root)`
+   - `[PASS] Leaf hash verified (0x00 domain prefix)`
+   - `[PASS] Merkle proof path verified (depth 5, root match)`
+   - `VALID: Transaction seq_id=71 proven included in checkpoint`
+7. Explain:
+   > *"This proves that transaction #71 was executed, signed, and anchored without disclosing any other employee's salary or records from that same checkpoint block."*
+
+### Step 8: Demonstrate Multi-Witness WORM Quorum (60 Seconds)
+1. Navigate to **[http://localhost:5173/auditor/overview](http://localhost:5173/auditor/overview)**.
+2. Point out the **Witness Quorum (RFC 9162)** widget:
+   - `witness.s3worm.aws/v1` [VALID]
+   - `witness.rfc3161.tsa/v1` [VALID]
+   - `witness.github.git/v1` [VALID]
+   - Quorum Status: `3/3 Witnesses Cosigned (Threshold: 2-of-3 required)`
+3. Run CLI verification with multi-witness checks:
+   ```powershell
+   & .\.venv\Scripts\python.exe -m db.cli.verifier verify-chain --multi-witness
+   ```
+4. Confirm the report prints `[PASS] Witness Quorum: 3/3 witnesses cosigned`.
+
 ---
 
 ## Technical Appendix: File & Module Architecture
 
-- **PostgreSQL Migrations & Triggers:** [`db/alembic/versions/`](file:///c:/dev/Argus/db/alembic/versions/)
+- **PostgreSQL Migrations & Triggers:** [`db/alembic/versions/`](file:///c:/dev/Argus/db/alembic/versions/) (including `014_merkle_root.py`)
 - **Core Stored Routines:** [`db/alembic/versions/009_stored_routines.py`](file:///c:/dev/Argus/db/alembic/versions/009_stored_routines.py)
 - **Role Permissions Script:** [`db/scripts/setup_roles.sql`](file:///c:/dev/Argus/db/scripts/setup_roles.sql)
-- **Standalone Hash Verifier:** [`db/cli/hash_verifier.py`](file:///c:/dev/Argus/db/cli/hash_verifier.py)
+- **Standalone Hash Verifier:** [`db/cli/hash_verifier.py`](file:///c:/dev/Argus/db/cli/hash_verifier.py), [`db/cli/verifier.py`](file:///c:/dev/Argus/db/cli/verifier.py)
 - **Ed25519 Signer Utility:** [`db/cli/signer.py`](file:///c:/dev/Argus/db/cli/signer.py)
+- **RFC 6962 Merkle Tree Engine:** [`db/cli/merkle_tree.py`](file:///c:/dev/Argus/db/cli/merkle_tree.py)
+- **Merkle Capsule Generator:** [`db/cli/capsule.py`](file:///c:/dev/Argus/db/cli/capsule.py)
+- **Air-Gapped Capsule Verifier:** [`db/cli/verify_capsule.py`](file:///c:/dev/Argus/db/cli/verify_capsule.py)
+- **RFC 9162 Witness Protocol:** [`db/cli/witness_protocol.py`](file:///c:/dev/Argus/db/cli/witness_protocol.py)
+- **Multi-Witness Anchor Store:** [`db/cli/anchor_store.py`](file:///c:/dev/Argus/db/cli/anchor_store.py)
+- **Counterfactual Replay Engine:** [`db/cli/counterfactual.py`](file:///c:/dev/Argus/db/cli/counterfactual.py)
 - **Adversary Simulation CLI:** [`db/cli/adversary.py`](file:///c:/dev/Argus/db/cli/adversary.py)
 - **FastAPI Core & Routers:** [`api/main.py`](file:///c:/dev/Argus/api/main.py), [`api/routers/audits.py`](file:///c:/dev/Argus/api/routers/audits.py)
 - **Frontend App Router & Layout:** [`frontend/src/App.tsx`](file:///c:/dev/Argus/frontend/src/App.tsx), [`frontend/src/layouts/AuditorLayout.tsx`](file:///c:/dev/Argus/frontend/src/layouts/AuditorLayout.tsx)
 - **Dedicated Chain Explorer:** [`frontend/src/pages/auditor/AuditChainPage.tsx`](file:///c:/dev/Argus/frontend/src/pages/auditor/AuditChainPage.tsx)
+- **Counterfactual Replay Page:** [`frontend/src/pages/auditor/CounterfactualPage.tsx`](file:///c:/dev/Argus/frontend/src/pages/auditor/CounterfactualPage.tsx)
+- **Forensic Evidence Page:** [`frontend/src/pages/auditor/ForensicEvidencePage.tsx`](file:///c:/dev/Argus/frontend/src/pages/auditor/ForensicEvidencePage.tsx)
+- **Witness Quorum Component:** [`frontend/src/components/auditor/AnchorStatus.tsx`](file:///c:/dev/Argus/frontend/src/components/auditor/AnchorStatus.tsx)
 - **Time-Travel Forensic View:** [`frontend/src/components/auditor/TimeTravelView.tsx`](file:///c:/dev/Argus/frontend/src/components/auditor/TimeTravelView.tsx)
 - **Risk & Anomaly Panel:** [`frontend/src/components/auditor/RiskPanel.tsx`](file:///c:/dev/Argus/frontend/src/components/auditor/RiskPanel.tsx)

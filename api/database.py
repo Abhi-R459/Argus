@@ -20,12 +20,16 @@ async def init_engines():
         echo=False,
         pool_size=5,
         max_overflow=10,
+        pool_pre_ping=True,
+        pool_recycle=1800,
     )
     _compliance_auditor_engine = create_async_engine(
         settings.DATABASE_URL_COMPLIANCE_AUDITOR,
         echo=False,
         pool_size=5,
         max_overflow=10,
+        pool_pre_ping=True,
+        pool_recycle=1800,
     )
     
     _hr_admin_session_factory = async_sessionmaker(

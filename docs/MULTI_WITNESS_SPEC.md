@@ -1,11 +1,12 @@
 # Argus Multi-Witness Co-Signing via transparency-dev/witness Protocol Specification (HARDEN-012)
 
-> **Document Version:** 1.0  
-> **Date:** September 17, 2026  
-> **Status:** Frontier Specification / Target Architecture  
-> **Task Mapping:** `HARDEN-012` (Milestone 11.3, Step 11.C.2)  
+> **Document Version:** 2.0  
+> **Date:** September 2026  
+> **Status:** ✅ Implemented & Verified in Phase 13 (NOVEL-010)  
+> **Task Mapping:** `NOVEL-010-A` through `NOVEL-010-E` (Phase 13, Milestone 13.3)  
 > **Applicable Branch:** `feature/abhinav-core`  
-> **Theoretical Foundations:** Google Transparency Dev (`transparency-dev/witness`), Sigstore Rekor, IETF draft-ietf-trans-rfc6962-bis Cosigning Protocol  
+> **Implementation Reference:** `db/cli/witness_protocol.py`, `db/cli/anchor_store.py` (`MultiWitnessAnchorStore`), `db/cli/verifier.py`, `api/routers/audits.py`, `frontend/src/components/auditor/AnchorStatus.tsx`  
+> **Theoretical Foundations:** Google Transparency Dev (`transparency-dev/witness`), Sigstore Rekor, IETF RFC 9162 Cosigning Protocol  
 
 ---
 

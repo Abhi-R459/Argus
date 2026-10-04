@@ -34,8 +34,13 @@ async def test_create_employee_hr(client_hr: AsyncClient, mock_db_session: Async
     mock_employee.date_hired = "2026-08-24"
     mock_employee.is_active = True
     
-    # We mock the database function call
-    mock_db_session.execute.return_value = AsyncMock()
+    # We mock the database role and email queries
+    from unittest.mock import MagicMock
+    mock_role_res = MagicMock()
+    mock_role_res.scalar_one_or_none.return_value = MagicMock()
+    mock_email_res = MagicMock()
+    mock_email_res.scalar_one_or_none.return_value = None
+    mock_db_session.execute.side_effect = [mock_role_res, mock_email_res]
     
     payload = {
         "full_name": "Bob",

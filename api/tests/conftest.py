@@ -40,6 +40,28 @@ def mock_db_session():
     session.__aenter__.return_value = session
     session.__aexit__.return_value = None
     session.scalar.return_value = 0
+
+    # Synchronous session methods in SQLAlchemy AsyncSession
+    session.add = MagicMock()
+    session.add_all = MagicMock()
+    session.delete = MagicMock()
+
+    # Configure session.execute to return a synchronous Result mock
+    mock_result = MagicMock()
+    mock_result.scalar.return_value = 1
+    mock_result.scalar_one_or_none.return_value = None
+    mock_result.scalars.return_value.all.return_value = []
+    mock_result.scalars.return_value.first.return_value = None
+    mock_result.all.return_value = []
+    mock_result.first.return_value = None
+    session.execute.return_value = mock_result
+
+    # Mock refresh to assign default integer IDs when refreshed
+    async def _mock_refresh(instance):
+        if hasattr(instance, "employee_id") and getattr(instance, "employee_id", None) is None:
+            instance.employee_id = 2
+
+    session.refresh = AsyncMock(side_effect=_mock_refresh)
     return session
 
 @pytest.fixture

@@ -9,15 +9,24 @@ interface RoleGuardProps {
 }
 
 export default function RoleGuard({ allowedRole, children }: RoleGuardProps) {
+  const devE2ERole = (import.meta.env.DEV && typeof window !== 'undefined' && (window as any).__E2E_ROLE__) as 'hr_admin' | 'compliance_auditor' | undefined;
+
   const { getToken, isLoaded } = useAuth();
 
   const { data: profile, isLoading, isError } = useQuery<UserProfile>({
     queryKey: ['myProfile'],
     queryFn: () => fetchMyProfile(() => getToken()),
-    enabled: isLoaded,
+    enabled: isLoaded && !devE2ERole,
     staleTime: 60000,
     refetchInterval: false,
   });
+
+  if (devE2ERole) {
+    if (devE2ERole !== allowedRole) {
+      return <Navigate to={devE2ERole === 'compliance_auditor' ? '/auditor/overview' : '/hr/dashboard'} replace />;
+    }
+    return children ? <>{children}</> : <Outlet />;
+  }
 
   if (!isLoaded || isLoading) {
     return (

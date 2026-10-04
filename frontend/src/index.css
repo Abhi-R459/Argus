@@ -129,12 +129,13 @@
 }
 
 @layer utilities {
-  /* Disciplined tactile feedback per modern design systems */
+  /* Disciplined tactile feedback per modern design systems (asymmetric press/release) */
   .btn-press {
-    transition: transform 120ms var(--ease-out), box-shadow 120ms var(--ease-out), background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+    transition: transform 70ms ease-out, box-shadow 70ms ease-out, background-color 120ms ease, border-color 120ms ease, color 120ms ease;
   }
   .btn-press:active:not(:disabled) {
     transform: scale(0.985);
+    transition: transform 140ms ease-out;
   }
 
   /* Compact/Small buttons & table row actions: subtle tone shift without transform blur */
@@ -153,12 +154,14 @@
     opacity: 0.8;
   }
 
-  /* Interactive card hover */
+  /* Interactive card hover — gated behind hover and fine pointer */
   .card-hover {
     transition: transform 160ms var(--ease-out), box-shadow 160ms var(--ease-out), border-color 160ms var(--ease-out);
   }
-  .card-hover:hover {
-    transform: translateY(-1.5px);
+  @media (hover: hover) and (pointer: fine) {
+    .card-hover:hover {
+      transform: translateY(-1.5px);
+    }
   }
   .card-hover:active {
     transform: scale(0.99);
@@ -213,6 +216,21 @@
     animation-name: enterFromBottom;
   }
 
+  @keyframes slideInFromTop {
+    from {
+      opacity: 0;
+      transform: translateY(-4px) scale(0.97);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+  .slide-in-from-top-1 {
+    transform-origin: top;
+    animation-name: slideInFromTop;
+  }
+
   /* Linear Design System Classes */
   .linear-panel {
     @apply bg-linear-surface-1 border border-linear-hairline;
@@ -224,59 +242,56 @@
     @apply bg-linear-primary hover:bg-linear-primary-hover active:bg-linear-primary-focus text-white font-medium transition-colors duration-150;
   }
 
-  /* 300ms subtle row micro-flash for live stream ingestion */
+  /* 240ms subtle row micro-flash for live stream ingestion (sub-300ms budget) */
   @keyframes row-micro-flash {
-    0% { background-color: rgba(94, 106, 210, 0.22); }
+    0% { background-color: rgba(94, 106, 210, 0.18); }
     100% { background-color: transparent; }
   }
   .animate-row-flash {
-    animation: row-micro-flash 450ms ease-out forwards;
+    animation: row-micro-flash 240ms cubic-bezier(0.23, 1, 0.32, 1) forwards;
   }
 
   /* Tactile Click Micro-Interactions & Time-Travel States */
   @keyframes click-feedback-pulse {
     0% { transform: scale(1); }
-    30% { transform: scale(0.93); }
-    65% { transform: scale(1.02); }
+    30% { transform: scale(0.95); }
+    65% { transform: scale(1.01); }
     100% { transform: scale(1); }
   }
   .animate-click-pulse {
-    animation: click-feedback-pulse 240ms cubic-bezier(0.23, 1, 0.32, 1);
+    animation: click-feedback-pulse 200ms cubic-bezier(0.23, 1, 0.32, 1);
   }
 
+  /* Crisp 220ms GPU-accelerated card target activation */
   @keyframes card-target-activation {
     0% {
-      transform: scale(0.98);
-      box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.6);
-    }
-    50% {
-      transform: scale(1.01);
-      box-shadow: 0 0 20px 2px rgba(16, 185, 129, 0.35);
+      transform: scale(0.99);
+      outline: 2px solid rgba(16, 185, 129, 0.4);
     }
     100% {
       transform: scale(1);
-      box-shadow: 0 4px 14px 0 rgba(16, 185, 129, 0.12);
+      outline: 2px solid rgba(16, 185, 129, 0.9);
     }
   }
   .animate-card-target {
-    animation: card-target-activation 350ms cubic-bezier(0.23, 1, 0.32, 1) forwards;
+    animation: card-target-activation 220ms cubic-bezier(0.23, 1, 0.32, 1) forwards;
   }
 
+  /* Disciplined 150ms check icon entrance without cartoonish bounce (Standard 5 & 10) */
   @keyframes check-icon-pop {
-    0% { transform: scale(0.5); opacity: 0; }
-    60% { transform: scale(1.25); opacity: 1; }
+    0% { transform: scale(0.92); opacity: 0; }
     100% { transform: scale(1); opacity: 1; }
   }
   .animate-check-pop {
-    animation: check-icon-pop 250ms cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+    animation: check-icon-pop 150ms cubic-bezier(0.23, 1, 0.32, 1) forwards;
   }
 
   @keyframes badge-slide-down {
-    0% { opacity: 0; transform: translateY(-6px) scale(0.97); }
+    0% { opacity: 0; transform: translateY(-4px) scale(0.98); }
     100% { opacity: 1; transform: translateY(0) scale(1); }
   }
   .animate-badge-slide {
-    animation: badge-slide-down 200ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    animation: badge-slide-down 180ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
   }
 
   /* Accordion smooth expansion & collapse (going down / going up) */
@@ -333,12 +348,29 @@
   }
 }
 
+/* Accessibility: honor reduced motion by removing physical displacement while preserving gentle opacity & color transitions for state comprehension (Standard 8) */
 @media (prefers-reduced-motion: reduce) {
   *, ::before, ::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
+
+  /* Retain gentle opacity and color transitions rather than jarring 0s strobe cuts */
+  * {
+    transform: none !important;
+    transition-property: opacity, background-color, border-color, color, fill, stroke !important;
+    transition-duration: 150ms !important;
+  }
+}
+
+/* Number input spinner normalization for sleek enterprise UI */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
 }
 

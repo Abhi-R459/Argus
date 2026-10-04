@@ -641,11 +641,11 @@ export default function TimeTravelView() {
                   id="employee-search-listbox"
                   role="listbox"
                   aria-label="Matching Personnel"
-                  className="absolute left-0 right-0 top-full mt-1.5 z-50 bg-[#16181d] border border-linear-hairline-strong rounded-xl shadow-2xl backdrop-blur-xl ring-1 ring-black/60 overflow-hidden max-h-72 overflow-y-auto animate-in fade-in slide-in-from-top-1 duration-150"
+                  className="absolute left-0 right-0 top-full mt-1.5 z-50 bg-[#16181d] border border-linear-hairline-strong rounded-xl shadow-2xl backdrop-blur-xl ring-1 ring-black/60 overflow-hidden max-h-72 overflow-y-auto animate-in fade-in slide-in-from-top-1 duration-150 origin-top"
                 >
                   {isDirectoryLoading && directoryEmployees.length === 0 ? (
                     <div className="p-4 text-center text-xs text-linear-ink-muted flex items-center justify-center gap-2">
-                      <div className="w-3.5 h-3.5 border-2 border-linear-primary border-t-transparent rounded-full animate-spin" />
+                      <div className="w-3.5 h-3.5 border-2 border-linear-primary border-t-transparent rounded-full animate-fast-spin" />
                       Loading workforce directory...
                     </div>
                   ) : matchingEmployees.length === 0 ? (

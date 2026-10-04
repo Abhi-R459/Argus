@@ -37,6 +37,8 @@ This document establishes a complete, granular inventory of every cryptographic 
 | **`CLERK_SECRET_KEY`** | API Bearer Token (String) | `.env` (`CLERK_SECRET_KEY=...`) | `0600` (Restricted `.env`) | FastAPI authentication middleware | Backend Authentication Layer | Unauthorized issuance or verification of user session tokens | Rotate via Clerk Dashboard; IP allowlisting |
 | **`GITHUB_TOKEN`** | OAuth / Personal Access Token | `.env` (`GITHUB_TOKEN=...`) | `0600` (Restricted `.env`) | Standalone CLI (`anchor_store.py`) | Out-of-band Anchor Sync process | Can mutate commit history in git anchor repository | Fine-grained PAT restricted strictly to target anchor repo with commit-only scope |
 | **`AWS_SECRET_ACCESS_KEY`** | IAM Cloud Credential | Environment / IAM Role | `0600` (Restricted `.env`) | Standalone CLI (`anchor_store.py`) | Out-of-band Anchor Sync process | Unauthorized access to S3 bucket | AWS IAM Roles for Service Accounts (IRSA) / EC2 Instance Profiles; S3 Object Lock in `COMPLIANCE` mode prevents deletion even with root credentials |
+| **`WITNESS_PUBLIC_KEYS`** | Public Key Registry (Ed25519) | `db/cli/witness_protocol.py` | `0644` (Application code) | Standalone CLI & FastAPI backend | Verifier, Auditors, Third-party consumers | None (Public keys used for cosigning verification) | Pinned in code registry; rotatable via RFC 9162 note versioning |
+| **`ARGUSCAP_SIGNING_KEY`** | Asymmetric Ed25519 Keypair | `.arguscap/manifest.json` | `0644` (Public key in ZIP) | Standalone `verify_capsule.py` | Standalone zero-dependency verifier | None (Public key shipped with evidence bundle) | Dual-bound to root checkpoint signature and Merkle root |
 
 ---
 

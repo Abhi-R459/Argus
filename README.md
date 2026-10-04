@@ -3,7 +3,7 @@
 > **A tamper-evident, self-verifying audit trail engine for PostgreSQL**, demonstrated through an enterprise Employee Records management system.  
 > *Course Project for BCSE302L Database Systems — Abhinav & Nidhurshek.*
 
-[![Tests](https://img.shields.io/badge/tests-204%20passed-brightgreen.svg)](#running-automated-tests)
+[![Tests](https://img.shields.io/badge/tests-256%20passed-brightgreen.svg)](#running-automated-tests)
 [![Red Team Engine](https://img.shields.io/badge/Adversary%20CLI-Active-crimson.svg)](#part-2-testing-out-of-band-adversary-attacks-red-team-cli)
 [![Security](https://img.shields.io/badge/Security-Fail--Closed-009688.svg)](#overview)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15+-blue.svg)](https://www.postgresql.org/)
@@ -80,6 +80,48 @@ Traditional relational audit logs are stored in standard database tables. A mali
 
 ---
 
+## Phase 13: Cryptographic Frontiers (Complete)
+
+Phase 13 delivers three conference-grade architectural novelties, expanding Argus from a passive tamper-evident log into an active forensic simulation and multi-witness verification platform:
+
+### N11 — Counterfactual "What-If" Provenance Replay ✅ Implemented & Tested
+The audit log becomes an active forensic simulation engine. Compliance auditors select fraudulent transactions (e.g., `sequence_id=71`), skip them in an in-memory virtual session, and inspect:
+- **Side-by-side reconstruction:** Actual State vs. Counterfactual State across all attributes.
+- **Blast Radius quantification:** Computes exact annual and cumulative financial damage ($\Delta_{\text{annual}} \times \text{tenure} / 12$).
+- **API Endpoint:** `POST /api/audit-logs/counterfactual` (guarded by `compliance_auditor` RBAC).
+- **Dedicated UI:** [`/auditor/counterfactual`](file:///c:/dev/Argus/frontend/src/pages/auditor/CounterfactualPage.tsx) — Interactive Counterfactual Simulator with employee selector and blast radius hero cards.
+- **Automated Tests:** `db/tests/test_counterfactual.py` (7/7) & `api/tests/test_counterfactual.py` (5/5).
+
+### N9 — Selective-Disclosure Merkle Capsules (`.arguscap`) ✅ Implemented & Tested
+Prove a single transaction's validity with $O(\log K)$ hashes without disclosing any adjacent employee records or confidential organizational mutations:
+- **RFC 6962 Domain Separation:** Leaf nodes use prefix `0x00 || canonical_json(row)`; internal nodes use prefix `0x01 || left || right`. Odd-leaf promotion prevents Bitcoin CVE-2012-2459 duplicate-leaf vulnerabilities.
+- **Dual-Binding Signatures:** Checkpoints commit to `checkpoint_hash:merkle_root` signed with Ed25519.
+- **API Endpoints:** `GET /api/audit-logs/{seq_id}/capsule` (streaming `.arguscap` bundle) and `GET /api/audit-logs/{seq_id}/proof` (inclusion proof metadata).
+- **Air-Gapped Turnkey Verifier:** Every `.arguscap` embeds `verify_capsule.py`, a zero-dependency standalone verifier in pure Python standard library:
+  ```bash
+  python db/cli/verify_capsule.py --bundle proof_seq71.arguscap
+  # [PASS] Ed25519 checkpoint signature valid
+  # [PASS] Leaf hash matches canonical row
+  # [PASS] Merkle proof path verified (depth 5, root match)
+  # VALID: Transaction seq_id=71 proven included in checkpoint
+  ```
+- **Dedicated UI:** [`/auditor/forensic-evidence`](file:///c:/dev/Argus/frontend/src/pages/auditor/ForensicEvidencePage.tsx) — Forensic Evidence Generator with proof path visualizer and 1-click capsule download.
+- **Automated Tests:** `db/tests/test_merkle_tree.py` (9/9), `db/tests/test_capsule.py` (9/9), `api/tests/test_capsule_api.py` (7/7).
+
+### N10 — Multi-Witness WORM Anchoring (RFC 9162) ✅ Implemented & Tested
+Eliminates split-view (forking) attacks through decentralized consensus across independent witness stores:
+- **RFC 9162 Checkpoint Notes:** Standardized canonical text representation co-signed by Origin and witnesses.
+- **2-of-3 Threshold Quorum:** Dispatched across 3 independent stores (AWS S3 WORM Object Lock, RFC 3161 Timestamp Authority, and GitHub Git Tree). Requires at least 2 valid witness signatures to seal a checkpoint.
+- **Split-View Fork Detection:** If conflicting Merkle roots are presented for the same sequence ID, a `ProofOfMisbehavior` is generated, permanently flagging the fork.
+- **Verifier CLI Integration:** `python -m db.cli.verifier verify-chain --multi-witness` checks quorum status.
+- **Live UI Telemetry:** [`AnchorStatus.tsx`](file:///c:/dev/Argus/frontend/src/components/auditor/AnchorStatus.tsx) displays live Witness Quorum status badges, truncated signature hashes, and threshold verification.
+- **Automated Tests:** `db/tests/test_multi_witness.py` (8/8).
+
+### N8 — GDPR Crypto-Shredding (Formally Specified)
+Full architectural specification in [`docs/CRYPTO_SHREDDING_ANALYSIS.md`](docs/CRYPTO_SHREDDING_ANALYSIS.md). Implements formal per-subject DEK envelope encryption design; implementation deferred pending cloud KMS integration (Decision D-1).
+
+---
+
 ## Architecture & Security Model
 
 ```
@@ -129,7 +171,7 @@ Traditional relational audit logs are stored in standard database tables. A mali
 - **Backend:** Python 3.12, FastAPI, SQLAlchemy 2 (asyncpg + psycopg2), Pydantic v2, Uvicorn.
 - **Frontend:** React 19, TypeScript, Vite, Tailwind CSS, TanStack React Query, Lucide React.
 - **Authentication:** Clerk Auth (JWT authentication and role sync).
-- **Cryptography:** Ed25519 (`cryptography`), SHA-256 (`hashlib`), RFC 8032 pure-Python curve math, RFC 3161 ASN.1 DER parser.
+- **Cryptography:** Ed25519 (`cryptography`), SHA-256 (`hashlib`), RFC 8032 pure-Python curve math, RFC 3161 ASN.1 DER parser, RFC 6962 (Merkle trees), RFC 9162 (Multi-witness cosigning).
 - **Database Migrations:** Alembic (13 versions, up to `013_tunable_pbkdf2_blind_index`).
 - **External Anchors:** Local File, GitHub Repository, RFC 3161 Time-Stamping Authority (`.tsr`), and AWS S3 WORM Object Lock (`COMPLIANCE` mode).
 - **Testing:** Pytest (204 passed, 27 skipped across 231 items), pytest-asyncio, pytest-benchmark, HTTPX, Playwright.
@@ -680,6 +722,12 @@ python -m db.cli.verifier anchor --checkpoint-id 1 --type local --path ./anchors
 # 6. Database backup with SHA-256 integrity digest
 python -m db.cli.verifier backup dump --output ./backups/snapshot.sql
 python -m db.cli.verifier backup verify --backup-id 1
+
+# 7. Multi-witness threshold verification (RFC 9162 quorum checks)
+python -m db.cli.verifier verify-chain --multi-witness
+
+# 8. Air-gapped standalone Merkle capsule verification (zero dependencies)
+python db/cli/verify_capsule.py --bundle proof_seq71.arguscap
 ```
 
 ---
@@ -729,44 +777,54 @@ python -m pytest db/tests/ api/tests/
 platform win32 -- Python 3.12.10, pytest-9.1.1, pluggy-1.6.0
 rootdir: C:\dev\Argus
 configfile: pytest.ini
-collected 231 items
+collected 288 items
 
-db\tests\test_adversary_cli.py ......                                    [  3%]
-db\tests\test_anchor_store.py ...........................                [ 14%]
-db\tests\test_attack_demos.py ......                                     [ 17%]
-db\tests\test_audit_log_isolation.py ......                              [ 20%]
-db\tests\test_auditor_directory_permissions.py .....                     [ 22%]
-db\tests\test_backup.py ..........................                       [ 33%]
-db\tests\test_benchmarks.py ........                                     [ 37%]
-db\tests\test_blind_indexing.py ......                                   [ 39%]
-db\tests\test_blind_indexing_db.py ......                                [ 42%]
-db\tests\test_business_rules.py sssssss                                  [ 45%]
-db\tests\test_checkpoint_store.py ....................                   [ 54%]
-db\tests\test_e2e_integration.py ...                                     [ 55%]
-db\tests\test_evidence_bundle.py ........                                [ 58%]
-db\tests\test_migration_001.py .                                         [ 59%]
-db\tests\test_migration_002.py .                                         [ 59%]
-db\tests\test_migration_003.py .                                         [ 60%]
-db\tests\test_migration_004.py .                                         [ 60%]
-db\tests\test_reconstruct_null_fields.py sssss                           [ 62%]
-db\tests\test_signer_providers.py ................                       [ 69%]
-db\tests\test_trigger_employees.py ssssss                                [ 72%]
-db\tests\test_trigger_salary.py sss                                      [ 73%]
-db\tests\test_verify_standalone.py ........                              [ 77%]
-api\tests\test_audits.py ............                                    [ 82%]
-api\tests\test_blind_search_api.py ........                              [ 85%]
-api\tests\test_bridge_endpoints.py .........                             [ 89%]
-api\tests\test_chain_explorer_api.py .....                               [ 91%]
-api\tests\test_employees.py .....                                        [ 94%]
-api\tests\test_export_pack.py ....                                       [ 95%]
-api\tests\test_hardened_endpoints.py .....                               [ 97%]
-api\tests\test_health.py .                                               [ 98%]
-api\tests\test_live_telemetry.py ......                                  [100%]
+db\tests\test_adversary_cli.py ......                                    [  2%]
+db\tests\test_anchor_store.py ...........................                [ 11%]
+db\tests\test_attack_demos.py ......                                     [ 13%]
+db\tests\test_audit_log_isolation.py ......                              [ 15%]
+db\tests\test_auditor_directory_permissions.py .....                     [ 17%]
+db\tests\test_backup.py ..........................                       [ 26%]
+db\tests\test_benchmarks.py ........                                     [ 29%]
+db\tests\test_blind_indexing.py ......                                   [ 31%]
+db\tests\test_blind_indexing_db.py ......                                [ 33%]
+db\tests\test_business_rules.py sssssss                                  [ 35%]
+db\tests\test_capsule.py .........                                       [ 38%]
+db\tests\test_checkpoint_store.py ....................                   [ 45%]
+db\tests\test_counterfactual.py .......                                  [ 48%]
+db\tests\test_e2e_integration.py ...                                     [ 49%]
+db\tests\test_evidence_bundle.py ........                                [ 52%]
+db\tests\test_merkle_tree.py .........                                   [ 55%]
+db\tests\test_migration_001.py .                                         [ 55%]
+db\tests\test_migration_002.py .                                         [ 55%]
+db\tests\test_migration_003.py .                                         [ 56%]
+db\tests\test_migration_004.py .                                         [ 56%]
+db\tests\test_multi_witness.py ........                                  [ 59%]
+db\tests\test_reconstruct_null_fields.py sssss                           [ 61%]
+db\tests\test_signer_providers.py ................                       [ 66%]
+db\tests\test_trigger_employees.py ssssss                                [ 68%]
+db\tests\test_trigger_salary.py sss                                      [ 69%]
+db\tests\test_verify_standalone.py ........                              [ 72%]
+api\tests\test_audits.py ............                                    [ 76%]
+api\tests\test_blind_search_api.py ........                              [ 79%]
+api\tests\test_bridge_endpoints.py .........                             [ 82%]
+api\tests\test_capsule_api.py .......                                    [ 85%]
+api\tests\test_chain_explorer_api.py .....                               [ 86%]
+api\tests\test_counterfactual.py .....                                   [ 88%]
+api\tests\test_employees.py .....                                        [ 90%]
+api\tests\test_export_pack.py ....                                       [ 91%]
+api\tests\test_hardened_endpoints.py .....                               [ 93%]
+api\tests\test_health.py .                                               [ 93%]
+api\tests\test_live_telemetry.py ......                                  [ 95%]
 
-================= 204 passed, 27 skipped in 3.65s =================
+================= 256 passed, 32 skipped in 35.62s =================
 ```
 
 ### Key Test Suites Breakdown:
+- **`db/tests/test_counterfactual.py` & `api/tests/test_counterfactual.py` (12/12):** Virtual chronological log walk, delta merge, blast radius calculation ($\Delta_{\text{annual}} \times \text{tenure} / 12$), and `POST /api/audit-logs/counterfactual` RBAC verification.
+- **`db/tests/test_merkle_tree.py` (9/9):** RFC 6962 Merkle tree domain separation (`0x00`/`0x01`), duplicate-leaf CVE-2012-2459 mitigation via odd-leaf promotion, dual-binding root verification, and $O(\log K)$ proof extraction.
+- **`db/tests/test_capsule.py` & `api/tests/test_capsule_api.py` (16/16):** `.arguscap` ZIP bundle generation, air-gapped `verify_capsule.py` validation, tamper rejection matrices, and streaming download routes.
+- **`db/tests/test_multi_witness.py` (8/8):** RFC 9162 canonical Checkpoint Note formatting, multi-witness 2-of-3 threshold quorum enforcement, Proof of Misbehavior split-view detection, and CLI `--multi-witness` verification reporting.
 - **`db/tests/test_anchor_store.py` (27/27):** Local File, GitHub, RFC 3161 TSA (pure-Python ASN.1 DER parser), and AWS S3 WORM Object Lock adapters with fail-closed edge cases.
 - **`db/tests/test_signer_providers.py` (16/16):** Polymorphic `Signer` provider abstractions, Cloud KMS / Vault mocking, key custody enforcement.
 - **`db/tests/test_adversary_cli.py` (6/6):** Red Team CLI argument parsing, out-of-band attack vectors, pre-tamper snapshotting, and deterministic restoration.

@@ -1,10 +1,11 @@
 # Argus Merkle-Tree-Per-Checkpoint Architectural Specification (HARDEN-011)
 
-> **Document Version:** 1.0  
-> **Date:** September 17, 2026  
-> **Status:** Frontier Specification / Target Architecture  
-> **Task Mapping:** `HARDEN-011` (Milestone 11.3, Step 11.C.1)  
+> **Document Version:** 2.0  
+> **Date:** September 2026  
+> **Status:** ✅ Implemented & Verified in Phase 13 (NOVEL-009)  
+> **Task Mapping:** `NOVEL-009-A` through `NOVEL-009-H` (Phase 13, Milestone 13.2)  
 > **Applicable Branch:** `feature/abhinav-core`  
+> **Implementation Reference:** `db/alembic/versions/014_merkle_root.py`, `db/cli/merkle_tree.py`, `db/cli/capsule.py`, `db/cli/verify_capsule.py`, `api/routers/audits.py`, `frontend/src/pages/auditor/ForensicEvidencePage.tsx`  
 > **Theoretical Foundations:** Crosby & Wallach (USENIX Security '09), RFC 6962 / RFC 9162 (Certificate Transparency), Microsoft SQL Server Ledger  
 
 ---

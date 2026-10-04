@@ -2,7 +2,7 @@ import AuditLogTable from '../../components/auditor/AuditLogTable';
 
 export default function AuditLogPage() {
   return (
-    <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 space-y-4">
+    <div className="animate-fade-cascade space-y-4">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h2 className="text-lg font-semibold text-linear-ink">Audit Log</h2>

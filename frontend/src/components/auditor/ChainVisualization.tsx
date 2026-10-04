@@ -20,9 +20,10 @@ const SEVERITY_ROW_GLOW: Record<Severity, string> = {
 
 interface DiffDrawerProps {
   entry: ChainEntry;
+  isTampered?: boolean;
 }
 
-function DiffDrawer({ entry }: DiffDrawerProps) {
+function DiffDrawer({ entry, isTampered }: DiffDrawerProps) {
   return (
     <div className="px-6 py-4 bg-linear-surface-2 border-t border-linear-hairline">
       <div className="flex items-center space-x-6 mb-3">
@@ -39,6 +40,8 @@ function DiffDrawer({ entry }: DiffDrawerProps) {
         oldValue={entry.old_value}
         newValue={entry.new_value}
         operation={entry.operation as any}
+        isTampered={isTampered}
+        sequenceId={entry.entry_id}
       />
     </div>
   );
@@ -66,8 +69,8 @@ function ChainRow({ entry, isFirst, isTampered }: ChainRowProps) {
         title={isTampered ? 'Tampered row detected! Click to expand diff' : 'Click to expand diff'}
       >
         {/* Entry ID & hash chain connector */}
-        <td className="px-2.5 sm:px-3 py-2.5 whitespace-nowrap">
-          <div className="flex items-center space-x-2">
+        <td className="px-2 py-2.5 whitespace-nowrap">
+          <div className="flex items-center space-x-1.5">
             {/* Chain connector dot */}
             <div className="flex flex-col items-center">
               <div
@@ -91,22 +94,22 @@ function ChainRow({ entry, isFirst, isTampered }: ChainRowProps) {
         </td>
 
         {/* Hash Linkage (prev -> hash) */}
-        <td className="px-2 sm:px-2.5 py-2.5 whitespace-nowrap font-mono text-xs">
+        <td className="px-2 py-2.5 whitespace-nowrap font-mono text-xs">
           <div className="flex items-center space-x-1">
-            <span className="text-linear-ink-subtle text-[11px]">{truncateHash(entry.prev_hash || '0'.repeat(64), 6, 4)}</span>
+            <span className="text-linear-ink-subtle text-[11px]">{truncateHash(entry.prev_hash || '0'.repeat(64), 4, 4)}</span>
             <ArrowRight className="w-2.5 h-2.5 text-linear-ink-tertiary shrink-0" />
-            <span className={`text-[11px] px-1.5 py-0.5 rounded border ${
+            <span className={`text-[11px] px-1 py-0.5 rounded border ${
               isTampered
                 ? 'text-white bg-grafana-orange/30 border-grafana-orange/50 font-semibold'
                 : 'text-linear-primary bg-linear-primary/5 border-linear-primary/20'
             }`}>
-              {truncateHash(entry.hash, 6, 4)}
+              {truncateHash(entry.hash, 4, 4)}
             </span>
           </div>
         </td>
 
         {/* Operation */}
-        <td className="px-2 sm:px-2.5 py-2.5 whitespace-nowrap">
+        <td className="px-2 py-2.5 whitespace-nowrap">
           <span
             className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border ${
               getActionSemantic(entry.operation, entry.table_name, 'auditor').className
@@ -117,31 +120,31 @@ function ChainRow({ entry, isFirst, isTampered }: ChainRowProps) {
         </td>
 
         {/* Table */}
-        <td className="px-2 sm:px-2.5 py-2.5 whitespace-nowrap">
+        <td className="px-2 py-2.5 whitespace-nowrap">
           <span className="text-xs font-mono text-linear-ink-muted">{entry.table_name}</span>
         </td>
 
         {/* Actor */}
-        <td className="px-2 sm:px-2.5 py-2.5 whitespace-nowrap">
+        <td className="px-2 py-2.5 whitespace-nowrap">
           <div className="flex items-center space-x-1.5">
             <div className="w-5 h-5 rounded-full bg-linear-surface-3 border border-linear-hairline-strong flex items-center justify-center text-[9px] font-bold text-linear-primary uppercase shrink-0">
               {entry.actor_email.charAt(0)}
             </div>
-            <span className="text-xs text-linear-ink-muted max-w-[100px] sm:max-w-[125px] truncate" title={entry.actor_email}>
+            <span className="text-xs text-linear-ink-muted max-w-[95px] sm:max-w-[110px] truncate" title={entry.actor_email}>
               {entry.actor_email}
             </span>
           </div>
         </td>
 
         {/* Timestamp */}
-        <td className="px-2 sm:px-2.5 py-2.5 whitespace-nowrap">
+        <td className="px-2 py-2.5 whitespace-nowrap">
           <span className="text-[11px] text-linear-ink-subtle" title={new Date(entry.timestamp).toLocaleString()}>
             {formatRelativeTime(entry.timestamp)}
           </span>
         </td>
 
         {/* Severity */}
-        <td className="px-2 sm:px-2.5 py-2.5 whitespace-nowrap">
+        <td className="px-2 py-2.5 whitespace-nowrap">
           <div className="flex items-center space-x-1.5">
             <span className={`w-1.5 h-1.5 rounded-full ${getSeverityDotClass(entry.severity)}`} />
             <span
@@ -161,10 +164,10 @@ function ChainRow({ entry, isFirst, isTampered }: ChainRowProps) {
         </td>
 
         {/* Expand toggle with smooth 180-deg chevron rotation */}
-        <td className="px-2 sm:px-3 py-2.5 text-right w-8">
+        <td className="px-2 py-2.5 text-right w-7">
           <div className="text-linear-ink-tertiary group-hover:text-linear-ink-subtle transition-colors">
             <span
-              className={`inline-flex items-center justify-center transition-transform duration-280 ease-out ${
+              className={`inline-flex items-center justify-center transition-transform duration-160 ease-out ${
                 expanded ? 'rotate-180 text-linear-ink' : 'rotate-0'
               }`}
             >
@@ -180,7 +183,7 @@ function ChainRow({ entry, isFirst, isTampered }: ChainRowProps) {
           <td colSpan={8} className="p-0 border-b border-linear-hairline">
             <div className={`accordion-collapse ${isExpanded ? 'accordion-open' : ''}`}>
               <div className="accordion-collapse-inner">
-                <DiffDrawer entry={entry} />
+                <DiffDrawer entry={entry} isTampered={isTampered} />
               </div>
             </div>
           </td>
@@ -217,14 +220,14 @@ export default function ChainVisualization({ entries, tamperedSequenceId }: Chai
           <thead className="bg-linear-surface-2/60">
             <tr>
               {[
-                { label: 'Entry', className: 'text-left px-2.5 sm:px-3' },
-                { label: 'Hash Linkage', className: 'text-left px-2 sm:px-2.5' },
-                { label: 'Op', className: 'text-left px-2 sm:px-2.5' },
-                { label: 'Table', className: 'text-left px-2 sm:px-2.5' },
-                { label: 'Actor', className: 'text-left px-2 sm:px-2.5' },
-                { label: 'When', className: 'text-left px-2 sm:px-2.5' },
-                { label: 'Severity', className: 'text-left px-2 sm:px-2.5' },
-                { label: '', className: 'text-right px-2 sm:px-3 w-8' },
+                { label: 'Entry', className: 'text-left px-2' },
+                { label: 'Hash Linkage', className: 'text-left px-2' },
+                { label: 'Op', className: 'text-left px-2' },
+                { label: 'Table', className: 'text-left px-2' },
+                { label: 'Actor', className: 'text-left px-2' },
+                { label: 'When', className: 'text-left px-2' },
+                { label: 'Severity', className: 'text-left px-2' },
+                { label: '', className: 'text-right px-2 w-7' },
               ].map((h, idx) => (
                 <th
                   key={idx}

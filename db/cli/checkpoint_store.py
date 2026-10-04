@@ -27,6 +27,8 @@ def store_checkpoint(
     checkpoint_hash: str,
     signature: bytes,
     key_id: str | None = None,
+    merkle_root: str | None = None,
+    merkle_leaf_count: int | None = None,
 ) -> bool:
     """Stores a signed checkpoint in the chain_checkpoints table.
 
@@ -39,6 +41,8 @@ def store_checkpoint(
         checkpoint_hash: SHA-256 hash representing the state of the audit chain.
         signature: Cryptographic signature bytes for the checkpoint hash.
         key_id: Optional key identifier string for key rotation tracking (e.g. 'local:ed25519:v1').
+        merkle_root: Optional hex-encoded RFC 6962 SHA-256 Merkle root hash.
+        merkle_leaf_count: Optional count of audit rows in this checkpoint's Merkle tree.
 
     Returns:
         bool: True if a new checkpoint row was inserted, False if a row for the
@@ -47,13 +51,20 @@ def store_checkpoint(
     Raises:
         psycopg2.Error: If a database error occurs.
     """
-    if key_id is not None:
+    if merkle_root is not None:
+        query = (
+            "INSERT INTO chain_checkpoints (sequence_id, checkpoint_hash, signature, key_id, merkle_root, merkle_leaf_count) "
+            "VALUES (%s, %s, %s, %s, %s, %s) "
+            "ON CONFLICT (sequence_id) DO NOTHING"
+        )
+        params: tuple = (sequence_id, checkpoint_hash, signature, key_id, merkle_root, merkle_leaf_count)
+    elif key_id is not None:
         query = (
             "INSERT INTO chain_checkpoints (sequence_id, checkpoint_hash, signature, key_id) "
             "VALUES (%s, %s, %s, %s) "
             "ON CONFLICT (sequence_id) DO NOTHING"
         )
-        params: tuple = (sequence_id, checkpoint_hash, signature, key_id)
+        params = (sequence_id, checkpoint_hash, signature, key_id)
     else:
         query = (
             "INSERT INTO chain_checkpoints (sequence_id, checkpoint_hash, signature) "
@@ -69,6 +80,27 @@ def store_checkpoint(
         return inserted
     except Exception:
         conn.rollback()
+        # Fallback if merkle columns do not exist in test schema
+        if merkle_root is not None:
+            try:
+                with conn.cursor() as cur:
+                    if key_id is not None:
+                        cur.execute(
+                            "INSERT INTO chain_checkpoints (sequence_id, checkpoint_hash, signature, key_id) "
+                            "VALUES (%s, %s, %s, %s) ON CONFLICT (sequence_id) DO NOTHING",
+                            (sequence_id, checkpoint_hash, signature, key_id),
+                        )
+                    else:
+                        cur.execute(
+                            "INSERT INTO chain_checkpoints (sequence_id, checkpoint_hash, signature) "
+                            "VALUES (%s, %s, %s) ON CONFLICT (sequence_id) DO NOTHING",
+                            (sequence_id, checkpoint_hash, signature),
+                        )
+                    inserted = cur.rowcount > 0
+                conn.commit()
+                return inserted
+            except Exception:
+                conn.rollback()
         raise
 
 
@@ -76,6 +108,7 @@ def get_checkpoint(
     conn: Any,
     checkpoint_id: int,
     include_key_id: bool = False,
+    include_merkle: bool = False,
 ) -> dict | None:
     """Retrieves a checkpoint by its primary key (checkpoint_id).
 
@@ -83,6 +116,7 @@ def get_checkpoint(
         conn: A psycopg2 database connection object.
         checkpoint_id: The unique ID of the checkpoint to retrieve.
         include_key_id: If True, includes the key_id column in the returned dict.
+        include_merkle: If True, includes merkle_root and merkle_leaf_count in the returned dict.
 
     Returns:
         dict | None: Dictionary with keys 'checkpoint_id', 'sequence_id',
@@ -95,6 +129,8 @@ def get_checkpoint(
     cols = "checkpoint_id, sequence_id, checkpoint_hash, signature, created_at"
     if include_key_id:
         cols += ", key_id"
+    if include_merkle:
+        cols += ", merkle_root, merkle_leaf_count"
     query = (
         f"SELECT {cols} "
         "FROM chain_checkpoints "
@@ -113,6 +149,7 @@ def get_checkpoints_in_range(
     start_seq: int,
     end_seq: int,
     include_key_id: bool = False,
+    include_merkle: bool = False,
 ) -> list[dict]:
     """Retrieves all checkpoints with sequence_id in the specified range.
 
@@ -121,6 +158,7 @@ def get_checkpoints_in_range(
         start_seq: The lower bound sequence ID (inclusive).
         end_seq: The upper bound sequence ID (inclusive).
         include_key_id: If True, includes key_id column in returned dicts.
+        include_merkle: If True, includes merkle_root and merkle_leaf_count in returned dicts.
 
     Returns:
         list[dict]: A list of checkpoint dictionary objects ordered by sequence_id.
@@ -131,6 +169,8 @@ def get_checkpoints_in_range(
     cols = "checkpoint_id, sequence_id, checkpoint_hash, signature, created_at"
     if include_key_id:
         cols += ", key_id"
+    if include_merkle:
+        cols += ", merkle_root, merkle_leaf_count"
     query = (
         f"SELECT {cols} "
         "FROM chain_checkpoints "
@@ -159,7 +199,11 @@ def compute_checkpoint_hash(entry_hashes: list[str]) -> str:
     return hashlib.sha256(concatenated.encode("utf-8")).hexdigest()
 
 
-def get_all_checkpoints(conn: Any, include_key_id: bool = False) -> list[dict]:
+def get_all_checkpoints(
+    conn: Any,
+    include_key_id: bool = False,
+    include_merkle: bool = False,
+) -> list[dict]:
     """Retrieves all checkpoint rows ordered by sequence_id.
 
     Used by the parallel verification engine to derive segment boundaries.
@@ -168,6 +212,7 @@ def get_all_checkpoints(conn: Any, include_key_id: bool = False) -> list[dict]:
     Args:
         conn: A psycopg2 database connection object.
         include_key_id: If True, includes the key_id column in returned dicts.
+        include_merkle: If True, includes merkle_root and merkle_leaf_count in returned dicts.
 
     Returns:
         list[dict]: All checkpoint rows as dicts, ordered by sequence_id
@@ -179,6 +224,8 @@ def get_all_checkpoints(conn: Any, include_key_id: bool = False) -> list[dict]:
     cols = "checkpoint_id, sequence_id, checkpoint_hash, signature, created_at"
     if include_key_id:
         cols += ", key_id"
+    if include_merkle:
+        cols += ", merkle_root, merkle_leaf_count"
     query = (
         f"SELECT {cols} "
         "FROM chain_checkpoints "
@@ -190,12 +237,17 @@ def get_all_checkpoints(conn: Any, include_key_id: bool = False) -> list[dict]:
         return [dict(row) for row in rows]
 
 
-def get_latest_checkpoint(conn: Any, include_key_id: bool = False) -> dict | None:
+def get_latest_checkpoint(
+    conn: Any,
+    include_key_id: bool = False,
+    include_merkle: bool = False,
+) -> dict | None:
     """Retrieves the latest checkpoint from chain_checkpoints ordered by sequence_id.
 
     Args:
         conn: A psycopg2 database connection object.
         include_key_id: If True, includes the key_id column in returned dict.
+        include_merkle: If True, includes merkle_root and merkle_leaf_count in returned dict.
 
     Returns:
         dict | None: The most recent checkpoint row as a dict, or None if empty.
@@ -206,6 +258,8 @@ def get_latest_checkpoint(conn: Any, include_key_id: bool = False) -> dict | Non
     cols = "checkpoint_id, sequence_id, checkpoint_hash, signature, created_at"
     if include_key_id:
         cols += ", key_id"
+    if include_merkle:
+        cols += ", merkle_root, merkle_leaf_count"
     query = (
         f"SELECT {cols} "
         "FROM chain_checkpoints "
@@ -235,6 +289,21 @@ def get_uncheckpointed_entries(conn: Any, last_checkpoint_seq: int = 0) -> list[
     """
     query = (
         "SELECT sequence_id, entry_hash, created_at "
+        "FROM audit_log "
+        "WHERE sequence_id > %s "
+        "ORDER BY sequence_id ASC"
+    )
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(query, (last_checkpoint_seq,))
+        rows = cur.fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_uncheckpointed_rows(conn: Any, last_checkpoint_seq: int = 0) -> list[dict]:
+    """Retrieves full audit_log entries strictly greater than last_checkpoint_seq for Merkle tree generation."""
+    query = (
+        "SELECT sequence_id, actor_user_id, employee_id, action, table_name, row_id, "
+        "old_value, new_value, severity, entry_hash, previous_hash, created_at "
         "FROM audit_log "
         "WHERE sequence_id > %s "
         "ORDER BY sequence_id ASC"
@@ -384,12 +453,30 @@ def create_dual_trigger_checkpoint(
     target_seq = uncheckpointed[-1]["sequence_id"]
     cp_hash = compute_checkpoint_hash(entry_hashes)
 
+    # Compute RFC 6962 Merkle Tree over full audit rows in interval
+    merkle_root = None
+    merkle_leaf_count = None
+    try:
+        from db.cli.merkle_tree import ArgusMerkleTree
+        full_rows = get_uncheckpointed_rows(conn, last_checkpoint_seq=last_seq)
+        if full_rows:
+            merkle_tree = ArgusMerkleTree.build(full_rows)
+            merkle_root = merkle_tree.root
+            merkle_leaf_count = merkle_tree.leaf_count
+    except Exception as m_err:
+        logger.debug("Could not compute Merkle tree: %s", m_err)
+
     resolved_key_id = key_id
     if signer is not None:
+        sign_payload = (
+            f"{cp_hash}:{merkle_root}".encode("utf-8")
+            if merkle_root
+            else cp_hash.encode("utf-8")
+        )
         if hasattr(signer, "sign"):
-            sig_bytes = signer.sign(cp_hash.encode("utf-8"))
+            sig_bytes = signer.sign(sign_payload)
         elif callable(signer):
-            sig_bytes = signer(cp_hash.encode("utf-8"))
+            sig_bytes = signer(sign_payload)
         else:
             raise TypeError("signer must have a .sign() method or be callable")
         if resolved_key_id is None and hasattr(signer, "key_id"):
@@ -399,7 +486,15 @@ def create_dual_trigger_checkpoint(
     else:
         sig_bytes = b"\x00" * 64
 
-    stored = store_checkpoint(conn, target_seq, cp_hash, sig_bytes, key_id=resolved_key_id)
+    stored = store_checkpoint(
+        conn,
+        target_seq,
+        cp_hash,
+        sig_bytes,
+        key_id=resolved_key_id,
+        merkle_root=merkle_root,
+        merkle_leaf_count=merkle_leaf_count,
+    )
 
     query = (
         "SELECT checkpoint_id, sequence_id, checkpoint_hash, signature, created_at "
@@ -415,6 +510,8 @@ def create_dual_trigger_checkpoint(
         "checkpoint_id": cp_row["checkpoint_id"] if cp_row else None,
         "checkpoint_sequence_id": target_seq,
         "checkpoint_hash": cp_hash,
+        "merkle_root": merkle_root,
+        "merkle_leaf_count": merkle_leaf_count,
         "entries_in_range": len(entry_hashes),
         "trigger_reason": reason,
         "newly_stored": stored,
@@ -447,7 +544,7 @@ def verify_checkpoint_signatures(
 
     query = (
         "SELECT checkpoint_id, sequence_id, checkpoint_hash, signature, "
-        "COALESCE(key_id, 'local:ed25519:v1') as key_id, created_at "
+        "COALESCE(key_id, 'local:ed25519:v1') as key_id, merkle_root, merkle_leaf_count, created_at "
         "FROM chain_checkpoints "
         "ORDER BY sequence_id ASC"
     )
@@ -456,15 +553,24 @@ def verify_checkpoint_signatures(
             cur.execute(query)
             rows = cur.fetchall()
         except Exception:
-            # Fallback if key_id column has not been migrated yet in test db
+            # Fallback if merkle columns or key_id have not been migrated yet in test db
             conn.rollback()
-            cur.execute(
-                "SELECT checkpoint_id, sequence_id, checkpoint_hash, signature, created_at "
-                "FROM chain_checkpoints ORDER BY sequence_id ASC"
-            )
-            rows = [
-                {**dict(r), "key_id": "local:ed25519:v1"} for r in cur.fetchall()
-            ]
+            try:
+                cur.execute(
+                    "SELECT checkpoint_id, sequence_id, checkpoint_hash, signature, "
+                    "COALESCE(key_id, 'local:ed25519:v1') as key_id, created_at "
+                    "FROM chain_checkpoints ORDER BY sequence_id ASC"
+                )
+                rows = [dict(r) for r in cur.fetchall()]
+            except Exception:
+                conn.rollback()
+                cur.execute(
+                    "SELECT checkpoint_id, sequence_id, checkpoint_hash, signature, created_at "
+                    "FROM chain_checkpoints ORDER BY sequence_id ASC"
+                )
+                rows = [
+                    {**dict(r), "key_id": "local:ed25519:v1"} for r in cur.fetchall()
+                ]
 
     all_valid = True
     results = []
@@ -474,6 +580,7 @@ def verify_checkpoint_signatures(
         chk_hash = row["checkpoint_hash"]
         chk_sig = bytes(row["signature"]) if row.get("signature") else b""
         chk_key_id = row.get("key_id", "local:ed25519:v1")
+        chk_merkle_root = row.get("merkle_root")
 
         if not chk_sig or chk_sig == b"\x00" * 64:
             results.append({
@@ -481,6 +588,7 @@ def verify_checkpoint_signatures(
                 "sequence_id": row["sequence_id"],
                 "status": "unsigned",
                 "key_id": chk_key_id,
+                "merkle_root": chk_merkle_root,
                 "valid": False,
             })
             all_valid = False
@@ -499,6 +607,7 @@ def verify_checkpoint_signatures(
                         "sequence_id": row["sequence_id"],
                         "status": "key_not_found",
                         "key_id": chk_key_id,
+                        "merkle_root": chk_merkle_root,
                         "valid": False,
                     })
                     all_valid = False
@@ -512,17 +621,25 @@ def verify_checkpoint_signatures(
                 "sequence_id": row["sequence_id"],
                 "status": "no_key_provided",
                 "key_id": chk_key_id,
+                "merkle_root": chk_merkle_root,
                 "valid": False,
             })
             all_valid = False
             continue
 
-        valid = verify_signature(resolved_key, chk_hash, chk_sig)
+        valid = verify_signature(
+            resolved_key,
+            chk_hash,
+            chk_sig,
+            key_id=chk_key_id,
+            merkle_root=chk_merkle_root,
+        )
         results.append({
             "checkpoint_id": chk_id,
             "sequence_id": row["sequence_id"],
             "status": "verified" if valid else "invalid_signature",
             "key_id": chk_key_id,
+            "merkle_root": chk_merkle_root,
             "valid": valid,
         })
         if not valid:

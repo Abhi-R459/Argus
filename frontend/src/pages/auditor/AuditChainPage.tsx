@@ -582,7 +582,7 @@ export default function AuditChainPage() {
             {isSearchDropdownOpen && seqInput.trim().length > 0 && (
               <div
                 ref={searchDropdownRef}
-                className="absolute left-0 right-0 top-full mt-1.5 z-50 bg-[#16181d] border border-linear-hairline-strong rounded-xl shadow-2xl backdrop-blur-xl ring-1 ring-black/60 overflow-hidden animate-in fade-in slide-in-from-top-1 duration-150"
+                className="absolute left-0 right-0 top-full mt-1.5 z-50 bg-[#16181d] border border-linear-hairline-strong rounded-xl shadow-2xl backdrop-blur-xl ring-1 ring-black/60 overflow-hidden animate-in fade-in slide-in-from-top-1 duration-150 origin-top"
               >
                 <div className="px-3 py-1.5 text-[10px] uppercase font-mono font-semibold text-linear-ink-muted border-b border-linear-hairline bg-linear-surface-2/70 flex items-center justify-between">
                   <span>
@@ -1091,6 +1091,9 @@ export default function AuditChainPage() {
                     oldValue={selectedBlock.old_value}
                     newValue={selectedBlock.new_value}
                     operation={selectedBlock.operation}
+                    isTampered={incident.tamperedSeqId === selectedBlock.entry_id}
+                    tamperDetails={incident.tamperedSeqId === selectedBlock.entry_id ? incident.details : undefined}
+                    sequenceId={selectedBlock.entry_id}
                   />
                 </div>
               </div>

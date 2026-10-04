@@ -92,12 +92,15 @@
    - [Feature 46: Checkpoint Interval Optimization Sweep (10 to 1000)](#feature-46-checkpoint-interval-optimization-sweep-10-to-1000)
    - [Feature 47: Multiprocess Parallel Verification Scaling Benchmark (1, 2, 4, 8 Cores)](#feature-47-multiprocess-parallel-verification-scaling-benchmark-1-2-4-8-cores)
    - [Feature 48: Automated SVG Benchmark Visualization Plotter](#feature-48-automated-svg-benchmark-visualization-plotter)
-   - [Feature 49: Comprehensive 204+ Automated Test Suites (231 Items Collected)](#feature-49-comprehensive-204-automated-test-suites-231-items-collected)
+   - [Feature 49: Comprehensive 256+ Automated Test Suites (288 Items Collected)](#feature-49-comprehensive-256-automated-test-suites-288-items-collected)
 8. [Strategic Cryptographic Frontiers & Academic Novelties](#8-strategic-cryptographic-frontiers--academic-novelties)
    - [Feature 50: GDPR Article 17 "Crypto-Shredding" Engine](#feature-50-gdpr-article-17-crypto-shredding-engine)
    - [Feature 51: Selective-Disclosure Evidence Capsules (`.arguscap`) via Merkle Proofs](#feature-51-selective-disclosure-evidence-capsules-arguscap-via-merkle-proofs)
    - [Feature 52: Dual-Witness Threshold Anchoring (Cloud WORM + Git Transparency Tree)](#feature-52-dual-witness-threshold-anchoring-cloud-worm--git-transparency-tree)
    - [Feature 53: Counterfactual "What-If" Blast-Radius Provenance Simulation Engine](#feature-53-counterfactual-what-if-blast-radius-provenance-simulation-engine)
+   - [Feature 54: Counterfactual "What-If" Provenance Replay Engine (NOVEL-011)](#feature-54-counterfactual-what-if-provenance-replay-novel-011)
+   - [Feature 55: Selective-Disclosure Merkle Capsules — `.arguscap` (NOVEL-009)](#feature-55-selective-disclosure-merkle-capsules--arguscap-novel-009)
+   - [Feature 56: Multi-Witness WORM Anchoring with RFC 9162 Threshold Cosigning (NOVEL-010)](#feature-56-multi-witness-worm-anchoring-with-rfc-9162-threshold-cosigning-novel-010)
 9. [Master Feature Matrix & Regulatory Crosswalk](#9-master-feature-matrix--regulatory-crosswalk)
 
 ---
@@ -960,9 +963,9 @@ Delivers fluid, tactile micro-interactions with high framerate rendering, avoidi
 
 ---
 
-## Feature 49: Comprehensive 204+ Automated Test Suites (231 Items Collected)
-- Exhaustive pytest suite validating 204 passing tests (27 live DB tests cleanly skipped when database is offline) across 231 collected items:
-  - Database migrations (`test_migration_001.py` through `004.py`, across all 13 Alembic versions).
+## Feature 49: Comprehensive 256+ Automated Test Suites (288 Items Collected)
+- Exhaustive pytest suite validating 256 passing tests (32 live DB/network tests cleanly skipped when database is offline) across 288 collected items:
+  - Database migrations (`test_migration_001.py` through `004.py`, across all 14 Alembic versions including `014_merkle_root.py`).
   - Triggers and business rules (`test_trigger_employees.py`, `test_trigger_salary.py`, `test_business_rules.py`).
   - Blind indexing (`test_blind_indexing.py`, `test_blind_indexing_db.py`, `test_blind_search_api.py`).
   - Standalone verifier and Ed25519 signing (`test_verify_standalone.py`, `test_checkpoint_store.py`, `test_signer_providers.py`).
@@ -970,6 +973,11 @@ Delivers fluid, tactile micro-interactions with high framerate rendering, avoidi
   - Backup integrity (`test_backup.py`).
   - Adversary Red Team CLI and all 6 attack demos (`test_adversary_cli.py`, `test_attack_demos.py`).
   - Full-stack API routes, chain explorer, and live telemetry (`test_audits.py`, `test_bridge_endpoints.py`, `test_chain_explorer_api.py`, `test_employees.py`, `test_live_telemetry.py`).
+  - **Phase 13 Cryptographic Frontiers Suites:**
+    - Counterfactual Replay (`db/tests/test_counterfactual.py` 7/7, `api/tests/test_counterfactual.py` 5/5).
+    - Merkle Tree Engine & Verification (`db/tests/test_merkle_tree.py` 9/9).
+    - Merkle Evidence Capsules (`db/tests/test_capsule.py` 9/9, `api/tests/test_capsule_api.py` 7/7).
+    - Multi-Witness RFC 9162 Threshold Cosigning (`db/tests/test_multi_witness.py` 8/8).
 
 ---
 
@@ -1075,11 +1083,11 @@ The following master matrix cross-references every single feature in Argus acros
 | **46** | Checkpoint Sweep Suite | Python Benchmark | `bench_checkpoint_sweep.py`| Benchmark | Optimization curve | Algorithmic Parameter Tuning |
 | **47** | Parallel Scaling Suite | Python Benchmark | `db/bench/bench_parallel.py`| Benchmark | Speedup measurement | Multi-Core Scaling Validation |
 | **48** | Benchmark Plotter | Python Matplotlib | `db/bench/plot_benchmarks.py`| Benchmark | Vector rendering | Publication-Quality Reporting |
-| **49** | 204+ Automated Tests | Pytest / Playwright| `db/tests/*`, `api/tests/*` | Quality Assurance | Test automation | 204 passed, 27 skipped (231 collected); CI/CD |
+| **49** | 256+ Automated Tests | Pytest / Playwright| `db/tests/*`, `api/tests/*` | Quality Assurance | Test automation | 256 passed, 32 skipped (288 collected); CI/CD |
 | **50** | GDPR Crypto-Shredding | Cryptographic Design| `docs/CRYPTO_SHREDDING_ANALYSIS.md` | Data Subjects | $O(1)$ key zeroize | Supports GDPR Art. 17 ("Right to be Forgotten") objectives |
-| **51** | Merkle Evidence Capsules| Cryptographic Design| `docs/MERKLE_TREE_SPEC.md` | Third Parties | $O(\log K)$ inclusion | Selective Disclosure, Zero Neighbor Leak |
-| **52** | Dual-Witness Anchoring | Distributed Anchor | `docs/MULTI_WITNESS_SPEC.md` | Cloud Root, $A_{\text{DBA}}$ | Multi-party consensus| Decentralized Witness Co-Signing (transparency-dev) |
-| **53** | Counterfactual Simulation| Replay Engine | `docs/Final_Paper.md` | Forensic Analysts | Virtual delta replay | Incident Response & Blast Radius Analysis |
+| **51/55** | Merkle Evidence Capsules| RFC 6962 / CLI | `merkle_tree.py`, `capsule.py` | Regulators, Third Parties | $O(\log K)$ inclusion | Selective Disclosure, Zero Neighbor Leak (.arguscap) |
+| **52/56** | Multi-Witness WORM Anchoring | RFC 9162 Protocol | `witness_protocol.py`, `anchor_store.py` | Cloud Root, $A_{\text{DBA}}$ | 2-of-3 threshold quorum | Split-View Fork Detection & Decentralized Cosigning |
+| **53/54** | Counterfactual Simulation| Python CLI / API | `counterfactual.py`, `audits.py` | Forensic Analysts | $O(K)$ virtual walk | Prescriptive Incident Response & Blast Radius Analysis |
 
 ---
 
@@ -1114,5 +1122,67 @@ A rigorous security engineering methodology requires transparently articulating 
 
 ---
 
-*This concludes the exhaustive architectural compendium for Argus. Features 1–49 represent shipped, production-grade capabilities verified across 204+ automated tests (231 items collected) in the database kernel, verification engine, backend API, and forensic frontend. Features 50–53 represent formal strategic specifications and mathematical designs established in dedicated research papers.*
+*This concludes the exhaustive architectural compendium for Argus. Features 1–49 and Features 54–56 represent shipped, production-grade capabilities verified across 256+ automated tests (288 items collected) in the database kernel, verification engine, backend API, and forensic frontend. Feature 50 represents a formal strategic specification and mathematical design established in a dedicated research paper.*
+
+---
+
+## Part VII: Phase 13 — Cryptographic Frontiers (Fully Implemented & Verified)
+
+### Feature 54: Counterfactual "What-If" Provenance Replay (NOVEL-011)
+
+**Status:** ✅ Fully Implemented & Verified (Phase 13)
+
+**Architectural Novelty 11** from NOVELTY.md.
+
+No commercial audit system — pgAudit, SQL Server Ledger, Oracle Blockchain, immudb, QLDB, Dolt — turns a tamper-evident audit log into an active forensic simulation engine. Standard time-travel answers "what was". Counterfactual replay answers "what *should* have been".
+
+**Implementation:**
+- `db/cli/counterfactual.py`: `counterfactual_replay(conn, employee_id, skip_seq_ids, as_of_ts)` walks audit_log chronologically, applies JSONB delta merges for rows NOT in skip_seq_ids, computes blast_radius
+- `POST /api/audit-logs/counterfactual`: compliance_auditor only endpoint
+- `frontend/src/pages/auditor/CounterfactualPage.tsx`: side-by-side comparison table (Actual State | Counterfactual State | Delta) with blast radius callout
+- **Automated Tests:** `db/tests/test_counterfactual.py` (7/7 pass), `api/tests/test_counterfactual.py` (5/5 pass)
+
+**Example Output:**
+| Field | Actual State | Counterfactual State | Delta |
+|-------|-------------|---------------------|-------|
+| Salary | $250,000 | $80,000 | −$170,000/yr |
+| Cumulative Overpaid | — | — | $680,000 (4 years) |
+
+---
+
+### Feature 55: Selective-Disclosure Merkle Capsules — `.arguscap` (NOVEL-009)
+
+**Status:** ✅ Fully Implemented & Verified (Phase 13)
+
+**Architectural Novelty 9** from NOVELTY.md.
+
+The `.arguspack` bundle proves chain integrity by sharing the entire log section. Merkle Capsules prove a *single* transaction's validity with O(log K) hashes — without revealing any adjacent record.
+
+**Implementation:**
+- `db/alembic/versions/014_merkle_root.py`: adds `merkle_root TEXT` + `merkle_leaf_count INT` to `chain_checkpoints`
+- `db/cli/merkle_tree.py`: `ArgussMerkleTree` class — RFC 6962 domain separation (0x00 leaf, 0x01 internal), odd-leaf promotion (no duplicate-leaf CVE-2012-2459)
+- `db/cli/capsule.py`: `generate_capsule(conn, seq_id, output_path)` producing `.arguscap` zip bundles
+- `db/cli/verify_capsule.py`: zero-dependency standalone capsule verifier (pure Python stdlib)
+- `GET /api/audit-logs/{seq_id}/capsule`: streaming `.arguscap` download endpoint
+- `GET /api/audit-logs/{seq_id}/proof`: inclusion proof metadata endpoint
+- `frontend/src/pages/auditor/ForensicEvidencePage.tsx`: sequence ID input, Generate Merkle Proof, Download `.arguscap`
+- **Automated Tests:** `db/tests/test_merkle_tree.py` (9/9 pass), `db/tests/test_capsule.py` (9/9 pass), `api/tests/test_capsule_api.py` (7/7 pass)
+
+---
+
+### Feature 56: Multi-Witness WORM Anchoring with RFC 9162 Threshold Cosigning (NOVEL-010)
+
+**Status:** ✅ Fully Implemented & Verified (Phase 13)
+
+**Architectural Novelty 10** from NOVELTY.md.
+
+Extends the existing three anchor adapters (S3WormAnchorStore, Rfc3161AnchorStore, GitHubAnchorStore) into a formally structured multi-witness cosigning protocol eliminating split-view attacks.
+
+**Implementation:**
+- `db/cli/witness_protocol.py`: `CheckpointNote` (RFC 9162 format), `WitnessSignature`, `WitnessedCheckpoint` (quorum logic + fork detection)
+- `db/cli/anchor_store.py`: `MultiWitnessAnchorStore(witnesses, threshold=2)` with `QuorumNotMetError` and `ProofOfMisbehavior`
+- `db/cli/verifier.py`: `--multi-witness` CLI verification flag and `_check_witness_quorum()` reporting
+- `GET /api/anchor/status`: extended with `witness_report` (per-witness status, quorum_satisfied)
+- `frontend/src/components/auditor/AnchorStatus.tsx`: Witness Quorum panel showing per-witness cosigning badges
+- **Automated Tests:** `db/tests/test_multi_witness.py` (8/8 pass)
 

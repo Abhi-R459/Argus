@@ -17,7 +17,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Argus API",
     description="Tamper-evident, self-verifying audit trail engine for PostgreSQL",
-    version="0.2.0",
+    version="1.2.0",
     lifespan=lifespan,
 )
 

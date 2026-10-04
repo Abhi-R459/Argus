@@ -171,7 +171,7 @@ export default function EmployeeTable() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search personnel directory by name or ID... (/)"
-              className="w-full pl-9 pr-7 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-slate-900 focus:ring-4 focus:ring-slate-900/5 transition-all shadow-2xs"
+              className="w-full pl-9 pr-7 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-slate-900 focus:ring-4 focus:ring-slate-900/5 transition-[color,background-color,border-color,box-shadow] duration-150 ease-out shadow-2xs"
             />
             {search && (
               <button
@@ -213,7 +213,7 @@ export default function EmployeeTable() {
                 setSelectedStatus('all');
                 setPage(1);
               }}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-[color,background-color,box-shadow] duration-150 ease-out ${
                 selectedStatus === 'all'
                   ? 'bg-white text-slate-900 shadow-xs font-semibold'
                   : 'text-slate-500 hover:text-slate-900'
@@ -227,7 +227,7 @@ export default function EmployeeTable() {
                 setSelectedStatus('active');
                 setPage(1);
               }}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-[color,background-color,box-shadow] duration-150 ease-out ${
                 selectedStatus === 'active'
                   ? 'bg-white text-emerald-700 shadow-xs font-semibold'
                   : 'text-slate-500 hover:text-slate-900'
@@ -241,7 +241,7 @@ export default function EmployeeTable() {
                 setSelectedStatus('inactive');
                 setPage(1);
               }}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-[color,background-color,box-shadow] duration-150 ease-out ${
                 selectedStatus === 'inactive'
                   ? 'bg-white text-amber-700 shadow-xs font-semibold'
                   : 'text-slate-500 hover:text-slate-900'
