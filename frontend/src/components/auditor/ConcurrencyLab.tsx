@@ -133,9 +133,9 @@ export default function ConcurrencyLab() {
                   <span className="block text-2xl font-bold font-mono text-linear-success">{stats.success}</span>
                   <span className="text-[10px] uppercase font-bold text-linear-success tracking-wider">Success</span>
                 </div>
-                <div className="bg-grafana-orange/10 border border-grafana-orange/20 p-3 rounded-lg text-center">
-                  <span className="block text-2xl font-bold font-mono text-grafana-orange">{stats.failed}</span>
-                  <span className="text-[10px] uppercase font-bold text-grafana-orange tracking-wider">Serialization Failures</span>
+                <div className="bg-status-warning/10 border border-status-warning/20 p-3 rounded-lg text-center">
+                  <span className="block text-2xl font-bold font-mono text-status-warning">{stats.failed}</span>
+                  <span className="text-[10px] uppercase font-bold text-status-warning tracking-wider">Serialization Failures</span>
                 </div>
               </div>
             )}
@@ -175,7 +175,7 @@ export default function ConcurrencyLab() {
                     </span>
                     <span className={`flex-1 break-words ${
                       log.status === 'success' ? 'text-linear-success' :
-                      log.status === 'error' ? 'text-grafana-orange' : 'text-linear-ink-muted'
+                      log.status === 'error' ? 'text-status-warning' : 'text-linear-ink-muted'
                     }`}>
                       {log.action}
                     </span>

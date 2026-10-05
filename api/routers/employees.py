@@ -9,7 +9,7 @@ Implements:
 """
 
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, or_
 from sqlalchemy.exc import IntegrityError
@@ -22,6 +22,7 @@ from ..models.role import Role
 from ..models.department import Department
 from ..models.salary_history import SalaryHistory
 from ..models.directory_view import EmployeeDirectoryView
+from ..models.security_audit_event import SecurityAuditEvent
 from ..schemas.employee import (
     EmployeeListItem, EmployeeCreate, EmployeeUpdate,
     EmployeeCreateResponse, EmployeeUpdateResponse, EmployeeDeactivateResponse,
@@ -39,6 +40,8 @@ async def list_employees(
     is_active: Optional[bool] = Query(None, description="Filter by active status"),
     page: int = Query(1, ge=1, description="Page number"),
     limit: int = Query(20, ge=1, le=100, description="Items per page"),
+    include_pii: bool = Query(False, description="Auditors may explicitly reveal PII; access is recorded"),
+    request: Request = None,
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session),
 ):
@@ -94,16 +97,29 @@ async def list_employees(
         result = await session.execute(query)
         rows = result.all()
 
+        if include_pii:
+            session.add(
+                SecurityAuditEvent(
+                    event_type="DIRECTORY_PII_REVEAL",
+                    actor_user_id=current_user.user_id,
+                    actor_email=current_user.email,
+                    blind_index=None,
+                    matches_found=len(rows),
+                    client_ip=(request.client.host if request and request.client else "127.0.0.1"),
+                )
+            )
+
         items = [
             EmployeeListItem(
                 employee_id=row.employee_id,
-                full_name=row.full_name,
-                email=row.email,
+                full_name=row.full_name if include_pii else f"Employee #{row.employee_id}",
+                email=row.email if include_pii else "Restricted",
                 role_title=row.role_title,
                 department_name=row.department_name,
-                salary=row.salary,
+                salary=row.salary if include_pii else None,
                 date_hired=row.date_hired,
                 is_active=row.is_active,
+                pii_redacted=not include_pii,
             )
             for row in rows
         ]

@@ -20,6 +20,9 @@ class Settings(BaseSettings):
     BLIND_INDEX_MODE: str = "pbkdf2"  # "pbkdf2" or "hmac"
     BLIND_INDEX_RATE_LIMIT_PER_MINUTE: int = 10
     ALLOW_DEMO_ROLE_SWITCH: bool = False
+    HR_ADMIN_EMAILS: str = ""
+    COMPLIANCE_AUDITOR_EMAILS: str = ""
+    SUSPICIOUS_ACTIVITY_REFRESH_SECONDS: int = 30
 
     model_config = SettingsConfigDict(
         env_file=".env",

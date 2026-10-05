@@ -17,6 +17,7 @@ import {
   downloadCapsule,
   MerkleProof,
 } from '../../services/auditService';
+import PageHeader from '../../components/common/PageHeader';
 
 export default function ForensicEvidencePage() {
   const { getToken } = useAuth();
@@ -73,24 +74,12 @@ export default function ForensicEvidencePage() {
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-linear-hairline pb-5">
-        <div>
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-lg bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
-              <ShieldCheck className="w-5 h-5" />
-            </div>
-            <div>
-              <h1 className="text-xl font-bold tracking-tight text-linear-ink">
-                Forensic Evidence & Selective Merkle Capsules
-              </h1>
-              <p className="text-xs text-linear-ink-subtle mt-0.5">
-                Prove single-record authenticity under an Ed25519-signed checkpoint with zero sibling disclosure (RFC 6962 / NOVEL-009).
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
+      <PageHeader
+        icon={<ShieldCheck className="h-5 w-5" />}
+        title="Forensic Evidence & Selective Merkle Capsules"
+        description="Prove one record’s inclusion in a signed checkpoint without disclosing sibling records."
+        eyebrow="Selective evidence · RFC 6962"
+      />
 
       {/* Lookup Card */}
       <div className="p-5 rounded-xl border border-linear-hairline bg-linear-surface-1 shadow-xs space-y-4">
@@ -124,7 +113,7 @@ export default function ForensicEvidencePage() {
               </>
             ) : (
               <>
-                <Sparkles className="w-4 h-4 text-purple-200" />
+                <Sparkles className="w-4 h-4 text-linear-primary" />
                 <span>Generate Merkle Proof</span>
               </>
             )}
@@ -134,7 +123,7 @@ export default function ForensicEvidencePage() {
             type="button"
             onClick={handleDownloadCapsule}
             disabled={isDownloading || !sequenceId}
-            className="flex items-center justify-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white rounded-lg text-sm font-medium transition-colors shadow-xs disabled:opacity-50 h-[38px] btn-press shrink-0"
+            className="flex items-center justify-center gap-2 px-4 py-2 bg-linear-surface-2 hover:bg-linear-surface-3 active:bg-linear-surface-4 border border-linear-hairline text-linear-ink rounded-lg text-sm font-medium transition-colors shadow-2xs disabled:opacity-50 h-[38px] btn-press shrink-0"
           >
             {isDownloading ? (
               <>

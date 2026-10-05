@@ -33,34 +33,34 @@ export function getActionSemantic(
     if (isSalary) {
       return {
         label: 'Compensation',
-        className: 'bg-purple-50 text-purple-700 border-purple-200/80 font-semibold',
-        dotClassName: 'bg-purple-500',
+        className: 'bg-portal-info/10 text-blue-800 border-portal-info/20 font-semibold',
+        dotClassName: 'bg-portal-info',
       };
     }
     switch (normAction) {
       case 'INSERT':
         return {
           label: 'New Hire',
-          className: 'bg-emerald-50 text-emerald-700 border-emerald-200/80 font-semibold',
-          dotClassName: 'bg-emerald-600',
+          className: 'bg-portal-success/10 text-green-800 border-portal-success/20 font-semibold',
+          dotClassName: 'bg-portal-success',
         };
       case 'UPDATE':
         return {
           label: 'Profile Update',
-          className: 'bg-blue-50 text-blue-700 border-blue-200/80 font-semibold',
-          dotClassName: 'bg-blue-600',
+          className: 'bg-portal-info/10 text-blue-800 border-portal-info/20 font-semibold',
+          dotClassName: 'bg-portal-info',
         };
       case 'DELETE':
         return {
           label: 'Deactivation',
-          className: 'bg-rose-50 text-rose-700 border-rose-200/80 font-semibold',
-          dotClassName: 'bg-rose-600',
+          className: 'bg-portal-danger/10 text-rose-800 border-portal-danger/20 font-semibold',
+          dotClassName: 'bg-portal-danger',
         };
       default:
         return {
           label: normAction,
-          className: 'bg-slate-100 text-slate-700 border-slate-200/80 font-semibold',
-          dotClassName: 'bg-slate-500',
+          className: 'bg-portal-surface-2 text-portal-ink-muted border-portal-hairline font-semibold',
+          dotClassName: 'bg-portal-ink-subtle',
         };
     }
   }
@@ -89,8 +89,8 @@ export function getActionSemantic(
     case 'DELETE':
       return {
         label: 'DELETE',
-        className: 'bg-grafana-orange/15 text-grafana-orange border-grafana-orange/30',
-        dotClassName: 'bg-grafana-orange',
+        className: 'bg-rose-500/15 text-rose-300 border-rose-500/30',
+        dotClassName: 'bg-rose-400',
       };
     default:
       return {
@@ -108,7 +108,7 @@ export function getSeverityDotClass(severity: string): string {
   const norm = (severity || 'low').toLowerCase();
   switch (norm) {
     case 'critical':
-      return 'bg-grafana-orange';
+      return 'bg-rose-500';
     case 'high':
       return 'bg-orange-400';
     case 'medium':
@@ -144,7 +144,7 @@ export function getSeverityChipClass(
   // Auditor portal
   switch (norm) {
     case 'critical':
-      return 'bg-grafana-orange/20 text-grafana-orange border-grafana-orange/40 font-semibold';
+      return 'bg-rose-500/15 text-rose-300 border-rose-500/35 font-semibold';
     case 'high':
       return 'bg-orange-500/15 text-orange-300 border-orange-500/30';
     case 'medium':

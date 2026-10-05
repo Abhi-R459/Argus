@@ -13,9 +13,9 @@ interface ChainVisualizationProps {
 
 const SEVERITY_ROW_GLOW: Record<Severity, string> = {
   low: '',
-  medium: '',
-  high: 'bg-grafana-orange/5',
-  critical: 'bg-grafana-orange/10 border-l-2 border-grafana-orange/50',
+  medium: 'bg-amber-500/[0.03]',
+  high: 'bg-orange-500/[0.05]',
+  critical: 'bg-rose-500/[0.08] border-l-2 border-rose-500/60',
 };
 
 interface DiffDrawerProps {
@@ -62,7 +62,7 @@ function ChainRow({ entry, isFirst, isTampered }: ChainRowProps) {
       <tr
         className={`group cursor-pointer transition-colors duration-150 ${
           isTampered
-            ? 'bg-grafana-orange/15 border-l-4 border-grafana-orange'
+            ? 'bg-status-warning/15 border-l-4 border-status-warning'
             : `${SEVERITY_ROW_GLOW[entry.severity]} ${expanded ? 'bg-linear-surface-2' : 'hover:bg-linear-surface-2/60'}`
         }`}
         onClick={() => setExpanded((v) => !v)}
@@ -76,17 +76,17 @@ function ChainRow({ entry, isFirst, isTampered }: ChainRowProps) {
               <div
                 className={`w-2 h-2 rounded-full flex-shrink-0 ${
                   isTampered
-                    ? 'bg-grafana-orange'
+                    ? 'bg-status-warning'
                     : getSeverityDotClass(entry.severity)
                 }`}
               />
               {!isFirst && <div className="w-0.5 h-3.5 bg-linear-hairline mt-0.5" />}
             </div>
-            <span className={`text-xs font-mono font-semibold ${isTampered ? 'text-grafana-orange font-bold' : 'text-linear-ink'}`}>
+            <span className={`text-xs font-mono font-semibold ${isTampered ? 'text-status-warning font-bold' : 'text-linear-ink'}`}>
               #{entry.entry_id}
             </span>
             {isTampered && (
-              <span className="ml-1 px-1 py-0.5 rounded text-[9px] font-bold bg-grafana-orange/30 text-white border border-grafana-orange/60 animate-pulse">
+              <span className="ml-1 px-1 py-0.5 rounded text-[10px] font-bold bg-status-warning/30 text-white border border-status-warning/60">
                 ALERT
               </span>
             )}
@@ -100,7 +100,7 @@ function ChainRow({ entry, isFirst, isTampered }: ChainRowProps) {
             <ArrowRight className="w-2.5 h-2.5 text-linear-ink-tertiary shrink-0" />
             <span className={`text-[11px] px-1 py-0.5 rounded border ${
               isTampered
-                ? 'text-white bg-grafana-orange/30 border-grafana-orange/50 font-semibold'
+                ? 'text-white bg-status-warning/30 border-status-warning/50 font-semibold'
                 : 'text-linear-primary bg-linear-primary/5 border-linear-primary/20'
             }`}>
               {truncateHash(entry.hash, 4, 4)}
@@ -150,9 +150,9 @@ function ChainRow({ entry, isFirst, isTampered }: ChainRowProps) {
             <span
               className={`text-xs capitalize ${
                 entry.severity === 'critical'
-                  ? 'text-grafana-orange font-semibold'
+                  ? 'text-status-warning font-semibold'
                   : entry.severity === 'high'
-                  ? 'text-grafana-orange'
+                  ? 'text-status-warning'
                   : entry.severity === 'medium'
                   ? 'text-amber-400'
                   : 'text-linear-ink-subtle'
@@ -205,8 +205,8 @@ export default function ChainVisualization({ entries, tamperedSequenceId }: Chai
             {entries.length} entries
           </span>
           {tamperedSequenceId && (
-            <span className="text-xs text-white bg-grafana-orange/30 border border-grafana-orange/50 px-2.5 py-0.5 rounded-full font-mono animate-pulse flex items-center space-x-1.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-grafana-orange" />
+            <span className="text-xs text-white bg-status-warning/30 border border-status-warning/50 px-2.5 py-0.5 rounded-full font-mono animate-pulse flex items-center space-x-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-status-warning" />
               <span>Violation at #{tamperedSequenceId}</span>
             </span>
           )}

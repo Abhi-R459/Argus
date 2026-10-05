@@ -1,6 +1,7 @@
 import pytest
 from httpx import AsyncClient
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
+from types import SimpleNamespace
 
 pytestmark = pytest.mark.asyncio
 
@@ -55,14 +56,19 @@ async def test_system_metrics_auditor(client_auditor: AsyncClient, mock_db_sessi
         ('audit_log', 10, 25, 45, 0)
     ]
     m_pgcrypto = MagicMock(); m_pgcrypto.scalar.return_value = 1
-    m_perm = MagicMock(); m_perm.scalar.return_value = False
+    m_perm = MagicMock(); m_perm.scalar.return_value = True
     m_match = MagicMock(); m_match.scalar.return_value = True
 
     mock_db_session.execute.side_effect = [
         m_hit, m_sz, m_cnt, m_chk_cnt, m_tables, m_pgcrypto, m_perm, m_match
     ]
+    nested = MagicMock()
+    nested.__aenter__ = AsyncMock(return_value=None)
+    nested.__aexit__ = AsyncMock(return_value=False)
+    mock_db_session.begin_nested = MagicMock(return_value=nested)
 
-    response = await client_auditor.get('/api/analytics/system-metrics')
+    with patch('api.routers.audits.get_settings', return_value=SimpleNamespace(CLERK_JWT_KEY='test-public-key')):
+        response = await client_auditor.get('/api/analytics/system-metrics')
     assert response.status_code == 200
     data = response.json()
     assert data['cache_hit_rate'] == 98.5
@@ -73,17 +79,50 @@ async def test_system_metrics_auditor(client_auditor: AsyncClient, mock_db_sessi
     assert data['security_checks']['pgcrypto_active'] is True
     assert data['security_checks']['role_isolation'] is True
     assert data['security_checks']['chain_continuous'] is True
+    assert data['security_check_details']['auth_enforced'] == 'pass'
+
+
+async def test_system_metrics_reports_unknown_checks_without_false_green(client_auditor: AsyncClient, mock_db_session: AsyncMock):
+    hit = MagicMock(); hit.scalar.return_value = 90.0
+    size = MagicMock(); size.first.return_value = ('10 MB', '1 MB')
+    count = MagicMock(); count.scalar.return_value = 10
+    checkpoints = MagicMock(); checkpoints.scalar.return_value = 1
+    tables = MagicMock(); tables.all.return_value = []
+    mock_db_session.execute.side_effect = [
+        hit, size, count, checkpoints, tables,
+        RuntimeError('extension check unavailable'),
+        RuntimeError('privilege check unavailable'),
+        RuntimeError('chain check unavailable'),
+    ]
+    nested = MagicMock()
+    nested.__aenter__ = AsyncMock(return_value=None)
+    nested.__aexit__ = AsyncMock(return_value=False)
+    mock_db_session.begin_nested = MagicMock(return_value=nested)
+
+    with patch('api.routers.audits.get_settings', return_value=SimpleNamespace(CLERK_JWT_KEY='test-public-key')):
+        response = await client_auditor.get('/api/analytics/system-metrics')
+    assert response.status_code == 200
+    data = response.json()
+    assert data['security_score'] == 25
+    assert data['security_check_details']['pgcrypto_active'] == 'unknown'
+    assert data['security_checks']['pgcrypto_active'] is False
 
 async def test_system_metrics_hr_forbidden(client_hr: AsyncClient):
     response = await client_hr.get('/api/analytics/system-metrics')
     assert response.status_code == 403
 
 async def test_concurrency_run_auditor(client_auditor: AsyncClient, mock_db_session: AsyncMock):
-    m_tail = MagicMock(); m_tail.scalar.return_value = 49
-    m_row = MagicMock(); m_row.first.return_value = (49, 'hash')
-    mock_db_session.execute.side_effect = [m_tail, m_row, m_row, m_row]
+    def make_worker_session():
+        worker_session = AsyncMock()
+        worker_session.__aenter__.return_value = worker_session
+        worker_session.__aexit__.return_value = None
+        result = MagicMock()
+        result.one.return_value = (49, 100, True)
+        worker_session.execute.return_value = result
+        return worker_session
 
-    response = await client_auditor.post('/api/analytics/diagnostics/concurrency-benchmark', json={'workers': 3})
+    with patch('api.routers.audits.get_session_factory', return_value=MagicMock(side_effect=make_worker_session)):
+        response = await client_auditor.post('/api/analytics/diagnostics/concurrency-benchmark', json={'workers': 3})
     assert response.status_code == 200
 
     data = response.json()

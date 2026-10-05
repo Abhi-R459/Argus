@@ -12,6 +12,7 @@ class EmployeeListItem(BaseModel):
     salary: Optional[Decimal] = None
     date_hired: date
     is_active: bool
+    pii_redacted: bool = False
     
     model_config = ConfigDict(from_attributes=True)
 

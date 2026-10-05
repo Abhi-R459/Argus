@@ -60,7 +60,7 @@ export default function AuditChainPage() {
   const [selectedAction, setSelectedAction] = useState<string>('');
   const [pageOffset, setPageOffset] = useState<number>(0);
   const [selectedBlock, setSelectedBlock] = useState<ChainEntry | null>(null);
-  const [focusedRowIndex, setFocusedRowIndex] = useState<number>(0);
+  const [focusedRowIndex, setFocusedRowIndex] = useState<number>(-1);
   const [copiedHash, setCopiedHash] = useState<string | null>(null);
 
   // Search dropdown & keyboard navigation state
@@ -445,7 +445,7 @@ export default function AuditChainPage() {
               portalTheme="auditor"
               onClick={handleJumpToCompromise}
               leftIcon={<ShieldAlert className="w-3.5 h-3.5" />}
-              className="text-grafana-orange bg-grafana-orange/15 border-grafana-orange/40 hover:bg-grafana-orange/25"
+              className="text-status-warning bg-status-warning/15 border-status-warning/40 hover:bg-status-warning/25"
             >
               Breach at #{incident.tamperedSeqId}
             </Button>
@@ -491,12 +491,12 @@ export default function AuditChainPage() {
           <div className="mt-1 flex items-center space-x-2">
             <span
               className={`w-2 h-2 rounded-full ${
-                incident.isCompromised ? 'bg-grafana-orange' : 'bg-linear-success'
+                incident.isCompromised ? 'bg-status-warning' : 'bg-linear-success'
               }`}
             />
             <span
               className={`text-xs font-bold font-mono ${
-                incident.isCompromised ? 'text-grafana-orange' : 'text-linear-success'
+                incident.isCompromised ? 'text-status-warning' : 'text-linear-success'
               }`}
             >
               {incident.isCompromised ? 'TAMPERED' : 'SEALED & INTACT'}
@@ -515,12 +515,12 @@ export default function AuditChainPage() {
           <div className="mt-1 flex items-center space-x-2">
             <span
               className={`w-2 h-2 rounded-full ${
-                incident.anchorMismatch ? 'bg-grafana-orange' : 'bg-sky-400'
+                incident.anchorMismatch ? 'bg-status-warning' : 'bg-sky-400'
               }`}
             />
             <span
               className={`text-xs font-bold font-mono ${
-                incident.anchorMismatch ? 'text-grafana-orange' : 'text-sky-400'
+                incident.anchorMismatch ? 'text-status-warning' : 'text-sky-400'
               }`}
             >
               {incident.anchorMismatch ? 'MISMATCH' : 'SYNCHRONIZED'}
@@ -582,7 +582,7 @@ export default function AuditChainPage() {
             {isSearchDropdownOpen && seqInput.trim().length > 0 && (
               <div
                 ref={searchDropdownRef}
-                className="absolute left-0 right-0 top-full mt-1.5 z-50 bg-[#16181d] border border-linear-hairline-strong rounded-xl shadow-2xl backdrop-blur-xl ring-1 ring-black/60 overflow-hidden animate-in fade-in slide-in-from-top-1 duration-150 origin-top"
+                className="absolute left-0 right-0 top-full mt-1.5 z-50 bg-linear-surface-1 border border-linear-hairline-strong rounded-xl shadow-2xl backdrop-blur-xl ring-1 ring-black/60 overflow-hidden animate-in fade-in slide-in-from-top-1 duration-150 origin-top"
               >
                 <div className="px-3 py-1.5 text-[10px] uppercase font-mono font-semibold text-linear-ink-muted border-b border-linear-hairline bg-linear-surface-2/70 flex items-center justify-between">
                   <span>
@@ -811,8 +811,8 @@ export default function AuditChainPage() {
                       {/* Seq # */}
                       <DataTable.Cell tabularNums mono className="font-bold">
                         <div className="flex items-center space-x-1.5">
-                          <span className={`w-1.5 h-1.5 rounded-full ${isTampered ? 'bg-grafana-orange' : getSeverityDotClass(entry.severity)}`} />
-                          <span className={isTampered ? 'text-grafana-orange' : 'text-linear-ink'}>
+                          <span className={`w-1.5 h-1.5 rounded-full ${isTampered ? 'bg-status-warning' : getSeverityDotClass(entry.severity)}`} />
+                          <span className={isTampered ? 'text-status-warning' : 'text-linear-ink'}>
                             #{entry.entry_id}
                           </span>
                         </div>

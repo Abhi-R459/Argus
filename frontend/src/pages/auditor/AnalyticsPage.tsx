@@ -1,15 +1,14 @@
 import QueryPanel from '../../components/auditor/QueryPanel';
 import SecurityPosture from '../../components/auditor/SecurityPosture';
+import PageHeader from '../../components/common/PageHeader';
 
 export default function AnalyticsPage() {
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-lg font-semibold text-linear-ink">System Analytics</h2>
-        <p className="text-sm text-linear-ink-muted mt-0.5">
-          Performance metrics and security posture overview.
-        </p>
-      </div>
+      <PageHeader
+        title="System Analytics"
+        description="Performance metrics and security posture."
+      />
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
         <SecurityPosture />

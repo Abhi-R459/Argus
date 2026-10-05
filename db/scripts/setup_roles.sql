@@ -51,6 +51,7 @@ GRANT USAGE ON SCHEMA public TO compliance_auditor;
 
 -- Audit chain tables (read-only — cannot modify or forge any audit data)
 REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON audit_log FROM compliance_auditor;
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON audit_log FROM hr_admin;
 GRANT SELECT ON audit_log TO compliance_auditor;
 
 GRANT SELECT, UPDATE ON suspicious_activity_flags TO compliance_auditor;
@@ -65,6 +66,15 @@ GRANT SELECT ON departments, roles, salary_history TO compliance_auditor;
 -- Views
 GRANT SELECT ON v_compliance_overview TO compliance_auditor;
 GRANT SELECT ON v_employee_directory TO compliance_auditor;
+
+-- Privacy-preserving Audit-the-Auditor telemetry. Auditor sessions may append
+-- and read events, but cannot rewrite or erase historical event records.
+GRANT SELECT, INSERT ON security_audit_events TO compliance_auditor;
+REVOKE UPDATE, DELETE, TRUNCATE ON security_audit_events FROM compliance_auditor;
+GRANT USAGE, SELECT ON SEQUENCE security_audit_events_event_id_seq TO compliance_auditor;
+GRANT SELECT, INSERT ON suspicious_activity_reviews TO compliance_auditor;
+REVOKE UPDATE, DELETE, TRUNCATE ON suspicious_activity_reviews FROM compliance_auditor;
+GRANT USAGE, SELECT ON SEQUENCE suspicious_activity_reviews_review_id_seq TO compliance_auditor;
 
 -- Compliance Auditor has NO access to raw employee data (PII protection)
 -- They access employee details only through v_employee_directory view.

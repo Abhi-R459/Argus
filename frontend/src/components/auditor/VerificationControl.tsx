@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@clerk/clerk-react';
 import {
   Play, Loader2, CheckCircle2, AlertTriangle,
-  ShieldCheck, XCircle,
+  ShieldCheck, XCircle, HelpCircle,
 } from 'lucide-react';
 import { runVerification, type VerificationResult } from '../../services/auditService';
 import RefreshButton from '../common/RefreshButton';
@@ -41,9 +41,23 @@ export default function VerificationControl({ onResult }: VerificationControlPro
 
   const isIntact   = lastResult?.status === 'intact';
   const isTampered = lastResult?.status === 'tampered';
+  const isUnverified = lastResult?.status === 'unknown' || lastResult?.status === 'error';
+  const checkStatus = (name: string): 'pass' | 'fail' | 'unknown' => {
+    const reported = lastResult?.verification_checks?.[name];
+    if (reported) return reported;
+    if (name === 'hash_chain' && isIntact) return 'pass';
+    if (name === 'hash_chain' && isTampered) return 'fail';
+    return 'unknown';
+  };
+  const checkRows = [
+    { key: 'hash_chain', label: 'Audit hash chain' },
+    { key: 'external_anchor', label: 'External anchor comparison' },
+    { key: 'checkpoint_signatures', label: 'Checkpoint signatures' },
+  ];
+  const verifiedCheckCount = checkRows.filter((check) => checkStatus(check.key) === 'pass').length;
 
   return (
-    <div className="bg-linear-surface-1 border border-linear-hairline rounded-2xl overflow-hidden shadow-sm h-full flex flex-col justify-between">
+    <div className="bg-linear-surface-1 border border-linear-hairline rounded-2xl overflow-hidden shadow-sm flex flex-col justify-between">
       {/* Screen Reader Live Region (F-122) */}
       <div aria-live="polite" className="sr-only">
         {isFetching && 'Scanning hash chain and walking entries from last checkpoint.'}
@@ -58,8 +72,8 @@ export default function VerificationControl({ onResult }: VerificationControlPro
             <ShieldCheck className="w-4 h-4 text-linear-primary" />
           </div>
           <div>
-            <p className="text-[10px] text-linear-ink-subtle uppercase tracking-wider font-semibold">Ledger Integrity</p>
-            <h3 className="text-sm font-semibold text-linear-ink">Chain Verification</h3>
+            <p className="text-xs text-linear-ink-subtle font-medium">Ledger integrity</p>
+            <h3 className="text-base font-semibold text-linear-ink">Chain verification</h3>
           </div>
         </div>
         <div className="flex items-center space-x-2">
@@ -68,11 +82,13 @@ export default function VerificationControl({ onResult }: VerificationControlPro
               className={`flex items-center space-x-1 px-2.5 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider border ${
                 isIntact
                   ? 'bg-linear-success/15 text-linear-success border-linear-success/30'
-                  : 'bg-grafana-orange/15 text-grafana-orange border-grafana-orange/30'
+                  : isUnverified
+                    ? 'bg-linear-surface-2 text-linear-ink-muted border-linear-hairline'
+                    : 'bg-status-warning/15 text-status-warning border-status-warning/30'
               }`}
             >
-              <span className={`w-1.5 h-1.5 rounded-full ${isIntact ? 'bg-linear-success' : 'bg-grafana-orange'}`} />
-              <span>{isIntact ? 'Intact' : 'Tampered'}</span>
+              <span className={`w-1.5 h-1.5 rounded-full ${isIntact ? 'bg-linear-success' : isUnverified ? 'bg-linear-ink-muted' : 'bg-status-warning'}`} />
+              <span>{isIntact ? 'Verified' : isTampered ? 'Tampered' : lastResult?.status === 'error' ? 'Unavailable' : 'Unverified'}</span>
             </span>
           )}
           {lastResult && (
@@ -132,10 +148,10 @@ export default function VerificationControl({ onResult }: VerificationControlPro
         {/* Error state */}
         {isError && !isFetching && (
           <div className="flex-1 flex items-center justify-center">
-            <div className="flex items-start space-x-3 px-4 py-3 rounded-xl bg-grafana-orange/10 border border-grafana-orange/25 w-full">
-              <XCircle className="w-5 h-5 text-grafana-orange flex-shrink-0 mt-0.5" />
+            <div className="flex items-start space-x-3 px-4 py-3 rounded-xl bg-status-warning/10 border border-status-warning/25 w-full">
+              <XCircle className="w-5 h-5 text-status-warning flex-shrink-0 mt-0.5" />
               <div>
-                <p className="text-sm font-medium text-grafana-orange">Verification request failed</p>
+                <p className="text-sm font-medium text-status-warning">Verification request failed</p>
                 <p className="text-xs text-linear-ink-subtle mt-0.5">
                   {error instanceof Error
                     ? error.message
@@ -145,7 +161,7 @@ export default function VerificationControl({ onResult }: VerificationControlPro
                   variant="link"
                   portalTheme="auditor"
                   onClick={() => refetch()}
-                  className="mt-2 text-xs text-grafana-orange hover:text-grafana-orange-hover"
+                  className="mt-2 text-xs text-status-warning hover:text-status-warning-hover"
                 >
                   Retry
                 </Button>
@@ -161,19 +177,23 @@ export default function VerificationControl({ onResult }: VerificationControlPro
               className={`rounded-xl border p-3.5 space-y-2.5 transition-[border-color,background-color] duration-200 shadow-xs ${
                 isIntact
                   ? 'border-linear-success/30 bg-linear-success/10'
-                  : 'border-grafana-orange/40 bg-grafana-orange/10'
+                  : isUnverified
+                    ? 'border-linear-hairline bg-linear-surface-2/60'
+                    : 'border-status-warning/40 bg-status-warning/10'
               }`}
             >
               {/* Status headline */}
               <div className="flex items-center space-x-3">
                 {isIntact ? (
                   <CheckCircle2 className="w-5 h-5 text-linear-success flex-shrink-0" />
+                ) : isUnverified ? (
+                  <HelpCircle className="w-5 h-5 text-linear-ink-muted flex-shrink-0" />
                 ) : (
-                  <AlertTriangle className="w-5 h-5 text-grafana-orange flex-shrink-0" />
+                  <AlertTriangle className="w-5 h-5 text-status-warning flex-shrink-0" />
                 )}
                 <div>
-                  <p className={`font-bold text-sm ${isIntact ? 'text-linear-success' : 'text-grafana-orange'}`}>
-                    {isIntact ? 'Chain Walks Intact' : '⚠ Tampering Detected'}
+                  <p className={`font-bold text-sm ${isIntact ? 'text-linear-success' : isUnverified ? 'text-linear-ink' : 'text-status-warning'}`}>
+                    {isIntact ? 'Verification Complete' : isTampered ? 'Tampering Detected' : lastResult?.status === 'error' ? 'Verification Unavailable' : 'Verification Incomplete'}
                   </p>
                   <p className="text-xs text-linear-ink-subtle mt-0.5 leading-relaxed">{lastResult.details}</p>
                 </div>
@@ -182,87 +202,75 @@ export default function VerificationControl({ onResult }: VerificationControlPro
               {/* Stats 4-cell grid */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
                 <div className="bg-linear-surface-2/80 border border-linear-hairline rounded-lg px-2.5 py-1.5">
-                  <p className="text-[10px] uppercase tracking-wider text-linear-ink-subtle font-semibold">Scanned</p>
+                  <p className="text-xs text-linear-ink-subtle font-medium">Scanned</p>
                   <p className="text-sm font-bold font-mono text-linear-ink mt-0.5">
                     {lastResult.entries_scanned.toLocaleString()}
                   </p>
                 </div>
                 <div className="bg-linear-surface-2/80 border border-linear-hairline rounded-lg px-2.5 py-1.5">
-                  <p className="text-[10px] uppercase tracking-wider text-linear-ink-subtle font-semibold">Anchor Match</p>
-                  <p className={`text-sm font-bold mt-0.5 ${lastResult.anchor_match ? 'text-linear-success' : 'text-grafana-orange'}`}>
-                    {lastResult.anchor_match ? 'Yes' : 'No'}
+                  <p className="text-xs text-linear-ink-subtle font-medium">Anchor match</p>
+                  <p className={`text-sm font-bold mt-0.5 ${checkStatus('external_anchor') === 'pass' ? 'text-linear-success' : checkStatus('external_anchor') === 'unknown' ? 'text-linear-ink-muted' : 'text-status-warning'}`}>
+                    {checkStatus('external_anchor') === 'pass' ? 'Verified' : checkStatus('external_anchor') === 'fail' ? 'Mismatch' : 'Unverified'}
                   </p>
                 </div>
                 <div className="bg-linear-surface-2/80 border border-linear-hairline rounded-lg px-2.5 py-1.5">
-                  <p className="text-[10px] uppercase tracking-wider text-linear-ink-subtle font-semibold">Tail ID</p>
+                  <p className="text-xs text-linear-ink-subtle font-medium">Tail ID</p>
                   <p className="text-sm font-bold font-mono text-linear-ink mt-0.5">
                     #{lastResult.last_verified_sequence_id}
                   </p>
                 </div>
                 <div className="bg-linear-surface-2/80 border border-linear-hairline rounded-lg px-2.5 py-1.5">
-                  <p className="text-[10px] uppercase tracking-wider text-linear-ink-subtle font-semibold">Anomalies</p>
-                  <p className={`text-sm font-bold font-mono mt-0.5 ${isTampered ? 'text-grafana-orange' : 'text-linear-success'}`}>
-                    {isTampered && lastResult.tampered_sequence_id !== null ? `#${lastResult.tampered_sequence_id}` : '0'}
+                  <p className="text-xs text-linear-ink-subtle font-medium">Anomalies</p>
+                  <p className={`text-sm font-bold font-mono mt-0.5 ${isTampered ? 'text-status-warning' : isIntact ? 'text-linear-success' : 'text-linear-ink-muted'}`}>
+                    {isTampered && lastResult.tampered_sequence_id !== null ? `#${lastResult.tampered_sequence_id}` : isIntact ? '0' : '—'}
                   </p>
                 </div>
               </div>
             </div>
 
-            {/* Cryptographic Invariants Section */}
+            {/* Only backend-reported checks are presented as verified. */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-2">
                   <ShieldCheck className="w-3.5 h-3.5 text-linear-primary" />
-                  <p className="text-[11px] uppercase tracking-wider text-linear-ink font-semibold">
-                    Cryptographic Invariants
+                  <p className="text-xs text-linear-ink font-semibold">
+                    Checks reported by verifier
                   </p>
                 </div>
                 <span
                   className={`flex items-center space-x-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border ${
-                    isIntact
+                    verifiedCheckCount === checkRows.length
                       ? 'bg-linear-success/15 text-linear-success border-linear-success/30'
-                      : 'bg-grafana-orange/15 text-grafana-orange border-grafana-orange/30'
+                      : 'bg-linear-surface-2 text-linear-ink-muted border-linear-hairline'
                   }`}
                 >
-                  {isIntact ? <CheckCircle2 className="w-2.5 h-2.5" /> : <XCircle className="w-2.5 h-2.5" />}
-                  <span>{isIntact ? '3/3 Validated' : 'Check Failed'}</span>
+                  {verifiedCheckCount === checkRows.length ? <CheckCircle2 className="w-2.5 h-2.5" /> : <HelpCircle className="w-2.5 h-2.5" />}
+                  <span>{verifiedCheckCount}/{checkRows.length} verified</span>
                 </span>
               </div>
 
               <p className="text-[11px] text-linear-ink-subtle leading-relaxed">
-                Induction verification: SHA-256 HMAC linkage, Ed25519 signatures, and Merkle tree roots verified.
+                This result covers the hash-chain walk, available local anchors, and signed checkpoints. Merkle proofs are verified separately when generated.
               </p>
 
               <div className="space-y-1.5 bg-linear-surface-2 p-2.5 rounded-xl border border-linear-hairline">
-                <div className="flex items-center justify-between text-[11px] py-1 px-1.5 rounded hover:bg-linear-surface-1 transition-colors">
-                  <div className="flex items-center space-x-2 truncate pr-2">
-                    <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${isIntact ? 'bg-linear-success' : 'bg-grafana-orange'}`} />
-                    <span className="font-mono text-linear-ink truncate">SHA-256 HMAC Linkage</span>
-                  </div>
-                  <span className="text-[9px] font-bold px-1.5 py-0.5 rounded border uppercase bg-linear-success/10 text-linear-success border-linear-success/30 flex-shrink-0">
-                    CONTINUOUS
-                  </span>
-                </div>
-
-                <div className="flex items-center justify-between text-[11px] py-1 px-1.5 rounded hover:bg-linear-surface-1 transition-colors">
-                  <div className="flex items-center space-x-2 truncate pr-2">
-                    <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${isIntact ? 'bg-linear-success' : 'bg-grafana-orange'}`} />
-                    <span className="font-mono text-linear-ink truncate">RFC 8032 Checkpoint Sig</span>
-                  </div>
-                  <span className="text-[9px] font-bold px-1.5 py-0.5 rounded border uppercase bg-linear-success/10 text-linear-success border-linear-success/30 flex-shrink-0">
-                    ED25519
-                  </span>
-                </div>
-
-                <div className="flex items-center justify-between text-[11px] py-1 px-1.5 rounded hover:bg-linear-surface-1 transition-colors">
-                  <div className="flex items-center space-x-2 truncate pr-2">
-                    <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${isIntact ? 'bg-linear-success' : 'bg-grafana-orange'}`} />
-                    <span className="font-mono text-linear-ink truncate">RFC 6962 Merkle Root</span>
-                  </div>
-                  <span className="text-[9px] font-bold px-1.5 py-0.5 rounded border uppercase bg-linear-success/10 text-linear-success border-linear-success/30 flex-shrink-0">
-                    CONSISTENT
-                  </span>
-                </div>
+                {checkRows.map((check) => {
+                  const status = checkStatus(check.key);
+                  const statusClass = status === 'pass'
+                    ? 'text-linear-success'
+                    : status === 'fail' ? 'text-status-warning' : 'text-linear-ink-muted';
+                  return (
+                    <div key={check.key} className="flex items-center justify-between text-[11px] py-1 px-1.5 rounded hover:bg-linear-surface-1 transition-colors">
+                      <div className="flex items-center space-x-2 truncate pr-2">
+                        <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${status === 'pass' ? 'bg-linear-success' : status === 'fail' ? 'bg-status-warning' : 'bg-linear-ink-muted'}`} />
+                        <span className="font-mono text-linear-ink truncate">{check.label}</span>
+                      </div>
+                      <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border uppercase border-current/30 bg-current/10 flex-shrink-0 ${statusClass}`}>
+                        {status === 'pass' ? 'Verified' : status === 'fail' ? 'Failed' : 'Unverified'}
+                      </span>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           </div>

@@ -27,6 +27,7 @@ export interface IncidentState {
   lastVerifiedAt: string | null;
   details: string | null;
   isLoading: boolean;
+  isUnavailable: boolean;
   refetch: () => void;
 }
 
@@ -64,6 +65,9 @@ export interface WitnessReport {
   cosigned_witnesses: number;
   message?: string | null;
   per_witness: WitnessItem[];
+  verification_status?: 'pass' | 'fail' | 'unknown';
+  deployment_mode?: string;
+  independent_trust_domains?: boolean;
 }
 
 export interface AnchorInfo {
@@ -128,6 +132,7 @@ export interface SystemMetrics {
     chain_continuous: boolean;
     auth_enforced: boolean;
   };
+  security_check_details?: Record<string, 'pass' | 'fail' | 'unknown'>;
   cache_hit_rate: number;
   db_size: string;
   audit_log_size: string;
@@ -190,6 +195,8 @@ export interface AuditLogPage {
   total: number;
   page: number;
   pages: number;
+  next_cursor?: number | null;
+  has_more?: boolean;
 }
 
 export interface AuditLogFilters {
@@ -202,6 +209,7 @@ export interface AuditLogFilters {
   employee_id?: number;
   page?: number;
   limit?: number;
+  before_sequence_id?: number;
 }
 
 export interface EmployeeListItem {
@@ -213,15 +221,17 @@ export interface EmployeeListItem {
   salary: number | null;
   date_hired: string;
   is_active: boolean;
+  pii_redacted?: boolean;
 }
 
 export interface VerificationResult {
-  status: 'intact' | 'tampered';
+  status: 'intact' | 'tampered' | 'unknown' | 'error';
   entries_scanned: number;
   anchor_match: boolean;
   last_verified_sequence_id: number;
   tampered_sequence_id: number | null;
   details: string;
+  verification_checks?: Record<string, 'pass' | 'fail' | 'unknown'>;
 }
 
 export interface SuspiciousFlagItem {
@@ -259,6 +269,9 @@ export async function fetchAuditLogs(
   }
   params.set('page',  String(filters.page  ?? 1));
   params.set('limit', String(filters.limit ?? 20));
+  if (filters.before_sequence_id !== undefined) {
+    params.set('before_sequence_id', String(filters.before_sequence_id));
+  }
 
   return fetchWithAuth(`/audit-logs?${params.toString()}`, {}, getToken);
 }
@@ -273,10 +286,18 @@ export async function runVerification(
 
 // ─── INT-004: Suspicious Activity ─────────────────────────────────────────────
 
+export const SUSPICIOUS_FLAGS_QUERY_KEY = ['suspiciousFlags'] as const;
+
 export async function fetchSuspiciousFlags(
   getToken: () => Promise<string | null>,
 ): Promise<SuspiciousFlagItem[]> {
   return fetchWithAuth('/suspicious-activity', {}, getToken);
+}
+
+export async function refreshSuspiciousFlags(
+  getToken: () => Promise<string | null>,
+): Promise<{ status: 'refreshed' }> {
+  return fetchWithAuth('/suspicious-activity/refresh', { method: 'POST' }, getToken);
 }
 
 export async function reviewSuspiciousFlag(
@@ -290,15 +311,16 @@ export async function reviewSuspiciousFlag(
 
 export interface TimeTravelResult {
   employee_id: number;
-  full_name: string;
-  email: string;
+  full_name: string | null;
+  email: string | null;
   role_title: string;
   department_name: string;
-  salary: number;
+  salary: number | null;
   date_hired: string; // ISO timestamp
   is_active: boolean;
   as_of: string; // ISO timestamp
   sequence_id?: number | null;
+  pii_redacted: boolean;
 }
 
 export async function fetchTimeTravelState(
@@ -306,10 +328,12 @@ export async function fetchTimeTravelState(
   timestamp: string,
   getToken: () => Promise<string | null>,
   sequenceId?: number | null,
+  includePii = false,
 ): Promise<TimeTravelResult> {
   const seqParam = sequenceId !== undefined && sequenceId !== null ? `&sequence_id=${sequenceId}` : '';
+  const piiParam = `&include_pii=${includePii}`;
   return fetchWithAuth(
-    `/employees/${employeeId}/time-travel?timestamp=${encodeURIComponent(timestamp)}${seqParam}`,
+    `/employees/${employeeId}/time-travel?timestamp=${encodeURIComponent(timestamp)}${seqParam}${piiParam}`,
     {},
     getToken,
   );
@@ -396,7 +420,7 @@ export function useIncidentStatus(): IncidentState {
   });
 
   const flagsQuery = useQuery({
-    queryKey: ['suspicious-flags'],
+    queryKey: SUSPICIOUS_FLAGS_QUERY_KEY,
     queryFn: () => fetchSuspiciousFlags(getToken),
     refetchInterval: 3000,
   });
@@ -406,6 +430,10 @@ export function useIncidentStatus(): IncidentState {
   const isCompromised = Boolean(isVerificationTampered || anchorMismatch);
   const tamperedSeqId = verificationQuery.data?.tampered_sequence_id ?? null;
   const unreviewedFlagsCount = flagsQuery.data ? flagsQuery.data.filter((f) => !f.reviewed_at).length : 0;
+  const isUnavailable =
+    (verificationQuery.isError && !verificationQuery.data) ||
+    (anchorQuery.isError && !anchorQuery.data) ||
+    (flagsQuery.isError && !flagsQuery.data);
 
   return {
     isCompromised,
@@ -415,6 +443,7 @@ export function useIncidentStatus(): IncidentState {
     lastVerifiedAt: verificationQuery.data ? new Date().toISOString() : null,
     details: verificationQuery.data?.details ?? null,
     isLoading: verificationQuery.isLoading || anchorQuery.isLoading,
+    isUnavailable,
     refetch: () => {
       verificationQuery.refetch();
       anchorQuery.refetch();
@@ -532,11 +561,13 @@ export async function fetchEmployees(
   page: number = 1,
   department?: string,
   isActive?: boolean,
+  includePii: boolean = false,
 ): Promise<{ items: EmployeeListItem[]; total: number; page: number; pages: number }> {
   const searchParam = search ? `&search=${encodeURIComponent(search)}` : '';
   const deptParam = department && department !== 'all' ? `&department=${encodeURIComponent(department)}` : '';
   const statusParam = isActive !== undefined ? `&is_active=${isActive}` : '';
-  return fetchWithAuth(`/employees?limit=${limit}&page=${page}${searchParam}${deptParam}${statusParam}`, {}, getToken);
+  const piiParam = `&include_pii=${includePii}`;
+  return fetchWithAuth(`/employees?limit=${limit}&page=${page}${searchParam}${deptParam}${statusParam}${piiParam}`, {}, getToken);
 }
 
 export interface UserProfile {

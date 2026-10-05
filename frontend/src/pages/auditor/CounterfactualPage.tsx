@@ -11,6 +11,7 @@ import {
   CounterfactualResult,
   EmployeeListItem,
 } from '../../services/auditService';
+import PageHeader from '../../components/common/PageHeader';
 
 export default function CounterfactualPage() {
   const { getToken } = useAuth();
@@ -90,25 +91,12 @@ export default function CounterfactualPage() {
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-linear-hairline pb-5">
-        <div>
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-lg bg-linear-primary/15 text-linear-primary border border-linear-primary/30">
-              <GitCompare className="w-5 h-5" />
-            </div>
-            <div>
-              <h1 className="text-xl font-bold tracking-tight text-linear-ink">
-                Counterfactual "What-If" Provenance Replay
-              </h1>
-              <p className="text-xs text-linear-ink-subtle mt-0.5">
-                Simulate alternative historical outcomes by skipping designated anomalous mutations without modifying the tamper-evident hash chain.
-              </p>
-            </div>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2">
+      <PageHeader
+        icon={<GitCompare className="h-5 w-5" />}
+        title={'Counterfactual "What-If" Provenance Replay'}
+        description="Simulate alternative outcomes while leaving the tamper-evident audit chain unchanged."
+        action={
+          <>
           <span className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center gap-1.5">
             <Sparkles className="w-3.5 h-3.5" />
             Novelty 11 · Prescriptive Simulation
@@ -117,8 +105,9 @@ export default function CounterfactualPage() {
             <ShieldCheck className="w-3.5 h-3.5 text-linear-primary" />
             Read-Only Replay
           </span>
-        </div>
-      </div>
+          </>
+        }
+      />
 
       {/* Control Panel Card */}
       <div className="bg-linear-surface-1 border border-linear-hairline rounded-xl p-5 shadow-xs">

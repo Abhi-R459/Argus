@@ -21,12 +21,13 @@ import json
 import math
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from sqlalchemy import select, func, text, or_
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
+from sqlalchemy import select, func, text, or_, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import get_settings
 from ..dependencies import get_current_user, require_role, get_db_session
+from ..database import get_session_factory
 from ..services.blind_index import (
     compute_blind_index,
     rate_limiter,
@@ -39,11 +40,15 @@ from ..models.role import Role
 from ..models.salary_history import SalaryHistory
 from ..models.suspicious_activity_flag import SuspiciousActivityFlag
 from ..models.user import User
+from ..models.security_audit_event import SecurityAuditEvent
+from ..models.suspicious_activity_review import SuspiciousActivityReview
 from ..schemas.audit import (
     AuditLogItem,
     VerificationResult,
     SuspiciousFlagItem,
     SuspiciousReviewResponse,
+    SuspiciousReviewRequest,
+    SuspiciousReviewHistoryItem,
     TimeTravelResponse,
     ChainEntry,
     AnchorInfo,
@@ -63,6 +68,18 @@ from ..schemas.analytics import (
 )
 
 router = APIRouter(tags=["Audits"])
+SUSPICIOUS_ACTIVITY_REFRESH_LOCK_KEY = 280375465843
+
+
+def _verification_status_from_checks(checks: dict[str, str]) -> str:
+    """Return a conservative aggregate status for checks actually performed."""
+    required = ("hash_chain", "external_anchor", "checkpoint_signatures")
+    values = [checks.get(name, "unknown") for name in required]
+    if "fail" in values:
+        return "tampered"
+    if all(value == "pass" for value in values):
+        return "intact"
+    return "unknown"
 
 # ─── Dependency: compliance_auditor only ──────────────────────────────────────
 
@@ -87,6 +104,7 @@ async def list_audit_logs(
     employee_id: Optional[int] = Query(None, description="Filter by employee_id"),
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
+    before_sequence_id: Optional[int] = Query(None, ge=1, description="Return entries older than this sequence; use next_cursor from the previous response"),
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session),
 ):
@@ -176,26 +194,38 @@ async def list_audit_logs(
     count_q = select(func.count()).select_from(query.subquery())
     total = await session.scalar(count_q) or 0
     pages = math.ceil(total / limit) if total > 0 else 0
+    if before_sequence_id is not None:
+        query = query.where(AuditLog.sequence_id < before_sequence_id)
 
     # Record Audit-the-Auditor forensic security event (Step 11.B.6)
     if national_id_search and clean_nid and blind_index:
-        audit_logger.log_search(
+        event = audit_logger.log_search(
             actor_user_id=getattr(current_user, "user_id", 0),
             actor_email=getattr(current_user, "email", "unknown"),
             blind_index=blind_index,
             matches_found=total,
             client_ip=client_ip,
         )
+        session.add(
+            SecurityAuditEvent(
+                event_type=event["event"],
+                actor_user_id=event["actor_user_id"],
+                actor_email=event["actor_email"],
+                blind_index=event["blind_index"],
+                created_at=datetime.fromisoformat(event["timestamp"]),
+                matches_found=event["matches_found"],
+                client_ip=event["client_ip"],
+            )
+        )
 
     # Paginate — newest entries first
-    query = (
-        query
-        .order_by(AuditLog.sequence_id.desc())
-        .offset((page - 1) * limit)
-        .limit(limit)
-    )
+    if before_sequence_id is None:
+        query = query.offset((page - 1) * limit)
+    query = query.order_by(AuditLog.sequence_id.desc()).limit(limit + 1)
     result = await session.execute(query)
-    rows = result.all()
+    fetched_rows = result.all()
+    has_more = len(fetched_rows) > limit
+    rows = fetched_rows[:limit]
 
     items = [
         AuditLogItem(
@@ -215,7 +245,15 @@ async def list_audit_logs(
         for row in rows
     ]
 
-    return PaginatedResponse(items=items, total=total, page=page, pages=pages)
+    next_cursor = items[-1].sequence_id if has_more and items else None
+    return PaginatedResponse(
+        items=items,
+        total=total,
+        page=page,
+        pages=pages,
+        next_cursor=next_cursor,
+        has_more=has_more,
+    )
 
 
 # ─── GET /api/audit-logs/security-events ──────────────────────────────────────
@@ -227,16 +265,49 @@ async def list_audit_logs(
 )
 async def list_security_events(
     current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session),
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
 ):
     """Retrieve security telemetry audit events recording blind index queries.
 
     Demonstrates compliance with 'Audit-the-Auditor' regulatory controls by logging
     every search performed on structured identity indices without exposing PII.
     """
-    events = audit_logger.get_audit_events()
+    total = await session.scalar(select(func.count()).select_from(SecurityAuditEvent)) or 0
+    result = await session.execute(
+        select(SecurityAuditEvent)
+        .order_by(desc(SecurityAuditEvent.created_at), desc(SecurityAuditEvent.event_id))
+        .offset(offset)
+        .limit(limit)
+    )
+    stored_events = [
+        {
+            "event": row.event_type,
+            "timestamp": row.created_at.isoformat(),
+            "actor_user_id": row.actor_user_id,
+            "actor_email": row.actor_email,
+            "blind_index": row.blind_index,
+            "matches_found": row.matches_found,
+            "client_ip": row.client_ip,
+        }
+        for row in result.scalars().all()
+    ]
+    # Keep the legacy in-process snapshot as a compatibility overlay for older
+    # test/development stores while the durable database remains authoritative.
+    seen = {(e["actor_user_id"], e["blind_index"], e["timestamp"]) for e in stored_events}
+    if not total and offset == 0:
+        for event in audit_logger.get_audit_events():
+            key = (event["actor_user_id"], event["blind_index"], event["timestamp"])
+            if key not in seen:
+                stored_events.append(event)
+                seen.add(key)
+    stored_events = stored_events[:limit]
     return {
-        "total": len(events),
-        "events": events,
+        "total": max(int(total), len(stored_events)),
+        "events": stored_events,
+        "limit": limit,
+        "offset": offset,
     }
 
 
@@ -269,8 +340,13 @@ async def run_verification(
             conn = psycopg2.connect(db_url, connect_timeout=2)
             try:
                 res = verify_chain(conn)
-                anchor_mismatch = None
                 tampered_seq = None
+                checks = {
+                    "hash_chain": "pass" if res.is_valid and res.total_entries > 0 else "fail" if not res.is_valid else "unknown",
+                    "external_anchor": "unknown",
+                    "checkpoint_signatures": "unknown",
+                }
+                evidence_errors = []
 
                 # Check active adversary attack snapshot if present
                 snapshot_file = Path(".argus_snapshot.json")
@@ -287,46 +363,68 @@ async def run_verification(
                     except Exception:
                         pass
 
-                anchor_dir = Path("anchor")
-                if anchor_dir.exists():
-                    for p in anchor_dir.glob("*.json"):
+                # Compare every local JSON anchor we can read. Missing or
+                # malformed evidence stays unknown; it cannot become a pass.
+                anchor_files = list(Path("anchor").glob("*.json"))
+                if anchor_files:
+                    checks["external_anchor"] = "pass"
+                    for path in anchor_files:
                         try:
-                            with open(p, "r", encoding="utf-8") as f:
-                                data = json.load(f)
-                                chk_id = data.get("checkpoint_id")
-                                stored_hash = data.get("checkpoint_hash")
-                                with conn.cursor() as cur:
-                                    cur.execute("SELECT checkpoint_hash, sequence_id FROM chain_checkpoints WHERE checkpoint_id = %s", (chk_id,))
-                                    row = cur.fetchone()
-                                    if row and row[0] != stored_hash:
-                                        anchor_mismatch = f"External anchor mismatch: Checkpoint {chk_id} altered in DB ({row[0][:16]}...) vs external anchor ({stored_hash[:16]}...)."
-                                        if not tampered_seq and row[1]:
-                                            tampered_seq = int(row[1])
-                                        break
-                        except Exception:
-                            pass
-
-                if not anchor_mismatch:
-                    try:
-                        from db.cli.keygen import load_public_key, get_default_key_dir
-                        from db.cli.signer import verify_signature
-                        key_path = Path("keys/public_key.pem")
-                        if not key_path.exists():
-                            key_path = Path(get_default_key_dir()) / "public_key.pem"
-                        if key_path.exists():
-                            pub = load_public_key(str(key_path))
+                            with path.open("r", encoding="utf-8") as anchor_file:
+                                anchor = json.load(anchor_file)
+                            checkpoint_id = anchor.get("checkpoint_id")
+                            stored_hash = anchor.get("checkpoint_hash")
+                            if checkpoint_id is None or not isinstance(stored_hash, str):
+                                checks["external_anchor"] = "unknown"
+                                evidence_errors.append("A local anchor record is incomplete.")
+                                continue
                             with conn.cursor() as cur:
-                                cur.execute("SELECT checkpoint_id, checkpoint_hash, signature, sequence_id FROM chain_checkpoints")
-                                for chk_id, chk_hash, chk_sig, chk_seq in cur.fetchall():
-                                    if chk_sig and not verify_signature(pub, chk_hash, bytes(chk_sig)):
-                                        anchor_mismatch = f"Checkpoint signature forgery: Checkpoint {chk_id} has invalid cryptographic signature."
-                                        if not tampered_seq and chk_seq:
-                                            tampered_seq = int(chk_seq)
-                                        break
-                    except Exception:
-                        pass
+                                cur.execute(
+                                    "SELECT checkpoint_hash, sequence_id FROM chain_checkpoints WHERE checkpoint_id = %s",
+                                    (checkpoint_id,),
+                                )
+                                row = cur.fetchone()
+                            if row is None or row[0] != stored_hash:
+                                checks["external_anchor"] = "fail"
+                                if row and row[1]:
+                                    tampered_seq = int(row[1])
+                                evidence_errors.append(f"External anchor mismatch for checkpoint {checkpoint_id}.")
+                                break
+                        except Exception:
+                            checks["external_anchor"] = "unknown"
+                            evidence_errors.append("A local anchor record could not be read.")
 
-                return (res, anchor_mismatch, tampered_seq)
+                # Signatures are verified only when a public key and a complete
+                # set of signed checkpoint rows are available.
+                try:
+                    from db.cli.keygen import load_public_key, get_default_key_dir
+                    from db.cli.signer import verify_signature
+                    key_path = Path("keys/public_key.pem")
+                    if not key_path.exists():
+                        key_path = Path(get_default_key_dir()) / "public_key.pem"
+                    if key_path.exists():
+                        pub = load_public_key(str(key_path))
+                        with conn.cursor() as cur:
+                            cur.execute("SELECT checkpoint_id, checkpoint_hash, signature, sequence_id FROM chain_checkpoints")
+                            checkpoints = cur.fetchall()
+                        if checkpoints and all(checkpoint[2] for checkpoint in checkpoints):
+                            checks["checkpoint_signatures"] = "pass"
+                            for checkpoint_id, checkpoint_hash, signature, sequence_id in checkpoints:
+                                if not verify_signature(pub, checkpoint_hash, bytes(signature)):
+                                    checks["checkpoint_signatures"] = "fail"
+                                    if sequence_id:
+                                        tampered_seq = int(sequence_id)
+                                    evidence_errors.append(f"Checkpoint signature verification failed for checkpoint {checkpoint_id}.")
+                                    break
+                        else:
+                            evidence_errors.append("Checkpoint signatures are missing or no checkpoints exist.")
+                    else:
+                        evidence_errors.append("Checkpoint signature public key is unavailable.")
+                except Exception:
+                    checks["checkpoint_signatures"] = "unknown"
+                    evidence_errors.append("Checkpoint signature verification could not be completed.")
+
+                return (res, checks, tampered_seq, evidence_errors)
             finally:
                 conn.close()
         except BaseException as exc:
@@ -342,9 +440,14 @@ async def run_verification(
             last_verified_sequence_id=0,
             tampered_sequence_id=None,
             details=f"Verification engine failure: unable to connect or verify database ({str(verify_output)}).",
+            verification_checks={
+                "hash_chain": "unknown",
+                "external_anchor": "unknown",
+                "checkpoint_signatures": "unknown",
+            },
         )
 
-    res, anchor_mismatch, tampered_seq = verify_output
+    res, checks, tampered_seq, evidence_errors = verify_output
     if not res.is_valid:
         tampered_id = None
         details = "Integrity violation detected."
@@ -363,30 +466,42 @@ async def run_verification(
         return VerificationResult(
             status="tampered",
             entries_scanned=res.total_entries,
-            anchor_match=False,
+            anchor_match=checks["external_anchor"] == "pass",
             last_verified_sequence_id=last_valid,
             tampered_sequence_id=final_tampered,
             details=details,
+            verification_checks=checks,
         )
-    elif anchor_mismatch:
+    overall_status = _verification_status_from_checks(checks)
+    if overall_status == "tampered":
+        last_verified = res.last_sequence_id if res.last_sequence_id >= 0 else 0
         return VerificationResult(
             status="tampered",
             entries_scanned=res.total_entries,
-            anchor_match=False,
-            last_verified_sequence_id=0,
-            tampered_sequence_id=tampered_seq,
-            details=anchor_mismatch,
-        )
-    else:
-        last_verified = res.last_sequence_id if res.last_sequence_id >= 0 else 0
-        return VerificationResult(
-            status="intact",
-            entries_scanned=res.total_entries,
-            anchor_match=True,
+            anchor_match=checks["external_anchor"] == "pass",
             last_verified_sequence_id=last_verified,
-            tampered_sequence_id=None,
-            details=f"Chain walks successfully across {res.total_entries} entries. Tail hash matches anchor store.",
+            tampered_sequence_id=tampered_seq,
+            details=" ".join(evidence_errors) or "A cryptographic checkpoint check failed.",
+            verification_checks=checks,
         )
+
+    last_verified = res.last_sequence_id if res.last_sequence_id >= 0 else 0
+    if overall_status == "intact":
+        details = f"Hash-chain continuity, local external anchor, and checkpoint signatures verified across {res.total_entries} entries."
+    else:
+        unverified = [name.replace("_", " ") for name, value in checks.items() if value == "unknown"]
+        details = "Hash-chain walk completed, but verification remains incomplete. Unverified: " + ", ".join(unverified) + "."
+        if evidence_errors:
+            details += " " + " ".join(dict.fromkeys(evidence_errors))
+    return VerificationResult(
+        status=overall_status,
+        entries_scanned=res.total_entries,
+        anchor_match=checks["external_anchor"] == "pass",
+        last_verified_sequence_id=last_verified,
+        tampered_sequence_id=None,
+        details=details,
+        verification_checks=checks,
+    )
 
 
 # ─── GET /api/suspicious-activity ────────────────────────────────────────────
@@ -405,12 +520,6 @@ async def list_suspicious_flags(
     Populated by Abhinav's Week 8 refresh_suspicious_activity_flags()
     procedure.
     """
-    try:
-        await session.execute(text("CALL refresh_suspicious_activity_flags()"))
-        await session.commit()
-    except Exception:
-        pass
-
     result = await session.execute(
         select(SuspiciousActivityFlag).order_by(
             SuspiciousActivityFlag.created_at.desc()
@@ -431,6 +540,36 @@ async def list_suspicious_flags(
     ]
 
 
+@router.post(
+    "/suspicious-activity/refresh",
+    dependencies=_auditor_only,
+    summary="Refresh suspicious-activity detections",
+)
+async def refresh_suspicious_flags(
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Run the idempotent database detector explicitly and report failures."""
+    try:
+        lock_result = await session.execute(
+            text("SELECT pg_try_advisory_xact_lock(:lock_key)"),
+            {"lock_key": SUSPICIOUS_ACTIVITY_REFRESH_LOCK_KEY},
+        )
+        if not lock_result.scalar():
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Suspicious-activity detection is already running.",
+            )
+        await session.execute(text("CALL refresh_suspicious_activity_flags()"))
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Suspicious-activity detection could not be refreshed.",
+        ) from exc
+    return {"status": "refreshed"}
+
+
 # ─── POST /api/suspicious-activity/{id}/review ───────────────────────────────
 
 @router.post(
@@ -440,6 +579,7 @@ async def list_suspicious_flags(
 )
 async def review_suspicious_flag(
     flag_id: int,
+    payload: Optional[SuspiciousReviewRequest] = Body(None),
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session),
 ):
@@ -460,6 +600,14 @@ async def review_suspicious_flag(
     now = datetime.now(timezone.utc)
     flag.reviewed_by_user_id = current_user.user_id
     flag.reviewed_at = now
+    session.add(
+        SuspiciousActivityReview(
+            flag_id=flag.flag_id,
+            reviewer_user_id=current_user.user_id,
+            action="reviewed",
+            note=payload.note if payload else None,
+        )
+    )
     await session.flush()
 
     return SuspiciousReviewResponse(
@@ -480,6 +628,8 @@ async def reconstruct_employee_state(
     employee_id: int,
     timestamp: str = Query(..., description="Target ISO timestamp"),
     sequence_id: Optional[int] = Query(None, description="Optional target sequence ID for exact event reconstruction"),
+    include_pii: bool = Query(False, description="Explicitly reveal sensitive fields; access is recorded"),
+    request: Request = None,
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session),
 ):
@@ -640,17 +790,31 @@ async def reconstruct_employee_state(
         except (TypeError, ValueError):
             salary = 0.0
 
+    session.add(
+        SecurityAuditEvent(
+            event_type="TIME_TRAVEL_PII_REVEAL" if include_pii else "TIME_TRAVEL_VIEW_REDACTED",
+            actor_user_id=current_user.user_id,
+            actor_email=current_user.email,
+            blind_index=None,
+            employee_id=employee_id,
+            sequence_id=sequence_id,
+            matches_found=1,
+            client_ip=(request.client.host if request and request.client else "127.0.0.1"),
+        )
+    )
+
     return TimeTravelResponse(
         employee_id=employee_id,
-        full_name=full_name,
-        email=email,
+        full_name=full_name if include_pii else None,
+        email=email if include_pii else None,
         role_title=role_title,
         department_name=department_name,
-        salary=salary,
+        salary=salary if include_pii else None,
         date_hired=date_hired_dt,
         is_active=is_active,
         as_of=parsed_dt,
         sequence_id=sequence_id,
+        pii_redacted=not include_pii,
     )
 
 
@@ -930,44 +1094,34 @@ async def get_anchor_status(
             note_file = Path("anchors/multi_witness") / f"{cid}.note"
             if note_file.is_file():
                 rep_data = mw.get_witness_report(cid)
+                report_status = (
+                    "unknown" if rep_data.get("error") else
+                    "pass" if rep_data.get("quorum_satisfied") is True else "fail"
+                )
                 witness_report = WitnessReport(
-                    quorum_satisfied=rep_data.get("quorum_satisfied", True),
+                    quorum_satisfied=rep_data.get("quorum_satisfied") is True,
                     required_threshold=rep_data.get("required_threshold", 2),
-                    total_witnesses=rep_data.get("total_witnesses", 3),
-                    cosigned_witnesses=rep_data.get("cosigned_witnesses", 3),
-                    message=rep_data.get("message", "Witness quorum satisfied"),
+                    total_witnesses=rep_data.get("total_witnesses", 0),
+                    cosigned_witnesses=rep_data.get("cosigned_witnesses", 0),
+                    message=rep_data.get("message") or rep_data.get("error"),
                     per_witness=[WitnessItem(**w) for w in rep_data.get("per_witness", [])],
+                    verification_status=report_status,
                 )
             else:
                 witness_report = WitnessReport(
-                    quorum_satisfied=True,
+                    quorum_satisfied=False,
                     required_threshold=2,
-                    total_witnesses=3,
-                    cosigned_witnesses=3,
-                    message="Multi-witness 2-of-3 threshold quorum satisfied (RFC 9162)",
-                    per_witness=[
-                        WitnessItem(
-                            witness_name="witness.s3worm.aws/v1",
-                            status="VALID",
-                            signature_hex="3a" * 32,
-                            timestamp=datetime.now(timezone.utc).isoformat(),
-                        ),
-                        WitnessItem(
-                            witness_name="witness.rfc3161.tsa/v1",
-                            status="VALID",
-                            signature_hex="4b" * 32,
-                            timestamp=datetime.now(timezone.utc).isoformat(),
-                        ),
-                        WitnessItem(
-                            witness_name="witness.github.git/v1",
-                            status="VALID",
-                            signature_hex="5c" * 32,
-                            timestamp=datetime.now(timezone.utc).isoformat(),
-                        ),
-                    ],
+                    total_witnesses=0,
+                    cosigned_witnesses=0,
+                    message="No persisted witness note is available for this checkpoint.",
+                    verification_status="unknown",
                 )
     except Exception:
-        pass
+        witness_report = WitnessReport(
+            quorum_satisfied=False,
+            message="Witness status could not be verified.",
+            verification_status="unknown",
+        )
 
     return AnchorInfo(
         status=status_str,
@@ -1048,51 +1202,57 @@ async def get_system_metrics(
     except Exception:
         table_stats = []
 
-    # 5. Security Posture Checks
-    # a. pgcrypto extension installed
-    try:
-        pgcrypto_res = await session.execute(text("SELECT count(*) FROM pg_extension WHERE extname = 'pgcrypto'"))
-        pgcrypto_active = bool((pgcrypto_res.scalar() or 0) > 0)
-    except Exception:
-        pgcrypto_active = True
+    # 5. Security posture checks: exceptions and NULL results remain UNKNOWN.
+    check_results: dict[str, Optional[bool]] = {}
 
-    # b. Role isolation: hr_admin cannot update audit_log
-    try:
-        priv_res = await session.execute(text("SELECT has_table_privilege('hr_admin', 'audit_log', 'UPDATE')"))
-        role_isolation = not bool(priv_res.scalar())
-    except Exception:
-        role_isolation = True
+    async def evaluate_check(name: str, statement: str) -> None:
+        try:
+            async with session.begin_nested():
+                result = await session.execute(text(statement))
+                value = result.scalar()
+            check_results[name] = None if value is None else bool(value)
+        except Exception:
+            check_results[name] = None
 
-    # c. Chain continuity: chain_state tail equals latest audit_log hash
-    try:
-        match_res = await session.execute(
-            text("SELECT (SELECT tail_hash FROM chain_state WHERE id = 1) = (SELECT entry_hash FROM audit_log ORDER BY sequence_id DESC LIMIT 1)")
-        )
-        chain_continuous = bool(match_res.scalar())
-    except Exception:
-        chain_continuous = True
+    await evaluate_check(
+        "pgcrypto_active",
+        "SELECT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pgcrypto')",
+    )
+    await evaluate_check(
+        "role_isolation",
+        """SELECT NOT (
+               has_table_privilege('hr_admin', 'audit_log', 'INSERT') OR
+               has_table_privilege('hr_admin', 'audit_log', 'UPDATE') OR
+               has_table_privilege('hr_admin', 'audit_log', 'DELETE') OR
+               has_table_privilege('hr_admin', 'audit_log', 'TRUNCATE')
+           )""",
+    )
+    await evaluate_check(
+        "chain_continuous",
+        """SELECT CASE
+             WHEN latest.entry_hash IS NULL THEN state.tail_hash = repeat('0', 64)
+             ELSE state.tail_hash = latest.entry_hash
+           END
+           FROM chain_state AS state
+           LEFT JOIN LATERAL (
+               SELECT entry_hash FROM audit_log ORDER BY sequence_id DESC LIMIT 1
+           ) AS latest ON TRUE
+           WHERE state.id = 1""",
+    )
 
-    auth_enforced = True
-
-    # Calculate composite security score (0-100)
-    score = 100
-    if not pgcrypto_active:
-        score -= 25
-    if not role_isolation:
-        score -= 25
-    if not chain_continuous:
-        score -= 25
-    if not auth_enforced:
-        score -= 25
+    settings = get_settings()
+    check_results["auth_enforced"] = bool(settings.CLERK_JWT_KEY.strip())
+    security_checks = {name: result is True for name, result in check_results.items()}
+    security_check_details = {
+        name: ("pass" if result is True else "fail" if result is False else "unknown")
+        for name, result in check_results.items()
+    }
+    score = round(100 * sum(security_checks.values()) / len(security_checks))
 
     return SystemMetricsResponse(
         security_score=score,
-        security_checks={
-            "role_isolation": role_isolation,
-            "pgcrypto_active": pgcrypto_active,
-            "chain_continuous": chain_continuous,
-            "auth_enforced": auth_enforced,
-        },
+        security_checks=security_checks,
+        security_check_details=security_check_details,
         cache_hit_rate=cache_hit_rate,
         db_size=db_size,
         audit_log_size=audit_log_size,
@@ -1103,6 +1263,58 @@ async def get_system_metrics(
 
 
 @router.post(
+    "/suspicious-activity/{flag_id}/reopen",
+    dependencies=_auditor_only,
+)
+async def reopen_suspicious_flag(
+    flag_id: int,
+    payload: Optional[SuspiciousReviewRequest] = Body(None),
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Reopen a previously reviewed flag and retain the earlier decision."""
+    result = await session.execute(
+        select(SuspiciousActivityFlag).where(SuspiciousActivityFlag.flag_id == flag_id)
+    )
+    flag = result.scalar_one_or_none()
+    if flag is None:
+        raise HTTPException(status_code=404, detail=f"Suspicious activity flag {flag_id} not found.")
+    if flag.reviewed_at is None:
+        raise HTTPException(status_code=409, detail="This suspicious activity flag is already open.")
+
+    flag.reviewed_by_user_id = None
+    flag.reviewed_at = None
+    session.add(
+        SuspiciousActivityReview(
+            flag_id=flag.flag_id,
+            reviewer_user_id=current_user.user_id,
+            action="reopened",
+            note=payload.note if payload else None,
+        )
+    )
+    await session.flush()
+    return {"flag_id": flag_id, "status": "open"}
+
+
+@router.get(
+    "/suspicious-activity/{flag_id}/reviews",
+    response_model=List[SuspiciousReviewHistoryItem],
+    dependencies=_auditor_only,
+)
+async def list_suspicious_flag_reviews(
+    flag_id: int,
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Return immutable review and reopen history for a risk flag."""
+    result = await session.execute(
+        select(SuspiciousActivityReview)
+        .where(SuspiciousActivityReview.flag_id == flag_id)
+        .order_by(SuspiciousActivityReview.created_at, SuspiciousActivityReview.review_id)
+    )
+    return result.scalars().all()
+
+
+@router.post(
     "/analytics/diagnostics/concurrency-benchmark",
     response_model=ConcurrencyRunResponse,
     dependencies=_auditor_only,
@@ -1110,13 +1322,8 @@ async def get_system_metrics(
 async def run_concurrency_test(
     body: Optional[ConcurrencyRunRequest] = None,
     workers: Optional[int] = Query(None, ge=1, le=50),
-    session: AsyncSession = Depends(get_db_session),
 ):
-    """Execute a real concurrent verification & lock burst against PostgreSQL.
-    
-    Demonstrates real transaction serializability and records genuine 
-    PostgreSQL sequence IDs and execution latencies across simultaneous worker tasks.
-    """
+    """Run parallel, isolated read-only chain-window checks against PostgreSQL."""
     import asyncio
     import time
     import uuid
@@ -1130,25 +1337,45 @@ async def run_concurrency_test(
     start_time = time.perf_counter()
     logs: list[ConcurrencyLogItem] = []
 
-    tail_res = await session.execute(text("SELECT COALESCE(MAX(sequence_id), 0) FROM audit_log"))
-    current_tail = int(tail_res.scalar() or 0)
+    session_factory = get_session_factory("compliance_auditor")
 
     async def _worker_task(worker_id: int):
         w_start = time.perf_counter()
         tx_id = f"tx-{uuid.uuid4().hex[:6]}"
         try:
-            res = await session.execute(
-                text("SELECT sequence_id, entry_hash FROM audit_log WHERE sequence_id <= :tail ORDER BY sequence_id DESC LIMIT 1"),
-                {"tail": current_tail},
-            )
-            row = res.first()
-            seq_id = row[0] if row else current_tail
+            async with session_factory() as worker_session:
+                res = await worker_session.execute(text("""
+                    WITH recent AS (
+                        SELECT sequence_id, entry_hash, previous_hash
+                        FROM audit_log
+                        ORDER BY sequence_id DESC
+                        LIMIT 1000
+                    ), ordered AS (
+                        SELECT sequence_id, entry_hash, previous_hash,
+                               lag(entry_hash) OVER (ORDER BY sequence_id) AS prior_hash
+                        FROM recent
+                    )
+                    SELECT COALESCE(MAX(sequence_id), 0), COUNT(*),
+                           COALESCE(bool_and(previous_hash = prior_hash)
+                               FILTER (WHERE prior_hash IS NOT NULL), TRUE)
+                    FROM ordered
+                """))
+                row = res.one()
+            seq_id = int(row[0] or 0)
+            inspected = int(row[1] or 0)
+            intact = bool(row[2]) and inspected >= 2
             w_latency = (time.perf_counter() - w_start) * 1000.0
             return ConcurrencyLogItem(
                 tx_id=tx_id,
                 worker_id=worker_id,
-                action="Acquired lock & verified chain block continuity",
-                status="success",
+                action=(
+                    f"Verified {inspected - 1} adjacent hash links"
+                    if intact
+                    else "Insufficient rows to verify continuity"
+                    if inspected < 2
+                    else "Detected a broken adjacent hash link"
+                ),
+                status="success" if intact else "error",
                 sequence_id=seq_id,
                 latency_ms=round(w_latency, 2),
                 timestamp=datetime.now(timezone.utc).isoformat(),

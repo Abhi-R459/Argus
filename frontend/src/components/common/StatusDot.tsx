@@ -10,7 +10,7 @@ export interface StatusDotProps {
 const COLOR_MAP: Record<StatusDotVariant, { bg: string; pulseBg: string }> = {
   success: { bg: 'bg-emerald-500', pulseBg: 'bg-emerald-400' },
   warning: { bg: 'bg-amber-500', pulseBg: 'bg-amber-400' },
-  error: { bg: 'bg-grafana-orange', pulseBg: 'bg-grafana-orange' },
+  error: { bg: 'bg-status-warning', pulseBg: 'bg-status-warning' },
   info: { bg: 'bg-sky-500', pulseBg: 'bg-sky-400' },
   primary: { bg: 'bg-linear-primary', pulseBg: 'bg-linear-primary' },
   idle: { bg: 'bg-linear-ink-subtle', pulseBg: 'bg-linear-ink-subtle' },

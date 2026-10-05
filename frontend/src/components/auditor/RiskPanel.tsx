@@ -3,24 +3,44 @@ import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@clerk/clerk-react';
 import { AlertTriangle, CheckCircle2, ShieldAlert, ArrowUpRight, GitCommit } from 'lucide-react';
-import { fetchSuspiciousFlags, reviewSuspiciousFlag, SuspiciousFlagItem } from '../../services/auditService';
+import {
+  fetchSuspiciousFlags,
+  refreshSuspiciousFlags,
+  reviewSuspiciousFlag,
+  SUSPICIOUS_FLAGS_QUERY_KEY,
+  SuspiciousFlagItem,
+} from '../../services/auditService';
 import Button from '../common/Button';
+import RefreshButton from '../common/RefreshButton';
 
 export default function RiskPanel() {
   const { getToken } = useAuth();
   const queryClient = useQueryClient();
   const [filter, setFilter] = useState<'all' | 'unreviewed'>('unreviewed');
 
-  const { data: flags = [], isLoading, isError } = useQuery<SuspiciousFlagItem[]>({
-    queryKey: ['suspiciousFlags'],
+  const { data: flags = [], isLoading, isError, refetch } = useQuery<SuspiciousFlagItem[]>({
+    queryKey: SUSPICIOUS_FLAGS_QUERY_KEY,
     queryFn: () => fetchSuspiciousFlags(() => getToken()),
-    refetchInterval: 3000,
+    refetchInterval: 5000,
   });
 
   const reviewMutation = useMutation({
     mutationFn: (flagId: number) => reviewSuspiciousFlag(flagId, () => getToken()),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['suspiciousFlags'] });
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: SUSPICIOUS_FLAGS_QUERY_KEY }),
+        queryClient.invalidateQueries({ queryKey: ['dashboardStats'] }),
+      ]);
+    },
+  });
+
+  const refreshMutation = useMutation({
+    mutationFn: () => refreshSuspiciousFlags(() => getToken()),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: SUSPICIOUS_FLAGS_QUERY_KEY }),
+        queryClient.invalidateQueries({ queryKey: ['dashboardStats'] }),
+      ]);
     },
   });
 
@@ -37,10 +57,14 @@ export default function RiskPanel() {
 
   if (isError) {
     return (
-      <div className="flex flex-col items-center justify-center h-64 border border-grafana-orange/30 rounded-2xl bg-grafana-orange/10 text-grafana-orange p-6 text-center">
+      <div className="flex flex-col items-center justify-center h-64 border border-status-warning/30 rounded-2xl bg-status-warning/10 text-status-warning p-6 text-center" role="alert">
         <AlertTriangle className="w-10 h-10 mb-3 opacity-80" />
         <p className="font-semibold">Failed to load risk data</p>
-        <p className="text-sm mt-1 opacity-70">Could not communicate with the audit engine.</p>
+        <p className="text-sm mt-1 opacity-70">Could not communicate with the audit engine. No healthy state is assumed.</p>
+        <div className="mt-4 flex items-center gap-3">
+          <RefreshButton onRefresh={() => refreshMutation.mutateAsync()} variant="dark" label="Refresh detections" title="Run risk detection and reload flags" />
+          <RefreshButton onRefresh={() => refetch()} variant="dark" label="Retry list" title="Reload risk flags" />
+        </div>
       </div>
     );
   }
@@ -64,14 +88,14 @@ export default function RiskPanel() {
           <div>
             <p className="text-sm font-medium text-linear-ink-muted">Action Required</p>
             <div className="mt-2 flex items-baseline space-x-2">
-              <span className={`text-4xl font-black tracking-tight font-mono ${unreviewedCount > 0 ? 'text-grafana-orange' : 'text-linear-success'}`}>
+              <span className={`text-4xl font-black tracking-tight font-mono ${unreviewedCount > 0 ? 'text-status-warning' : 'text-linear-success'}`}>
                 {unreviewedCount}
               </span>
               <span className="text-sm text-linear-ink-subtle font-medium">unreviewed flags</span>
             </div>
           </div>
-          <div className={`p-4 rounded-full ${unreviewedCount > 0 ? 'bg-grafana-orange/10' : 'bg-linear-success/10'}`}>
-            <AlertTriangle className={`w-8 h-8 ${unreviewedCount > 0 ? 'text-grafana-orange' : 'text-linear-success'}`} />
+          <div className={`p-4 rounded-full ${unreviewedCount > 0 ? 'bg-status-warning/10' : 'bg-linear-success/10'}`}>
+            <AlertTriangle className={`w-8 h-8 ${unreviewedCount > 0 ? 'text-status-warning' : 'text-linear-success'}`} />
           </div>
         </div>
       </div>
@@ -82,29 +106,47 @@ export default function RiskPanel() {
         {/* Toolbar */}
         <div className="px-6 py-4 border-b border-linear-hairline flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-linear-surface-2/40">
           <h3 className="text-base font-semibold text-linear-ink">Flagged Events</h3>
-          <div className="flex bg-linear-canvas p-1 rounded-xl border border-linear-hairline self-start sm:self-auto space-x-1" role="tablist" aria-label="Risk flag filter">
-            <button
-              type="button"
-              role="tab"
-              aria-selected={filter === 'unreviewed'}
-              onClick={() => setFilter('unreviewed')}
-              className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-linear-primary ${
-                filter === 'unreviewed' ? 'bg-linear-primary text-white shadow-xs' : 'text-linear-ink-muted hover:text-linear-ink'
-              }`}
-            >
-              Unreviewed ({unreviewedCount})
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={filter === 'all'}
-              onClick={() => setFilter('all')}
-              className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-linear-primary ${
-                filter === 'all' ? 'bg-linear-primary text-white shadow-xs' : 'text-linear-ink-muted hover:text-linear-ink'
-              }`}
-            >
-              All Flags
-            </button>
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+            {(refreshMutation.isError || reviewMutation.isError) && (
+              <span className="text-xs text-status-warning" role="alert">
+                {refreshMutation.isError
+                  ? 'Risk detection failed. Existing flags are unchanged.'
+                  : 'The review could not be saved. Try again.'}
+              </span>
+            )}
+            <div className="flex items-center gap-3">
+              <div className="flex bg-linear-canvas p-1 rounded-xl border border-linear-hairline self-start sm:self-auto space-x-1" role="tablist" aria-label="Risk flag filter">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={filter === 'unreviewed'}
+                  onClick={() => setFilter('unreviewed')}
+                  className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-linear-primary ${
+                    filter === 'unreviewed' ? 'bg-linear-primary text-white shadow-xs' : 'text-linear-ink-muted hover:text-linear-ink'
+                  }`}
+                >
+                  Unreviewed ({unreviewedCount})
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={filter === 'all'}
+                  onClick={() => setFilter('all')}
+                  className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-linear-primary ${
+                    filter === 'all' ? 'bg-linear-primary text-white shadow-xs' : 'text-linear-ink-muted hover:text-linear-ink'
+                  }`}
+                >
+                  All Flags
+                </button>
+              </div>
+              <RefreshButton
+                onRefresh={() => refreshMutation.mutateAsync()}
+                variant="dark"
+                label="Refresh detections"
+                title="Run risk detection and reload flags"
+                size="sm"
+              />
+            </div>
           </div>
         </div>
 
@@ -126,7 +168,7 @@ export default function RiskPanel() {
                     {flag.reviewed_at ? (
                       <CheckCircle2 className="w-5 h-5 text-linear-success" />
                     ) : (
-                      <AlertTriangle className="w-5 h-5 text-grafana-orange" />
+                      <AlertTriangle className="w-5 h-5 text-status-warning" />
                     )}
                   </div>
                   <div>

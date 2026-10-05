@@ -24,6 +24,62 @@ async def test_list_employees_auditor(client_auditor: AsyncClient, mock_db_sessi
     assert "items" in data
     assert "total" in data
 
+
+async def test_auditor_directory_redacts_pii_by_default(client_auditor: AsyncClient, mock_db_session: AsyncMock):
+    from datetime import date
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+
+    row = SimpleNamespace(
+        employee_id=31,
+        full_name="Private Employee",
+        email="private@example.test",
+        role_title="Engineer",
+        department_name="Engineering",
+        salary=125000,
+        date_hired=date(2024, 1, 1),
+        is_active=True,
+    )
+    result = MagicMock(); result.all.return_value = [row]
+    mock_db_session.scalar.return_value = 1
+    mock_db_session.execute.return_value = result
+
+    response = await client_auditor.get("/api/employees")
+    assert response.status_code == 200
+    item = response.json()["items"][0]
+    assert item["full_name"] == "Employee #31"
+    assert item["email"] == "Restricted"
+    assert item["salary"] is None
+    assert item["pii_redacted"] is True
+
+
+async def test_auditor_directory_pii_reveal_is_recorded(client_auditor: AsyncClient, mock_db_session: AsyncMock):
+    from datetime import date
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+
+    row = SimpleNamespace(
+        employee_id=31,
+        full_name="Private Employee",
+        email="private@example.test",
+        role_title="Engineer",
+        department_name="Engineering",
+        salary=125000,
+        date_hired=date(2024, 1, 1),
+        is_active=True,
+    )
+    result = MagicMock(); result.all.return_value = [row]
+    mock_db_session.scalar.return_value = 1
+    mock_db_session.execute.return_value = result
+
+    response = await client_auditor.get("/api/employees?include_pii=true")
+    assert response.status_code == 200
+    item = response.json()["items"][0]
+    assert item["full_name"] == "Private Employee"
+    assert item["email"] == "private@example.test"
+    event = mock_db_session.add.call_args.args[0]
+    assert event.event_type == "DIRECTORY_PII_REVEAL"
+
 async def test_create_employee_hr(client_hr: AsyncClient, mock_db_session: AsyncMock):
     # Setup mock
     mock_employee = AsyncMock()

@@ -3,8 +3,8 @@
 Shapes mirror contracts/api_contract.md §4 and §6 exactly.
 """
 
-from pydantic import BaseModel
-from typing import Any, Dict, List, Optional
+from pydantic import BaseModel, Field
+from typing import Any, Dict, List, Literal, Optional
 from datetime import datetime
 
 
@@ -41,12 +41,13 @@ class VerificationResult(BaseModel):
     Mirrors both the 'intact' and 'tampered' shapes from the contract.
     """
 
-    status: str                         # "intact" | "tampered"
+    status: Literal["intact", "tampered", "unknown", "error"]
     entries_scanned: int
     anchor_match: bool
     last_verified_sequence_id: int
     tampered_sequence_id: Optional[int]
     details: str
+    verification_checks: Dict[str, Literal["pass", "fail", "unknown"]] = Field(default_factory=dict)
 
 
 # ─── Suspicious Activity ───────────────────────────────────────────────────────
@@ -72,21 +73,41 @@ class SuspiciousReviewResponse(BaseModel):
     reviewed_at: datetime
 
 
+class SuspiciousReviewRequest(BaseModel):
+    """Optional rationale attached to a review decision."""
+
+    note: Optional[str] = Field(default=None, max_length=2000)
+
+
+class SuspiciousReviewHistoryItem(BaseModel):
+    """One immutable decision in a suspicious flag's review history."""
+
+    review_id: int
+    flag_id: int
+    reviewer_user_id: int
+    action: str
+    note: Optional[str] = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 # ─── Time-Travel ───────────────────────────────────────────────────────────────
 
 class TimeTravelResponse(BaseModel):
     """Response from GET /api/employees/{id}/time-travel."""
 
     employee_id: int
-    full_name: str
-    email: str
+    full_name: Optional[str]
+    email: Optional[str]
     role_title: str
     department_name: str
-    salary: float
+    salary: Optional[float]
     date_hired: datetime
     is_active: bool
     as_of: datetime
     sequence_id: Optional[int] = None
+    pii_redacted: bool = False
 
 
 # ─── Live Chain & Anchor Status ───────────────────────────────────────────────
@@ -119,10 +140,13 @@ class WitnessItem(BaseModel):
 class WitnessReport(BaseModel):
     quorum_satisfied: bool
     required_threshold: int = 2
-    total_witnesses: int = 3
-    cosigned_witnesses: int = 3
+    total_witnesses: int = 0
+    cosigned_witnesses: int = 0
     message: Optional[str] = None
-    per_witness: List[WitnessItem] = []
+    per_witness: List[WitnessItem] = Field(default_factory=list)
+    verification_status: str = "unknown"
+    deployment_mode: str = "in_process_reference"
+    independent_trust_domains: bool = False
 
 
 class AnchorInfo(BaseModel):

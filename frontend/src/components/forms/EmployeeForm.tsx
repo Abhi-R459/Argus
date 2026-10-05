@@ -177,7 +177,7 @@ export default function EmployeeForm({ isOpen = true, onClose }: EmployeeFormPro
                   type="text"
                   {...register('full_name')}
                   placeholder="e.g. Sarah Jenkins"
-                  className={`w-full px-3.5 py-2 bg-slate-50/60 hover:bg-slate-50 border rounded-xl text-sm text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-4 focus:ring-slate-900/5 focus:border-slate-900 transition-[color,background-color,border-color,box-shadow] duration-150 ease-out shadow-2xs ${
+                  className={`w-full px-3.5 py-2 bg-slate-50/60 hover:bg-slate-50 border rounded-xl text-sm text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-4 focus:ring-portal-primary/20 focus:border-slate-900 transition-[color,background-color,border-color,box-shadow] duration-150 ease-out shadow-2xs ${
                     errors.full_name ? 'border-rose-400 focus:border-rose-500 focus:ring-rose-500/10' : 'border-slate-200'
                   }`}
                 />
@@ -194,7 +194,7 @@ export default function EmployeeForm({ isOpen = true, onClose }: EmployeeFormPro
                   type="email"
                   {...register('email')}
                   placeholder="s.jenkins@enterprise.internal"
-                  className={`w-full px-3.5 py-2 bg-slate-50/60 hover:bg-slate-50 border rounded-xl text-sm text-slate-900 font-mono placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-4 focus:ring-slate-900/5 focus:border-slate-900 transition-[color,background-color,border-color,box-shadow] duration-150 ease-out shadow-2xs ${
+                  className={`w-full px-3.5 py-2 bg-slate-50/60 hover:bg-slate-50 border rounded-xl text-sm text-slate-900 font-mono placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-4 focus:ring-portal-primary/20 focus:border-slate-900 transition-[color,background-color,border-color,box-shadow] duration-150 ease-out shadow-2xs ${
                     errors.email ? 'border-rose-400 focus:border-rose-500 focus:ring-rose-500/10' : 'border-slate-200'
                   }`}
                 />
@@ -212,7 +212,7 @@ export default function EmployeeForm({ isOpen = true, onClose }: EmployeeFormPro
                 </label>
                 <select
                   {...register('role_id')}
-                  className={`w-full px-3.5 py-2 bg-slate-50/60 hover:bg-slate-50 border rounded-xl text-sm text-slate-900 focus:bg-white focus:outline-none focus:ring-4 focus:ring-slate-900/5 focus:border-slate-900 transition-[color,background-color,border-color,box-shadow] duration-150 ease-out shadow-2xs cursor-pointer ${
+                  className={`w-full px-3.5 py-2 bg-slate-50/60 hover:bg-slate-50 border rounded-xl text-sm text-slate-900 focus:bg-white focus:outline-none focus:ring-4 focus:ring-portal-primary/20 focus:border-slate-900 transition-[color,background-color,border-color,box-shadow] duration-150 ease-out shadow-2xs cursor-pointer ${
                     errors.role_id ? 'border-rose-400 focus:border-rose-500 focus:ring-rose-500/10' : 'border-slate-200'
                   }`}
                 >
@@ -235,7 +235,7 @@ export default function EmployeeForm({ isOpen = true, onClose }: EmployeeFormPro
                 <input
                   type="date"
                   {...register('date_hired')}
-                  className={`w-full px-3.5 py-2 bg-slate-50/60 hover:bg-slate-50 border rounded-xl text-sm text-slate-900 font-mono focus:bg-white focus:outline-none focus:ring-4 focus:ring-slate-900/5 focus:border-slate-900 transition-[color,background-color,border-color,box-shadow] duration-150 ease-out shadow-2xs ${
+                  className={`w-full px-3.5 py-2 bg-slate-50/60 hover:bg-slate-50 border rounded-xl text-sm text-slate-900 font-mono focus:bg-white focus:outline-none focus:ring-4 focus:ring-portal-primary/20 focus:border-slate-900 transition-[color,background-color,border-color,box-shadow] duration-150 ease-out shadow-2xs ${
                     errors.date_hired ? 'border-rose-400 focus:border-rose-500 focus:ring-rose-500/10' : 'border-slate-200'
                   }`}
                 />
@@ -260,7 +260,7 @@ export default function EmployeeForm({ isOpen = true, onClose }: EmployeeFormPro
                     step="1"
                     {...register('salary')}
                     placeholder="e.g. 85000"
-                    className={`w-full pl-8 pr-3.5 py-2 bg-slate-50/60 hover:bg-slate-50 border rounded-xl text-sm text-slate-900 font-mono tabular-nums focus:bg-white focus:outline-none focus:ring-4 focus:ring-slate-900/5 focus:border-slate-900 transition-[color,background-color,border-color,box-shadow] duration-150 ease-out shadow-2xs ${
+                    className={`w-full pl-8 pr-3.5 py-2 bg-slate-50/60 hover:bg-slate-50 border rounded-xl text-sm text-slate-900 font-mono tabular-nums focus:bg-white focus:outline-none focus:ring-4 focus:ring-portal-primary/20 focus:border-slate-900 transition-[color,background-color,border-color,box-shadow] duration-150 ease-out shadow-2xs ${
                       errors.salary ? 'border-rose-400 focus:border-rose-500 focus:ring-rose-500/10' : 'border-slate-200'
                     }`}
                   />
@@ -282,7 +282,7 @@ export default function EmployeeForm({ isOpen = true, onClose }: EmployeeFormPro
                   type="text"
                   {...register('national_id')}
                   placeholder="e.g. 9876-5432-1098"
-                  className={`w-full px-3.5 py-2 bg-slate-50/60 hover:bg-slate-50 border rounded-xl text-sm text-slate-900 font-mono placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-4 focus:ring-slate-900/5 focus:border-slate-900 transition-[color,background-color,border-color,box-shadow] duration-150 ease-out shadow-2xs ${
+                  className={`w-full px-3.5 py-2 bg-slate-50/60 hover:bg-slate-50 border rounded-xl text-sm text-slate-900 font-mono placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-4 focus:ring-portal-primary/20 focus:border-slate-900 transition-[color,background-color,border-color,box-shadow] duration-150 ease-out shadow-2xs ${
                     errors.national_id ? 'border-rose-400 focus:border-rose-500 focus:ring-rose-500/10' : 'border-slate-200'
                   }`}
                 />
@@ -302,7 +302,7 @@ export default function EmployeeForm({ isOpen = true, onClose }: EmployeeFormPro
                 {...register('contact_info')}
                 rows={2}
                 placeholder="Residential address, phone numbers, emergency contact details..."
-                className={`w-full px-3.5 py-2 bg-slate-50/60 hover:bg-slate-50 border rounded-xl text-sm text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-4 focus:ring-slate-900/5 focus:border-slate-900 transition-[color,background-color,border-color,box-shadow] duration-150 ease-out shadow-2xs ${
+                className={`w-full px-3.5 py-2 bg-slate-50/60 hover:bg-slate-50 border rounded-xl text-sm text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-4 focus:ring-portal-primary/20 focus:border-slate-900 transition-[color,background-color,border-color,box-shadow] duration-150 ease-out shadow-2xs ${
                   errors.contact_info ? 'border-rose-400 focus:border-rose-500 focus:ring-rose-500/10' : 'border-slate-200'
                 }`}
               />

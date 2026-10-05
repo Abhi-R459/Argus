@@ -27,7 +27,7 @@ def upgrade() -> None:
     statements = [
         # ---------- HR Admin ----------
         "GRANT SELECT ON audit_log TO hr_admin",
-        "REVOKE UPDATE, DELETE ON audit_log FROM hr_admin",
+        "REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON audit_log FROM hr_admin",
         "GRANT SELECT ON suspicious_activity_flags TO hr_admin",
         "GRANT SELECT ON v_compliance_overview TO hr_admin",
 

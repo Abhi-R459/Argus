@@ -62,7 +62,8 @@ const AuditRow = React.forwardRef<
       <>
         <DataTable.Row
           ref={ref}
-          isSelected={isSelected || isTargetSeq}
+          isSelected={isSelected}
+          isHighlighted={isTargetSeq}
           isFocused={isFocused}
           isTampered={isTampered}
           portalTheme="auditor"
@@ -74,14 +75,14 @@ const AuditRow = React.forwardRef<
           <div className="flex items-center space-x-1.5">
             <span
               className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
-                isTampered ? 'bg-grafana-orange' : getSeverityDotClass(entry.severity)
+                isTampered ? 'bg-status-warning' : getSeverityDotClass(entry.severity)
               }`}
             />
-            <span className={isTampered ? 'text-grafana-orange' : 'text-linear-ink'}>
+            <span className={isTampered ? 'text-status-warning' : 'text-linear-ink'}>
               #{entry.sequence_id}
             </span>
             {isTampered && (
-              <span className="text-[10px] font-mono font-bold bg-grafana-orange/20 text-grafana-orange border border-grafana-orange/40 px-1 py-0.5 rounded">
+              <span className="text-[10px] font-mono font-bold bg-status-warning/20 text-status-warning border border-status-warning/40 px-1 py-0.5 rounded">
                 TAMPERED
               </span>
             )}
@@ -235,8 +236,9 @@ export default function AuditLogTable() {
     limit: 25,
     sequence_id: targetSeqId,
   });
+  const [cursorByPage, setCursorByPage] = useState<Record<number, number>>({});
 
-  const [focusedRowIndex, setFocusedRowIndex] = useState<number>(0);
+  const [focusedRowIndex, setFocusedRowIndex] = useState<number>(-1);
   const [openRowSeq, setOpenRowSeq] = useState<number | null>(targetSeqId ?? null);
 
   const {
@@ -246,7 +248,10 @@ export default function AuditLogTable() {
     refetch,
   } = useQuery({
     queryKey: ['audit-logs', filters],
-    queryFn: () => fetchAuditLogs(filters, getToken),
+    queryFn: () => fetchAuditLogs({
+      ...filters,
+      before_sequence_id: cursorByPage[filters.page ?? 1],
+    }, getToken),
     placeholderData: (prev) => prev,
     refetchInterval: 3000,
   });
@@ -267,12 +272,23 @@ export default function AuditLogTable() {
   useEffect(() => {
     rowRefs.current = rowRefs.current.slice(0, items.length);
     if (items.length > 0 && focusedRowIndex >= items.length) {
-      setFocusedRowIndex(0);
+      setFocusedRowIndex(-1);
     }
   }, [items.length, focusedRowIndex]);
 
   const handleFilterChange = (patch: Partial<AuditLogFilters>) => {
+    if (Object.keys(patch).some((key) => key !== 'page')) {
+      setCursorByPage({});
+    }
     setFilters((prev) => ({ ...prev, ...patch }));
+  };
+
+  const goToNextPage = () => {
+    const nextPage = (filters.page ?? 1) + 1;
+    if (data?.next_cursor) {
+      setCursorByPage((previous) => ({ ...previous, [nextPage]: data.next_cursor! }));
+    }
+    handleFilterChange({ page: Math.min(totalPages, nextPage) });
   };
 
   // Active filter items for FilterBar
@@ -319,6 +335,7 @@ export default function AuditLogTable() {
   }
 
   const handleClearAll = () => {
+    setCursorByPage({});
     setFilters({ page: 1, limit: 25 });
   };
 
@@ -520,8 +537,8 @@ export default function AuditLogTable() {
             variant="secondary"
             size="sm"
             portalTheme="auditor"
-            onClick={() => handleFilterChange({ page: Math.min(totalPages, (filters.page ?? 1) + 1) })}
-            disabled={(filters.page ?? 1) >= totalPages || isFetching}
+            onClick={goToNextPage}
+            disabled={(filters.page ?? 1) >= totalPages || isFetching || (data?.has_more === false)}
             rightIcon={<ChevronRight className="w-3 h-3" />}
           >
             Next

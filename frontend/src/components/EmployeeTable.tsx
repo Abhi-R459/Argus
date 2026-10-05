@@ -41,7 +41,7 @@ export default function EmployeeTable() {
   const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
   const [isSheetOpen, setIsSheetOpen] = useState(false);
   const [sheetTab, setSheetTab] = useState<'overview' | 'edit' | 'salary'>('overview');
-  const [focusedRowIndex, setFocusedRowIndex] = useState<number>(0);
+  const [focusedRowIndex, setFocusedRowIndex] = useState<number>(-1);
 
   // Debounce search query
   useEffect(() => {
@@ -171,7 +171,7 @@ export default function EmployeeTable() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search personnel directory by name or ID... (/)"
-              className="w-full pl-9 pr-7 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-slate-900 focus:ring-4 focus:ring-slate-900/5 transition-[color,background-color,border-color,box-shadow] duration-150 ease-out shadow-2xs"
+              className="w-full pl-9 pr-7 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-slate-900 focus:ring-4 focus:ring-portal-primary/20 transition-[color,background-color,border-color,box-shadow] duration-150 ease-out shadow-2xs"
             />
             {search && (
               <button
@@ -194,7 +194,7 @@ export default function EmployeeTable() {
                 setSelectedDept(e.target.value);
                 setPage(1);
               }}
-              className="pl-9 pr-7 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-700 focus:outline-none focus:border-slate-900 focus:ring-4 focus:ring-slate-900/5 cursor-pointer shadow-2xs"
+              className="pl-9 pr-7 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-700 focus:outline-none focus:border-slate-900 focus:ring-4 focus:ring-portal-primary/20 cursor-pointer shadow-2xs"
             >
               <option value="all">All Departments</option>
               {departments.map((dept) => (
@@ -209,6 +209,7 @@ export default function EmployeeTable() {
           <div className="flex items-center rounded-xl border border-slate-200 p-0.5 bg-slate-100/70 shadow-2xs text-xs">
             <button
               type="button"
+              aria-pressed={selectedStatus === 'all'}
               onClick={() => {
                 setSelectedStatus('all');
                 setPage(1);
@@ -223,13 +224,14 @@ export default function EmployeeTable() {
             </button>
             <button
               type="button"
+              aria-pressed={selectedStatus === 'active'}
               onClick={() => {
                 setSelectedStatus('active');
                 setPage(1);
               }}
               className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-[color,background-color,box-shadow] duration-150 ease-out ${
                 selectedStatus === 'active'
-                  ? 'bg-white text-emerald-700 shadow-xs font-semibold'
+                  ? 'bg-white text-slate-900 shadow-xs font-semibold'
                   : 'text-slate-500 hover:text-slate-900'
               }`}
             >
@@ -237,13 +239,14 @@ export default function EmployeeTable() {
             </button>
             <button
               type="button"
+              aria-pressed={selectedStatus === 'inactive'}
               onClick={() => {
                 setSelectedStatus('inactive');
                 setPage(1);
               }}
               className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-[color,background-color,box-shadow] duration-150 ease-out ${
                 selectedStatus === 'inactive'
-                  ? 'bg-white text-amber-700 shadow-xs font-semibold'
+                  ? 'bg-white text-slate-900 shadow-xs font-semibold'
                   : 'text-slate-500 hover:text-slate-900'
               }`}
             >
@@ -253,7 +256,7 @@ export default function EmployeeTable() {
         </div>
 
         <div className="flex items-center gap-2 text-xs text-slate-400 font-mono">
-          {isFetching && <span className="text-[10px] text-amber-600 animate-pulse font-medium">syncing…</span>}
+          {isFetching && <span className="text-[11px] text-slate-600 font-medium">Updating…</span>}
           <span>{data?.total ?? 0} records</span>
         </div>
       </FilterBar>

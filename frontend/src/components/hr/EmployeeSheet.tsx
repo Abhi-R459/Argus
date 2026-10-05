@@ -508,7 +508,7 @@ export function EmployeeSheet({
                 type="text"
                 {...registerProfile('full_name')}
                 placeholder="Full Name"
-                className="w-full px-3.5 py-2 bg-slate-50/60 hover:bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 focus:bg-white focus:outline-none focus:ring-4 focus:ring-slate-900/5 focus:border-slate-900 transition-all shadow-2xs"
+                className="w-full px-3.5 py-2 bg-slate-50/60 hover:bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 focus:bg-white focus:outline-none focus:ring-4 focus:ring-portal-primary/20 focus:border-slate-900 transition-all shadow-2xs"
               />
               {profileErrors.full_name && (
                 <p className="mt-1 text-xs text-rose-600 font-medium">{profileErrors.full_name.message}</p>
@@ -523,7 +523,7 @@ export function EmployeeSheet({
                 type="email"
                 {...registerProfile('email')}
                 placeholder="workforce@example.com"
-                className="w-full px-3.5 py-2 bg-slate-50/60 hover:bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 font-mono focus:bg-white focus:outline-none focus:ring-4 focus:ring-slate-900/5 focus:border-slate-900 transition-all shadow-2xs"
+                className="w-full px-3.5 py-2 bg-slate-50/60 hover:bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 font-mono focus:bg-white focus:outline-none focus:ring-4 focus:ring-portal-primary/20 focus:border-slate-900 transition-all shadow-2xs"
               />
               {profileErrors.email && (
                 <p className="mt-1 text-xs text-rose-600 font-medium">{profileErrors.email.message}</p>
@@ -536,7 +536,7 @@ export function EmployeeSheet({
               </label>
               <select
                 {...registerProfile('role_id')}
-                className="w-full px-3.5 py-2 bg-slate-50/60 hover:bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 focus:bg-white focus:outline-none focus:ring-4 focus:ring-slate-900/5 focus:border-slate-900 transition-all shadow-2xs cursor-pointer"
+                className="w-full px-3.5 py-2 bg-slate-50/60 hover:bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 focus:bg-white focus:outline-none focus:ring-4 focus:ring-portal-primary/20 focus:border-slate-900 transition-all shadow-2xs cursor-pointer"
               >
                 <option value="">
                   {isRolesLoading ? 'Loading roles from database…' : `Keep Current: ${currentEmployee.role_title || 'Unassigned'} (${currentEmployee.department_name || 'General'})`}
@@ -561,7 +561,7 @@ export function EmployeeSheet({
                 {...registerProfile('contact_info')}
                 rows={3}
                 placeholder="Enter new contact details to update encrypted payload (leave blank to retain current)..."
-                className="w-full px-3.5 py-2 bg-slate-50/60 hover:bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 focus:bg-white focus:outline-none focus:ring-4 focus:ring-slate-900/5 focus:border-slate-900 transition-all shadow-2xs"
+                className="w-full px-3.5 py-2 bg-slate-50/60 hover:bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 focus:bg-white focus:outline-none focus:ring-4 focus:ring-portal-primary/20 focus:border-slate-900 transition-all shadow-2xs"
               />
               <p className="mt-1.5 text-[11px] text-slate-500 flex items-center gap-1">
                 <Lock className="w-3 h-3 text-emerald-600 shrink-0" />
@@ -637,7 +637,7 @@ export function EmployeeSheet({
                   step="1"
                   {...registerSalary('amount')}
                   placeholder="e.g. 95000"
-                  className="w-full pl-8 pr-3.5 py-2 bg-slate-50/60 hover:bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 font-mono focus:bg-white focus:outline-none focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-600 transition-all tabular-nums shadow-2xs"
+                  className="w-full pl-8 pr-3.5 py-2 bg-slate-50/60 hover:bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 font-mono focus:bg-white focus:outline-none focus:ring-4 focus:ring-portal-success/20 focus:border-emerald-600 transition-all tabular-nums shadow-2xs"
                 />
               </div>
               {salaryErrors.amount && (
@@ -653,7 +653,7 @@ export function EmployeeSheet({
                 <input
                   type="date"
                   {...registerSalary('effective_date')}
-                  className="w-full px-3.5 py-2 bg-slate-50/60 hover:bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 font-mono focus:bg-white focus:outline-none focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-600 transition-all shadow-2xs"
+                  className="w-full px-3.5 py-2 bg-slate-50/60 hover:bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 font-mono focus:bg-white focus:outline-none focus:ring-4 focus:ring-portal-success/20 focus:border-emerald-600 transition-all shadow-2xs"
                 />
               </div>
               {salaryErrors.effective_date && (

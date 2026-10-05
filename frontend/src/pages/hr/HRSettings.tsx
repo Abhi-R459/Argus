@@ -1,20 +1,19 @@
 import { useUser, useClerk } from '@clerk/clerk-react';
 import { ShieldCheck, Database, Key, User, Lock, CheckCircle2 } from 'lucide-react';
 import { Button } from '../../components/common/Button';
+import PageHeader from '../../components/common/PageHeader';
 
 export default function HRSettings() {
   const { user } = useUser();
   const { openUserProfile } = useClerk();
 
   return (
-    <div className="space-y-8 max-w-4xl animate-fade-cascade">
-      {/* Header */}
-      <div className="border-b border-slate-200 pb-5">
-        <h1 className="text-xl font-bold text-slate-900 tracking-tight">Security & Access Management</h1>
-        <p className="text-xs text-slate-500 mt-1">
-          Cryptographic keys, Clerk authentication tokens, role-based access control, and PostgreSQL session parameters.
-        </p>
-      </div>
+    <div className="space-y-6 max-w-7xl animate-fade-cascade">
+      <PageHeader
+        title="Security & Access Management"
+        description="Authentication, role access, database connections, and encryption posture."
+        portalTheme="hr"
+      />
 
       {/* Clerk Profile & Session Card */}
       <div className="bg-white rounded-2xl border border-slate-200/80 p-6 shadow-xs space-y-6">
@@ -61,9 +60,9 @@ export default function HRSettings() {
           <div className="bg-slate-50 p-4 rounded-xl border border-slate-200/80 flex flex-col justify-between">
             <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Two-Factor Authentication</span>
             <div className="mt-1.5 flex items-center space-x-2 bg-white p-2 rounded-lg border border-slate-200 shadow-2xs">
-              <Lock className="w-4 h-4 text-emerald-600 shrink-0" />
-              <span className="text-xs font-semibold text-slate-800">
-                {user?.twoFactorEnabled ? 'Enabled & Enforced' : 'Active (Clerk MFA Enforced)'}
+              <Lock className={`w-4 h-4 shrink-0 ${user?.twoFactorEnabled ? 'text-portal-success' : 'text-portal-warning'}`} />
+              <span className="text-xs font-semibold text-slate-800" role="status">
+                {user ? (user.twoFactorEnabled ? 'Enabled' : 'Not enabled') : 'Checking status…'}
               </span>
             </div>
           </div>

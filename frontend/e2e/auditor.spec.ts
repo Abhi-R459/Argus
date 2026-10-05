@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { mockArgusApi } from './fixtures/argus-api';
 
 test.describe('Compliance Auditor Portal E2E', () => {
   test.beforeEach(async ({ page }) => {
@@ -6,6 +7,7 @@ test.describe('Compliance Auditor Portal E2E', () => {
     await page.addInitScript(() => {
       (window as any).__E2E_ROLE__ = 'compliance_auditor';
     });
+    await mockArgusApi(page);
   });
 
   test('Auditor portal navigation and layout rendering', async ({ page }) => {
@@ -15,6 +17,9 @@ test.describe('Compliance Auditor Portal E2E', () => {
     // Auditor header status pill
     const poolBadge = page.locator('text=Pool: compliance_auditor');
     await expect(poolBadge).toBeVisible();
+    await expect(page.getByText('Verification Complete', { exact: true })).toBeVisible();
+    await expect(page.getByText('Unverified')).toBeVisible();
+    await expect(page.getByText(/do not represent independent trust domains/i)).toBeVisible();
 
     // Sidebar navigation links (scoped to aside to avoid duplicate in-page action links)
     await expect(page.locator('aside a[href="/auditor/overview"]')).toBeVisible();
@@ -23,6 +28,97 @@ test.describe('Compliance Auditor Portal E2E', () => {
     await expect(page.locator('aside a[href="/auditor/time-travel"]')).toBeVisible();
     await expect(page.locator('aside a[href="/auditor/counterfactual"]')).toBeVisible();
     await expect(page.locator('aside a[href="/auditor/forensic-evidence"]')).toBeVisible();
+  });
+
+  test('Auditor verification and risk refresh update the dashboard data', async ({ page }) => {
+    await page.goto('http://localhost:5173/auditor/overview');
+    await expect(page.getByText('1 pending flag', { exact: true })).toBeVisible();
+
+    const verificationRequest = page.waitForRequest((request) =>
+      new URL(request.url()).pathname.endsWith('/verify') && request.method() === 'POST'
+    );
+    await page.getByRole('button', { name: 'Re-run (Re-run chain verification)' }).click();
+    await verificationRequest;
+
+    await page.getByRole('link', { name: 'Open Risk Panel' }).click();
+    await expect(page.getByRole('heading', { name: 'Flagged Events' })).toBeVisible();
+    const detectionResponse = page.waitForResponse((response) =>
+      new URL(response.url()).pathname.endsWith('/suspicious-activity/refresh') && response.request().method() === 'POST'
+    );
+    await page.getByRole('button', { name: /Refresh detections/ }).click();
+    expect((await detectionResponse).ok()).toBeTruthy();
+
+    const reviewResponse = page.waitForResponse((response) =>
+      new URL(response.url()).pathname.endsWith('/suspicious-activity/7/review') && response.request().method() === 'POST'
+    );
+    await page.getByRole('button', { name: 'Mark Safe' }).click();
+    expect((await reviewResponse).ok()).toBeTruthy();
+    await expect(page.getByText('No unreviewed flags found.')).toBeVisible();
+
+    await page.locator('aside a[href="/auditor/overview"]').click();
+    await expect(page.getByText('0 pending flags', { exact: true })).toBeVisible();
+  });
+
+  test('Auditor analytics, audit-log, and chain sync controls call their data APIs', async ({ page }) => {
+    await page.goto('http://localhost:5173/auditor/analytics');
+    await expect(page.getByRole('heading', { name: 'Security & Isolation Posture' })).toBeVisible();
+
+    const metricsRequest = page.waitForRequest((request) =>
+      new URL(request.url()).pathname.endsWith('/analytics/system-metrics') && request.method() === 'GET'
+    );
+    await page.getByRole('button', { name: 'Re-verify posture' }).click();
+    await metricsRequest;
+
+    await page.goto('http://localhost:5173/auditor/log');
+    await expect(page.getByRole('heading', { name: 'Audit Log' })).toBeVisible();
+    const auditLogRequest = page.waitForRequest((request) =>
+      new URL(request.url()).pathname.endsWith('/audit-logs') && request.method() === 'GET'
+    );
+    await page.getByRole('button', { name: 'Sync (Refresh audit logs)' }).click();
+    await auditLogRequest;
+
+    await page.goto('http://localhost:5173/auditor/chain');
+    await expect(page.locator('input#audit-chain-seq-search')).toBeVisible();
+    const chainRequest = page.waitForRequest((request) =>
+      new URL(request.url()).pathname.endsWith('/audit-logs/chain') && request.method() === 'GET'
+    );
+    await page.getByRole('button', { name: 'Sync (Sync chain now)' }).click();
+    await chainRequest;
+  });
+
+  test('Auditor risk refresh failure is visible and flags stay unreviewed', async ({ page }) => {
+    await page.route('**/api/suspicious-activity/refresh', (route) =>
+      route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ detail: 'Already running' }) })
+    );
+    await page.goto('http://localhost:5173/auditor/activity');
+    await expect(page.getByRole('heading', { name: 'Flagged Events' })).toBeVisible();
+
+    await page.getByRole('button', { name: /Refresh detections/ }).click();
+    await expect(page.getByRole('alert').filter({ hasText: 'Risk detection failed. Existing flags are unchanged.' })).toBeVisible();
+    await expect(page.getByText('Unreviewed (1)')).toBeVisible();
+  });
+
+  test('Incomplete chain evidence is shown as unverified rather than tampered or healthy', async ({ page }) => {
+    await page.route('**/api/verify', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          status: 'unknown',
+          entries_scanned: 142,
+          anchor_match: true,
+          last_verified_sequence_id: 142,
+          tampered_sequence_id: null,
+          details: 'Checkpoint signatures are unavailable.',
+          verification_checks: { hash_chain: 'pass', external_anchor: 'pass', checkpoint_signatures: 'unknown' },
+        }),
+      })
+    );
+    await page.goto('http://localhost:5173/auditor/overview');
+
+    await expect(page.getByText('Verification Incomplete')).toBeVisible();
+    await expect(page.getByText('2/3 verified')).toBeVisible();
+    await expect(page.getByText('Tampering Detected')).toHaveCount(0);
   });
 
   test('Forensic Evidence page input formatting and layout', async ({ page }) => {
@@ -40,10 +136,13 @@ test.describe('Compliance Auditor Portal E2E', () => {
     const bgColor = await seqInput.evaluate((el) => window.getComputedStyle(el).backgroundColor);
     const textColor = await seqInput.evaluate((el) => window.getComputedStyle(el).color);
     
-    // rgb(20, 21, 22) corresponds to #141516 (linear-surface-2)
-    expect(bgColor).toBe('rgb(20, 21, 22)');
-    // rgb(247, 248, 248) corresponds to #f7f8f8 (linear-ink)
-    expect(textColor).toBe('rgb(247, 248, 248)');
+    // Keep the control dark and the foreground bright across browser autofill states.
+    const channelMean = (color: string) => {
+      const values = color.match(/[\d.]+/g)?.map(Number) ?? [];
+      return values.slice(0, 3).reduce((total, value) => total + value, 0) / 3;
+    };
+    expect(channelMean(bgColor)).toBeLessThan(80);
+    expect(channelMean(textColor)).toBeGreaterThan(180);
 
     // Action buttons
     const genProofBtn = page.locator('button', { hasText: 'Generate Merkle Proof' });

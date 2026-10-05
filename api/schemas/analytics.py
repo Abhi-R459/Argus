@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 from decimal import Decimal
@@ -48,6 +48,7 @@ class TableStatItem(BaseModel):
 class SystemMetricsResponse(BaseModel):
     security_score: int
     security_checks: Dict[str, bool]
+    security_check_details: Dict[str, str] = Field(default_factory=dict)
     cache_hit_rate: float
     db_size: str
     audit_log_size: str

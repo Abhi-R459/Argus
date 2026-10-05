@@ -8,10 +8,12 @@ import {
   Clock,
   Activity,
   ArrowRight,
+  RefreshCw,
 } from 'lucide-react';
 import { fetchDashboardStats, type DashboardStats } from '../../services/auditService';
 import RefreshButton from '../../components/common/RefreshButton';
 import { Button } from '../../components/common/Button';
+import PageHeader from '../../components/common/PageHeader';
 import { EmptyState } from '../../components/common/EmptyState';
 import { formatRelativeTime } from '../../lib/format';
 import { getActionSemantic } from '../../lib/semantics';
@@ -28,18 +30,12 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6 animate-fade-cascade">
-      {/* Header Bar */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-1">
-        <div>
-          <h1 className="text-xl font-bold text-slate-900 tracking-tight">
-            Workforce Overview
-          </h1>
-          <p className="text-slate-500 text-xs mt-1">
-            Real-time workforce headcount, department allocations, and verified operational activity.
-          </p>
-        </div>
-
-        <div className="flex items-center gap-3">
+      <PageHeader
+        title="Workforce Overview"
+        description="Headcount, department allocation, and recent personnel activity."
+        portalTheme="hr"
+        action={
+          <>
           <RefreshButton
             onRefresh={() => refetch()}
             label="Refresh"
@@ -55,8 +51,9 @@ export default function Dashboard() {
           >
             View Directory
           </Button>
-        </div>
-      </div>
+          </>
+        }
+      />
 
       {/* Metrics Row — Clean Modern Executive Metric Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
@@ -158,7 +155,7 @@ export default function Dashboard() {
       </div>
 
       {/* Recent Activity Stream */}
-      <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
+        <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
         <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-white">
           <div className="flex items-center gap-3">
             <div className="p-2 rounded-xl bg-slate-100 text-slate-700">
@@ -182,8 +179,21 @@ export default function Dashboard() {
             ))}
           </div>
         ) : isError ? (
-          <div className="p-12 text-center text-xs text-rose-600 font-mono">
-            Unable to fetch recent activity from database engine.
+          <div className="px-5 sm:px-6 py-7 flex flex-col sm:flex-row sm:items-center gap-4" role="alert">
+            <div className="h-10 w-10 rounded-lg border border-amber-200 bg-amber-50 text-amber-700 flex items-center justify-center shrink-0">
+              <AlertTriangle className="h-5 w-5" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-slate-900">Recent activity is unavailable</p>
+              <p className="mt-1 text-sm text-slate-600">Argus couldn’t load the latest personnel events. Try again in a moment.</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => void refetch()}
+              className="sm:ml-auto inline-flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-portal-primary/40"
+            >
+              <RefreshCw className="h-3.5 w-3.5" /> Retry
+            </button>
           </div>
         ) : !data?.recent_activity || data.recent_activity.length === 0 ? (
           <EmptyState

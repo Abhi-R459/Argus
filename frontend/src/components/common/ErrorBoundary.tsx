@@ -63,7 +63,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
             <div
               className={`p-2 rounded-lg shrink-0 ${
                 isAuditor
-                  ? 'bg-grafana-orange/15 text-grafana-orange'
+                  ? 'bg-status-warning/15 text-status-warning'
                   : 'bg-amber-50 text-amber-600 border border-amber-200'
               }`}
             >
@@ -85,7 +85,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
             <div
               className={`p-3 rounded-lg text-xs font-mono break-all overflow-x-auto border ${
                 isAuditor
-                  ? 'bg-linear-surface-2 border-linear-hairline text-grafana-orange'
+                  ? 'bg-linear-surface-2 border-linear-hairline text-status-warning'
                   : 'bg-red-50/70 border-red-200 text-red-700'
               }`}
             >

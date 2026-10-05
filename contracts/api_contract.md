@@ -191,7 +191,12 @@ Triggers the standalone verifier to scan the hash chain.
       "anchor_match": true,
       "last_verified_sequence_id": 150,
       "tampered_sequence_id": null,
-      "details": "Chain walks successfully. Tail hash matches external anchor store."
+      "details": "Hash-chain continuity, local external anchor, and checkpoint signatures verified across 150 entries.",
+      "verification_checks": {
+        "hash_chain": "pass",
+        "external_anchor": "pass",
+        "checkpoint_signatures": "pass"
+      }
     }
     ```
   * **Tampered Chain:**
@@ -202,7 +207,12 @@ Triggers the standalone verifier to scan the hash chain.
       "anchor_match": false,
       "last_verified_sequence_id": 89,
       "tampered_sequence_id": 90,
-      "details": "Chain broke at sequence ID 90. Expected hash mismatch."
+      "details": "Chain broke at sequence ID 90. Expected hash mismatch.",
+      "verification_checks": {
+        "hash_chain": "fail",
+        "external_anchor": "unknown",
+        "checkpoint_signatures": "unknown"
+      }
     }
     ```
   * **Recompute-and-Hide Detected:**
@@ -213,9 +223,15 @@ Triggers the standalone verifier to scan the hash chain.
       "anchor_match": false,
       "last_verified_sequence_id": 150,
       "tampered_sequence_id": null,
-      "details": "Chain is internally self-consistent but tail hash does not match last anchored checkpoint."
+      "details": "External anchor mismatch for checkpoint 3.",
+      "verification_checks": {
+        "hash_chain": "pass",
+        "external_anchor": "fail",
+        "checkpoint_signatures": "pass"
+      }
     }
     ```
+  * **Unknown / Error:** The `status` may be `unknown` when the chain is readable but external-anchor or signature evidence is missing, or `error` when the verifier cannot run. `verification_checks` is additive and each check is `pass`, `fail`, or `unknown`. `anchor_match` is true only when a local external anchor comparison passed. Merkle proofs are not part of this endpoint; they are verified by the separate proof operation.
 
 ---
 
@@ -299,3 +315,17 @@ Standard RFC 7807 problem details or matching JSON error structures.
     ]
   }
   ```
+## Additive API Hardening Extensions (2026-10-05)
+
+These optional fields and routes extend the existing frozen contracts. Existing route paths, role guards, and `page`/`limit` pagination remain available.
+
+- **First-time `/api/auth/sync`:** A verified token email must match the server-side `HR_ADMIN_EMAILS` or `COMPLIANCE_AUDITOR_EMAILS` exact-address allowlist. Email substrings and user-controlled metadata do not assign roles. Existing users retain the role stored in `users`.
+- **`GET /api/employees`:** Auditors receive `Employee #<id>`, restricted email, and no salary unless `include_pii=true`; explicit reveals are recorded in `security_audit_events`. HR responses retain their prior fields.
+- **`GET /api/employees/{id}/time-travel`:** `include_pii` defaults to `false`. Name, email, and salary are nullable while redacted; `pii_redacted` states the response mode. Every access is recorded; explicit reveals use event type `TIME_TRAVEL_PII_REVEAL`.
+- **`GET /api/audit-logs`:** `before_sequence_id` enables descending keyset pagination. Responses add nullable `next_cursor` and boolean `has_more`; old page/limit requests still work.
+- **`GET /api/audit-logs/security-events`:** Accepts bounded `limit` (1–500) and `offset`, and returns durable event rows plus pagination metadata.
+- **Risk review:** `GET /api/suspicious-activity` is read-only. `POST /api/suspicious-activity/refresh` explicitly runs detection; `POST /api/suspicious-activity/{id}/reopen` reopens a reviewed flag; `GET /api/suspicious-activity/{id}/reviews` returns immutable review history. Review requests may include an optional note.
+- **`GET /api/analytics/system-metrics`:** Retains boolean `security_checks` and adds `security_check_details` (`pass`, `fail`, or `unknown`). Unknown checks receive no score credit.
+- **Anchor witness report:** Adds `verification_status`, `deployment_mode`, and `independent_trust_domains`; absence of persisted witness evidence is represented as unknown rather than a synthetic quorum.
+
+Migration 015 creates `security_audit_events` and `suspicious_activity_reviews`. Apply the database migrations before deploying API code that uses these tables.

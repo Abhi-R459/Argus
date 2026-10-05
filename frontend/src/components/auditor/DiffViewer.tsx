@@ -74,10 +74,10 @@ export default function DiffViewer({
     return (
       <div className="space-y-2">
         {showTamperAlert && (
-          <div className="rounded-lg border border-red-500/40 bg-gradient-to-r from-red-950/40 via-red-900/20 to-linear-surface-1 p-3.5 space-y-2 shadow-sm">
+          <div className="rounded-lg border border-red-500/40 bg-linear-surface-1 p-3.5 space-y-2 shadow-sm">
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-2 text-red-400 font-bold tracking-tight">
-                <ShieldAlert className="w-4 h-4 text-red-400 flex-shrink-0 animate-pulse" />
+                <ShieldAlert className="w-4 h-4 text-red-400 flex-shrink-0" />
                 <span>CRYPTOGRAPHIC INTEGRITY BREACH DETECTED</span>
               </div>
               {sequenceId !== undefined && (
@@ -100,10 +100,10 @@ export default function DiffViewer({
     <div className="space-y-3">
       {/* Forensic Tamper Alert Banner */}
       {showTamperAlert && (
-        <div className="rounded-lg border border-red-500/40 bg-gradient-to-r from-red-950/50 via-red-900/25 to-linear-surface-1 p-3.5 space-y-2.5 shadow-sm">
+        <div className="rounded-lg border border-red-500/40 bg-linear-surface-1 p-3.5 space-y-2.5 shadow-sm">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-2 text-red-400 font-bold tracking-tight">
-              <ShieldAlert className="w-4 h-4 text-red-400 flex-shrink-0 animate-pulse" />
+              <ShieldAlert className="w-4 h-4 text-red-400 flex-shrink-0" />
               <span>CRYPTOGRAPHIC INTEGRITY BREACH DETECTED</span>
             </div>
             {sequenceId !== undefined && (
@@ -154,7 +154,7 @@ export default function DiffViewer({
         <div className="flex items-center space-x-3 text-[10px]">
           {oldValue !== null && (
             <span className="flex items-center space-x-1">
-              <span className="w-2 h-2 rounded-sm bg-grafana-orange/30 border border-grafana-orange/60" />
+              <span className="w-2 h-2 rounded-sm bg-status-warning/30 border border-status-warning/60" />
               <span className="text-linear-ink-muted">Before</span>
             </span>
           )}
@@ -176,7 +176,7 @@ export default function DiffViewer({
                 Field
               </th>
               {oldValue !== null && (
-                <th className="py-1.5 px-3 text-left text-[10px] uppercase tracking-wider text-grafana-orange/80 font-semibold">
+                <th className="py-1.5 px-3 text-left text-[10px] uppercase tracking-wider text-status-warning/80 font-semibold">
                   Before
                 </th>
               )}
@@ -197,7 +197,7 @@ export default function DiffViewer({
                     isFieldAnomalous
                       ? 'bg-red-500/10 border-red-500/30'
                       : field.changed
-                      ? 'bg-grafana-orange/5'
+                      ? 'bg-status-warning/5'
                       : ''
                   }`}
                 >
@@ -229,7 +229,7 @@ export default function DiffViewer({
                           isFieldAnomalous
                             ? 'text-red-400 font-medium'
                             : field.changed
-                            ? 'text-grafana-orange/90 line-through decoration-grafana-orange/50'
+                            ? 'text-status-warning/90 line-through decoration-status-warning/50'
                             : 'text-linear-ink-muted'
                         }
                       >
