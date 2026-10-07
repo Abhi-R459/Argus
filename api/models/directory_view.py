@@ -16,10 +16,11 @@ from .base import Base
 class EmployeeDirectoryView(Base):
     """Sanitized view of employee directory joining roles and departments.
 
-    Maps to PostgreSQL view `v_employee_directory`.
+    Maps to PostgreSQL view `v_compliance_employee_directory`, which contains
+    masked name and email values for direct compliance-auditor DB access.
     """
 
-    __tablename__ = "v_employee_directory"
+    __tablename__ = "v_compliance_employee_directory"
     __table_args__ = {"info": dict(is_view=True), "extend_existing": True}
 
     employee_id: Mapped[int] = mapped_column(Integer, primary_key=True)

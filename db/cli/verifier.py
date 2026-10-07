@@ -72,35 +72,12 @@ def _configure_logging(level_name: str) -> None:
 # Database connection helper
 # ---------------------------------------------------------------------------
 def resolve_db_url(db_url: str | None = None) -> str:
-    """Resolve PostgreSQL connection string for superuser administration/verification."""
-    if db_url:
-        url = db_url
-    else:
-        try:
-            from dotenv import load_dotenv
-            load_dotenv()
-        except Exception:
-            pass
-        url = os.environ.get("DATABASE_URL") or os.environ.get("DATABASE_URL_MIGRATIONS")
-
-    if not url and os.path.exists(".env"):
-        with open(".env", "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if line.startswith("DATABASE_URL_MIGRATIONS="):
-                    url = line.split("=", 1)[1].strip().strip('"').strip("'")
-                    break
-                elif line.startswith("DATABASE_URL=") and not url:
-                    url = line.split("=", 1)[1].strip().strip('"').strip("'")
-
-    if not url:
-        url = "postgresql://postgres:password@localhost:5433/argus"
-
-    if url.startswith("postgresql+asyncpg://"):
-        url = url.replace("postgresql+asyncpg://", "postgresql://", 1)
-
-    return url
-
+    """Resolve a configured database URL without falling back to credentials."""
+    try:
+        from db.cli.db_url import resolve_db_url as resolve
+    except ImportError:
+        from db_url import resolve_db_url as resolve
+    return resolve(db_url)
 
 def get_connection(db_url: str | None = None) -> Any:
     """Create a psycopg2 connection from a URL.
@@ -200,17 +177,31 @@ def _print_verification_report(
 
 
 def _check_witness_quorum(conn: Any) -> dict | None:
-    """Helper to check witness quorum on latest checkpoint if anchors/multi_witness exists."""
+    """Verify witness notes using the API's configured store and trusted keys."""
     try:
         from db.cli.anchor_store import MultiWitnessAnchorStore
-        mw = MultiWitnessAnchorStore(base_path="anchors/multi_witness")
+        from db.cli.witness_config import (
+            load_origin_public_key,
+            load_public_keys,
+            resolve_witness_store_path,
+        )
+        witness_path = resolve_witness_store_path()
         with conn.cursor() as cur:
-            cur.execute("SELECT checkpoint_id FROM chain_checkpoints ORDER BY checkpoint_id DESC LIMIT 1")
+            cur.execute("SELECT checkpoint_id, key_id FROM chain_checkpoints ORDER BY checkpoint_id DESC LIMIT 1")
             row = cur.fetchone()
         if row:
             cid = row[0]
-            note_path = os.path.join("anchors", "multi_witness", f"{cid}.note")
-            if os.path.isfile(note_path):
+            note_path = witness_path / f"{cid}.note"
+            if note_path.is_file():
+                keys = load_public_keys(os.environ.get("WITNESS_PUBLIC_KEYS_DIR"))
+                origin_key = load_origin_public_key(
+                    row[1], os.environ.get("CHECKPOINT_PUBLIC_KEYS_DIR", "./keys")
+                )
+                mw = MultiWitnessAnchorStore(
+                    base_path=str(witness_path),
+                    witness_public_keys=keys,
+                    origin_public_key_pem=origin_key,
+                )
                 return mw.get_witness_report(cid)
     except Exception as exc:
         logger.debug("Multi-witness verification check skipped: %s", exc)
@@ -298,7 +289,8 @@ def _cmd_verify_chain(args: argparse.Namespace) -> int:
                 start_seq=args.start_seq,
                 page_size=args.page_size,
             )
-            witness_report = _check_witness_quorum(conn) if (getattr(args, 'multi_witness', False) or os.path.exists("anchors/multi_witness")) else None
+            from db.cli.witness_config import resolve_witness_store_path
+            witness_report = _check_witness_quorum(conn) if (getattr(args, 'multi_witness', False) or resolve_witness_store_path().exists()) else None
             if getattr(args, 'multi_witness', False) and (not witness_report or not witness_report.get('quorum_satisfied')):
                 result.is_valid = False
             _print_verification_report(result, mode="sequential", witness_report=witness_report)
@@ -412,7 +404,8 @@ def _cmd_verify_chain(args: argparse.Namespace) -> int:
             result.orphans.sort(key=lambda x: x.get('sequence_id', 0))
             result.is_valid = False
 
-        witness_report = _check_witness_quorum(conn) if (getattr(args, 'multi_witness', False) or os.path.exists("anchors/multi_witness")) else None
+        from db.cli.witness_config import resolve_witness_store_path
+        witness_report = _check_witness_quorum(conn) if (getattr(args, 'multi_witness', False) or resolve_witness_store_path().exists()) else None
         if getattr(args, 'multi_witness', False) and (not witness_report or not witness_report.get('quorum_satisfied')):
             result.is_valid = False
 
@@ -871,7 +864,9 @@ def _cmd_anchor(args: argparse.Namespace) -> int:
 
     try:
         # Fetch checkpoint
-        checkpoint = get_checkpoint(conn, args.checkpoint_id)
+        checkpoint = get_checkpoint(
+            conn, args.checkpoint_id, include_key_id=True, include_merkle=True
+        )
         if checkpoint is None:
             logger.error(
                 "Checkpoint %d not found.", args.checkpoint_id
@@ -921,7 +916,10 @@ def _cmd_anchor(args: argparse.Namespace) -> int:
             "sequence_id": checkpoint["sequence_id"],
             "checkpoint_hash": checkpoint["checkpoint_hash"],
             "signature_hex": sig.hex(),
+            "key_id": checkpoint.get("key_id"),
+            "merkle_root": checkpoint.get("merkle_root"),
             "created_at": str(checkpoint["created_at"]),
+            "anchored_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         })
 
         ref = store.push(checkpoint["checkpoint_id"], payload)
@@ -1455,7 +1453,11 @@ def main() -> int:
         parser.print_help()
         return 1
 
-    return handler(args)
+    try:
+        return handler(args)
+    except ValueError as exc:
+        logger.error("Command could not run: %s", exc)
+        return 2
 
 
 if __name__ == "__main__":

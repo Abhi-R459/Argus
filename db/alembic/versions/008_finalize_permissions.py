@@ -13,6 +13,7 @@ Key security enforcement (Decision #12):
 from typing import Sequence, Union
 
 from alembic import op
+import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
@@ -24,6 +25,17 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     """Apply the finalized permission matrix."""
+    bind = op.get_bind()
+    roles_exist = bind.execute(sa.text(
+        "SELECT COUNT(*) FROM pg_roles "
+        "WHERE rolname IN ('hr_admin', 'compliance_auditor')"
+    )).scalar_one()
+    # Some automated migration environments do not create application roles.
+    # Check before issuing GRANTs: swallowing a PostgreSQL permission error
+    # leaves the surrounding Alembic transaction aborted.
+    if roles_exist != 2:
+        return
+
     statements = [
         # ---------- HR Admin ----------
         "GRANT SELECT ON audit_log TO hr_admin",
@@ -42,11 +54,7 @@ def upgrade() -> None:
         "GRANT SELECT ON v_employee_directory TO compliance_auditor",
     ]
     for stmt in statements:
-        try:
-            op.execute(stmt)
-        except Exception:
-            # Roles may not exist yet in CI/test environments; skip gracefully.
-            pass
+        op.execute(stmt)
 
 
 def downgrade() -> None:

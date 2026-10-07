@@ -70,6 +70,16 @@ async def test_counterfactual_empty_skip_returns_422(client_auditor: AsyncClient
     assert "skip_sequence_ids" in response.json()["detail"]
 
 
+async def test_counterfactual_skip_list_is_bounded(client_auditor: AsyncClient):
+    """The API rejects oversized skip requests before starting replay work."""
+    response = await client_auditor.post(
+        "/api/audit-logs/counterfactual",
+        json={"employee_id": 42, "skip_sequence_ids": list(range(1, 102))},
+    )
+    assert response.status_code == 422
+    assert "skip_sequence_ids" in response.text
+
+
 async def test_counterfactual_invalid_timestamp_returns_422(client_auditor: AsyncClient):
     """Passing an invalid ISO timestamp in as_of must return 422."""
     response = await client_auditor.post(

@@ -10,11 +10,23 @@ export default function SecurityPosture() {
   const { data, isLoading, refetch } = useQuery<SystemMetrics>({
     queryKey: ['systemMetrics'],
     queryFn: () => fetchSystemMetrics(() => getToken()),
-    refetchInterval: 4000,
   });
 
   const score = data?.security_score ?? (isLoading ? 0 : 70);
-  const grade = score >= 95 ? 'Grade A+' : score >= 85 ? 'Grade A' : score >= 70 ? 'Grade B' : 'Grade C';
+  const integrityCheckNames = [
+    'verified_hash_chain',
+    'verified_external_anchor',
+    'verified_checkpoint_signatures',
+    'independent_witness_quorum',
+  ];
+  const integrityChecks = data?.security_check_details ?? {};
+  const hasIntegrityFailure = integrityCheckNames.some((name) => integrityChecks[name] === 'fail');
+  const hasUnverifiedIntegrity = integrityCheckNames.some((name) => integrityChecks[name] === 'unknown');
+  const grade = hasIntegrityFailure
+    ? 'Check Failed'
+    : hasUnverifiedIntegrity
+      ? 'Unverified'
+      : score >= 95 ? 'Grade A+' : score >= 85 ? 'Grade A' : score >= 70 ? 'Grade B' : 'Grade C';
   const unknownChecks = Object.entries(data?.security_check_details ?? {})
     .filter(([, result]) => result === 'unknown')
     .map(([name]) => name.replace(/_/g, ' '));
@@ -176,9 +188,9 @@ export default function SecurityPosture() {
             </div>
             <div>
               <p className="text-sm font-semibold text-linear-ink flex items-center gap-2">
-                Chain State Continuity
+                Chain Tail Consistency
                 {data?.security_checks?.chain_continuous && (
-                  <span className="text-[10px] font-mono uppercase bg-linear-success/10 text-linear-success px-1.5 py-0.5 rounded border border-linear-success/20">Synchronized</span>
+                  <span className="text-[10px] font-mono uppercase bg-linear-success/10 text-linear-success px-1.5 py-0.5 rounded border border-linear-success/20">Tail matches</span>
                 )}
               </p>
               <p className="text-xs text-linear-ink-muted mt-0.5">

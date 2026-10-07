@@ -1,4 +1,5 @@
 # Argus Enterprise Feature Guide & Live Demonstration Manual
+> **Superseded walkthrough.** The routes, seeded IDs, encryption claims, polling behavior, and witness-quorum instructions in this historical manual may not match the current application. Do not use it as a live demo script. Use [Conference Positioning and Professor Walkthrough](CONFERENCE_AND_DEMO_GUIDE.md) instead.
 **Cryptographically Verifiable, Tamper-Evident Relational Database System**  
 *Academic viva presentation guide, operational runbook, and regulatory compliance blueprint.*
 

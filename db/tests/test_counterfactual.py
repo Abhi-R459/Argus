@@ -145,6 +145,83 @@ class TestCounterfactualReplayUnit:
         with pytest.raises(ValueError, match="Sequence IDs not found in audit log: \\[999\\]"):
             counterfactual_replay(mock_conn, employee_id=42, skip_sequence_ids=[71, 999])
 
+    def test_rejects_skip_ids_outside_employee_stream(self):
+        """A real audit ID for another employee must not be reported as skipped."""
+        mock_conn = MagicMock()
+        mock_cur = MagicMock()
+        mock_conn.cursor.return_value.__enter__.return_value = mock_cur
+        mock_cur.fetchall.side_effect = [
+            [(99,)],
+            [_create_mock_row(10, "INSERT", "employees", None, {"employee_id": 42}, datetime(2024, 1, 1, tzinfo=timezone.utc))],
+            [],
+            [],
+        ]
+
+        with pytest.raises(ValueError, match="not in the target employee replay stream"):
+            counterfactual_replay(mock_conn, employee_id=42, skip_sequence_ids=[99])
+
+    def test_salary_state_uses_effective_date_and_time_weighted_impact(self):
+        """Later-entered salary data must not replace a newer effective salary."""
+        mock_conn = MagicMock()
+        mock_cur = MagicMock()
+        mock_conn.cursor.return_value.__enter__.return_value = mock_cur
+        created = lambda month: datetime(2024, month, 1, tzinfo=timezone.utc)
+        as_of = datetime(2025, 1, 1, tzinfo=timezone.utc)
+        mock_cur.fetchall.side_effect = [
+            [(2,)],
+            [
+                _create_mock_row(1, "INSERT", "salary_history", None,
+                    {"salary_history_id": 10, "employee_id": 42, "amount": 80000, "effective_date": "2024-01-01"}, created(1)),
+                _create_mock_row(2, "INSERT", "salary_history", None,
+                    {"salary_history_id": 20, "employee_id": 42, "amount": 200000, "effective_date": "2024-03-01"}, created(3)),
+                _create_mock_row(3, "INSERT", "salary_history", None,
+                    {"salary_history_id": 30, "employee_id": 42, "amount": 100000, "effective_date": "2024-09-01"}, created(9)),
+                # A backdated correction entered later must not supersede either later effective row.
+                _create_mock_row(4, "INSERT", "salary_history", None,
+                    {"salary_history_id": 40, "employee_id": 42, "amount": 90000, "effective_date": "2024-02-01"}, created(10)),
+            ],
+            [],
+            [],
+        ]
+
+        result = counterfactual_replay(mock_conn, employee_id=42, skip_sequence_ids=[2], as_of=as_of)
+
+        assert result.actual_state["salary"] == 100000.0
+        assert result.counterfactual_state["salary"] == 100000.0
+        assert result.blast_radius.salary_overpaid_annual == 0.0
+        expected = 120000 * (184 / 365.2425)
+        assert result.blast_radius.salary_overpaid_cumulative == pytest.approx(expected, abs=0.01)
+
+    def test_salary_update_and_delete_replay_row_identity(self):
+        """Salary UPDATE replaces one dated row and DELETE removes that row."""
+        mock_conn = MagicMock()
+        mock_cur = MagicMock()
+        mock_conn.cursor.return_value.__enter__.return_value = mock_cur
+        t = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        mock_cur.fetchall.side_effect = [
+            [(4,)],
+            [
+                _create_mock_row(1, "INSERT", "salary_history", None,
+                    {"salary_history_id": 10, "employee_id": 42, "amount": 80000, "effective_date": "2024-01-01"}, t),
+                _create_mock_row(2, "INSERT", "salary_history", None,
+                    {"salary_history_id": 20, "employee_id": 42, "amount": 200000, "effective_date": "2024-03-01"}, t),
+                _create_mock_row(3, "UPDATE", "salary_history",
+                    {"salary_history_id": 20, "employee_id": 42, "amount": 200000, "effective_date": "2024-03-01"},
+                    {"salary_history_id": 20, "employee_id": 42, "amount": 150000, "effective_date": "2024-03-01"}, t),
+                _create_mock_row(4, "DELETE", "salary_history",
+                    {"salary_history_id": 20, "employee_id": 42, "amount": 150000, "effective_date": "2024-03-01"}, None, t),
+            ],
+            [],
+            [],
+        ]
+
+        result = counterfactual_replay(
+            mock_conn, employee_id=42, skip_sequence_ids=[4], as_of=datetime(2024, 6, 1, tzinfo=timezone.utc)
+        )
+
+        assert result.actual_state["salary"] == 80000.0
+        assert result.counterfactual_state["salary"] == 150000.0
+
     def test_counterfactual_no_modification_to_real_chain(self):
         """Verify that counterfactual_replay issues zero INSERT, UPDATE, DELETE, or DDL statements."""
         mock_conn = MagicMock()

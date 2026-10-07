@@ -11,11 +11,21 @@ Implements:
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, or_
+from sqlalchemy import select, func, or_, text
 from sqlalchemy.exc import IntegrityError
 import math
 
 from ..dependencies import get_current_user, require_role, get_db_session
+from ..config import get_settings
+from ..services.blind_index import compute_blind_index
+from db.crypto.pii import (
+    InvalidPiiEnvelope,
+    LegacyPlaintextPiiError,
+    decrypt_pii,
+    encrypt_pii,
+    validate_audit_salt,
+)
+from ..database import get_session_factory
 from ..models.user import User
 from ..models.employee import Employee
 from ..models.role import Role
@@ -31,6 +41,36 @@ from ..schemas.salary import SalaryCreate, SalaryCreateResponse
 from ..schemas.common import PaginatedResponse
 
 router = APIRouter(prefix="/employees", tags=["Employees"])
+
+
+async def _set_employee_pii_audit_context(
+    session: AsyncSession,
+    national_id: str,
+    settings,
+) -> None:
+    """Pass the matching blind index to the audit trigger for this transaction."""
+    audit_salt = validate_audit_salt(settings.AUDIT_SALT)
+    blind_index = compute_blind_index(
+        national_id,
+        salt=audit_salt,
+        iterations=settings.BLIND_INDEX_ITERATIONS,
+        mode=settings.BLIND_INDEX_MODE,
+    )
+    trigger_iterations = (
+        1 if settings.BLIND_INDEX_MODE == "hmac" else settings.BLIND_INDEX_ITERATIONS
+    )
+    await session.execute(
+        text(
+            "SELECT set_config('argus.audit_salt', :salt, true), "
+            "set_config('argus.blind_index_iterations', :iterations, true), "
+            "set_config('argus.employee_national_id_blind_index', :blind_index, true)"
+        ),
+        {
+            "salt": audit_salt,
+            "iterations": str(trigger_iterations),
+            "blind_index": blind_index,
+        },
+    )
 
 
 @router.get("", response_model=PaginatedResponse[EmployeeListItem])
@@ -53,6 +93,81 @@ async def list_employees(
     - hr_admin: Queries `employees` joined to `roles` and `departments`.
     """
     if current_user.role == "compliance_auditor":
+        if include_pii or search:
+            # The auditor's direct database role only sees masked values. Use
+            # the HR pool for API-side name/email matching; reveal those values
+            # only when explicitly requested and record that disclosure.
+            read_factory = get_session_factory("hr_admin")
+            async with read_factory() as read_session:
+                latest_salary = (
+                    select(SalaryHistory.amount)
+                    .where(SalaryHistory.employee_id == Employee.employee_id)
+                    .order_by(SalaryHistory.effective_date.desc())
+                    .limit(1)
+                    .correlate(Employee)
+                    .scalar_subquery()
+                )
+                query = (
+                    select(
+                        Employee.employee_id,
+                        Employee.full_name,
+                        Employee.email,
+                        Role.title.label("role_title"),
+                        Department.name.label("department_name"),
+                        latest_salary.label("salary"),
+                        Employee.date_hired,
+                        Employee.is_active,
+                    )
+                    .join(Role, Employee.role_id == Role.role_id)
+                    .join(Department, Role.department_id == Department.department_id)
+                )
+                if search:
+                    clean_search = search.strip().lstrip("#").upper().replace("EMP-", "").strip()
+                    pattern = f"%{search}%"
+                    conditions = [Employee.full_name.ilike(pattern), Employee.email.ilike(pattern)]
+                    if clean_search.isdigit():
+                        conditions.append(Employee.employee_id == int(clean_search))
+                    query = query.where(or_(*conditions))
+                if department and department.strip() and department.strip().lower() != "all":
+                    query = query.where(Department.name.ilike(department.strip()))
+                if is_active is not None:
+                    query = query.where(Employee.is_active == is_active)
+
+                total = await read_session.scalar(
+                    select(func.count()).select_from(query.subquery())
+                ) or 0
+                pages = math.ceil(total / limit) if total > 0 else 0
+                query = query.order_by(Employee.employee_id).offset((page - 1) * limit).limit(limit)
+                result = await read_session.execute(query)
+                rows = result.all()
+
+            if include_pii:
+                session.add(
+                    SecurityAuditEvent(
+                        event_type="DIRECTORY_PII_REVEAL",
+                        actor_user_id=current_user.user_id,
+                        actor_email=current_user.email,
+                        blind_index=None,
+                        matches_found=len(rows),
+                        client_ip=(request.client.host if request and request.client else "127.0.0.1"),
+                    )
+                )
+            items = [
+                EmployeeListItem(
+                    employee_id=row.employee_id,
+                    full_name=row.full_name if include_pii else f"Employee #{row.employee_id}",
+                    email=row.email if include_pii else "Restricted",
+                    role_title=row.role_title,
+                    department_name=row.department_name,
+                    salary=row.salary if include_pii else None,
+                    date_hired=row.date_hired,
+                    is_active=row.is_active,
+                    pii_redacted=not include_pii,
+                )
+                for row in rows
+            ]
+            return PaginatedResponse(items=items, total=total, page=page, pages=pages)
+
         latest_salary = (
             select(SalaryHistory.amount)
             .where(SalaryHistory.employee_id == EmployeeDirectoryView.employee_id)
@@ -96,18 +211,6 @@ async def list_employees(
         query = query.order_by(EmployeeDirectoryView.employee_id).offset((page - 1) * limit).limit(limit)
         result = await session.execute(query)
         rows = result.all()
-
-        if include_pii:
-            session.add(
-                SecurityAuditEvent(
-                    event_type="DIRECTORY_PII_REVEAL",
-                    actor_user_id=current_user.user_id,
-                    actor_email=current_user.email,
-                    blind_index=None,
-                    matches_found=len(rows),
-                    client_ip=(request.client.host if request and request.client else "127.0.0.1"),
-                )
-            )
 
         items = [
             EmployeeListItem(
@@ -210,9 +313,9 @@ async def create_employee(
     """Create a new employee record. HR Admin only.
 
     Also creates the initial salary_history record.
-    Sensitive fields (national_id, contact_info) are encoded to bytes
-    for storage — actual pgcrypto encryption will be handled by DB
-    triggers once Abhinav's Week 4 work lands.
+    Sensitive fields are stored using the configured AES-GCM envelope. The
+    corresponding national-ID blind index is passed to the audit trigger in
+    transaction-local settings so it can keep audit searches working.
     """
     # Verify role_id exists
     role_result = await session.execute(
@@ -234,9 +337,16 @@ async def create_employee(
             detail="An employee with this email already exists.",
         )
 
-    # Encode sensitive fields to bytes (placeholder for pgcrypto)
-    national_id_bytes = data.national_id.encode("utf-8")
-    contact_info_bytes = data.contact_info.encode("utf-8")
+    settings = get_settings()
+    try:
+        national_id_bytes = encrypt_pii(data.national_id, "national_id", settings.PII_ENCRYPTION_KEY)
+        contact_info_bytes = encrypt_pii(data.contact_info, "contact_info", settings.PII_ENCRYPTION_KEY)
+        await _set_employee_pii_audit_context(session, data.national_id, settings)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Employee PII encryption is not configured correctly.",
+        ) from exc
 
     new_employee = Employee(
         full_name=data.full_name,
@@ -300,11 +410,33 @@ async def update_employee(
 
     update_data = data.model_dump(exclude_unset=True)
 
-    # Handle contact_info separately (encode to bytes)
-    if "contact_info" in update_data:
-        contact_info = update_data.pop("contact_info")
-        if contact_info is not None:
-            employee.contact_info_encrypted = contact_info.encode("utf-8")
+    # Encrypt contact information and supply the blind index used by the audit trigger.
+    contact_info = update_data.pop("contact_info", None)
+    settings = get_settings()
+    if update_data or contact_info is not None:
+        try:
+            national_id = decrypt_pii(
+                bytes(employee.national_id_encrypted),
+                "national_id",
+                settings.PII_ENCRYPTION_KEY,
+            )
+            await _set_employee_pii_audit_context(session, national_id, settings)
+            if contact_info is not None:
+                employee.contact_info_encrypted = encrypt_pii(
+                    contact_info,
+                    "contact_info",
+                    settings.PII_ENCRYPTION_KEY,
+                )
+        except LegacyPlaintextPiiError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Employee PII encryption migration is required before this record can be updated.",
+            ) from exc
+        except (InvalidPiiEnvelope, TypeError, ValueError) as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Employee PII encryption is not configured correctly.",
+            ) from exc
 
     # Validate role_id if provided
     if "role_id" in update_data:

@@ -79,40 +79,22 @@ except ImportError:
 
 
 def resolve_db_url(db_url: str | None = None) -> str:
-    """Resolve PostgreSQL connection string for superuser administration."""
-    if db_url:
-        url = db_url
-    else:
-        url = (
-            os.environ.get("DATABASE_URL_MIGRATIONS")
-            or os.environ.get("DATABASE_URL")
-        )
-
-    if not url and os.path.exists(".env"):
-        with open(".env", "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if line.startswith("DATABASE_URL_MIGRATIONS="):
-                    url = line.split("=", 1)[1].strip().strip('"').strip("'")
-                    break
-                elif line.startswith("DATABASE_URL=") and not url:
-                    url = line.split("=", 1)[1].strip().strip('"').strip("'")
-
-    if not url:
-        url = "postgresql://postgres:password@172.27.55.55:5432/argus"
-
-    if url.startswith("postgresql+asyncpg://"):
-        url = url.replace("postgresql+asyncpg://", "postgresql://", 1)
-
-    return url
-
-
-def get_admin_connection(db_url: str | None = None) -> psycopg2.extensions.connection:
-    """Establish direct administrative connection to PostgreSQL."""
-    url = resolve_db_url(db_url)
+    """Resolve a configured database URL without falling back to credentials."""
     try:
+        from db.cli.db_url import resolve_db_url as resolve
+    except ImportError:
+        from db_url import resolve_db_url as resolve  # type: ignore[no-redef]
+    return resolve(db_url)
+
+def get_admin_connection(db_url: str | None = None) -> psycopg2.extensions.connection | None:
+    """Establish direct administrative connection to PostgreSQL."""
+    try:
+        url = resolve_db_url(db_url)
         conn = psycopg2.connect(url)
         return conn
+    except ValueError as exc:
+        print(f"{Colors.RED}[!] Database configuration required: {exc}{Colors.RESET}")
+        return None
     except psycopg2.Error as exc:
         print(f"{Colors.RED}[!] Database connection failed:{Colors.RESET} {exc}")
         print(f"    Target URL: {url}")
@@ -905,6 +887,8 @@ def print_banner() -> None:
 
 def cmd_attack(args: argparse.Namespace) -> int:
     conn = get_admin_connection(args.db_url)
+    if conn is None:
+        return 2
     try:
         print_banner()
         print(f"{Colors.YELLOW}[*] Preparing Attack Scenario:{Colors.RESET} {Colors.BOLD}{args.scenario}{Colors.RESET}")
@@ -987,6 +971,8 @@ def cmd_attack(args: argparse.Namespace) -> int:
 
 def cmd_heal(args: argparse.Namespace) -> int:
     conn = get_admin_connection(args.db_url)
+    if conn is None:
+        return 2
     try:
         print_banner()
         print(f"{Colors.CYAN}[*] Restoring database integrity from snapshot...{Colors.RESET}")
@@ -1015,6 +1001,8 @@ def cmd_heal(args: argparse.Namespace) -> int:
 
 def cmd_status(args: argparse.Namespace) -> int:
     conn = get_admin_connection(args.db_url)
+    if conn is None:
+        return 2
     try:
         print_banner()
         print(f"{Colors.CYAN}[*] Diagnosing Database and Verifier Integrity...{Colors.RESET}\n")

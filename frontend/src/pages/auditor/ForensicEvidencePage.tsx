@@ -27,7 +27,9 @@ export default function ForensicEvidencePage() {
   const [isDownloading, setIsDownloading] = useState<boolean>(false);
   const [proof, setProof] = useState<MerkleProof | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [downloadMessage, setDownloadMessage] = useState<string | null>(null);
   const [copiedField, setCopiedField] = useState<string | null>(null);
+  const [clipboardError, setClipboardError] = useState<string | null>(null);
 
   const handleFetchProof = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -37,6 +39,7 @@ export default function ForensicEvidencePage() {
     }
 
     setError(null);
+    setDownloadMessage(null);
     setIsLoadingProof(true);
 
     try {
@@ -55,9 +58,11 @@ export default function ForensicEvidencePage() {
     if (!sequenceId) return;
     setIsDownloading(true);
     setError(null);
+    setDownloadMessage(null);
 
     try {
-      await downloadCapsule(Number(sequenceId), getToken);
+      const filename = await downloadCapsule(Number(sequenceId), getToken);
+      setDownloadMessage(`Download started: ${filename}`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       setError(msg || 'Failed to download forensic evidence capsule.');
@@ -66,10 +71,16 @@ export default function ForensicEvidencePage() {
     }
   };
 
-  const copyToClipboard = (text: string, label: string) => {
-    navigator.clipboard.writeText(text);
-    setCopiedField(label);
-    setTimeout(() => setCopiedField(null), 2000);
+  const copyToClipboard = async (text: string, label: string) => {
+    setClipboardError(null);
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedField(label);
+      window.setTimeout(() => setCopiedField((current) => current === label ? null : current), 2000);
+    } catch {
+      setCopiedField(null);
+      setClipboardError('Clipboard access was denied. Copy the value manually.');
+    }
   };
 
   return (
@@ -78,7 +89,7 @@ export default function ForensicEvidencePage() {
         icon={<ShieldCheck className="h-5 w-5" />}
         title="Forensic Evidence & Selective Merkle Capsules"
         description="Prove one record’s inclusion in a signed checkpoint without disclosing sibling records."
-        eyebrow="Selective evidence · RFC 6962"
+        eyebrow="Selective evidence · RFC 6962-style"
       />
 
       {/* Lookup Card */}
@@ -139,10 +150,17 @@ export default function ForensicEvidencePage() {
           </button>
         </form>
 
-        {error && (
+        {downloadMessage && !error && (
+          <div className="flex items-start gap-2.5 p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs" role="status">
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+            <p>{downloadMessage}</p>
+          </div>
+        )}
+
+        {(error || clipboardError) && (
           <div className="flex items-start gap-2.5 p-3 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs">
             <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
-            <p>{error}</p>
+            <p>{error || clipboardError}</p>
           </div>
         )}
       </div>
@@ -161,7 +179,7 @@ export default function ForensicEvidencePage() {
               </div>
               <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 w-fit">
                 <CheckCircle2 className="w-3.5 h-3.5" />
-                RFC 6962 COMPLIANT
+                RFC 6962-style hashing
               </span>
             </div>
 
@@ -210,7 +228,7 @@ export default function ForensicEvidencePage() {
                   .arguscap
                 </div>
                 <div className="text-[11px] text-linear-ink-subtle">
-                  Zero-disclosure evidence
+                  No sibling records included; selected event is included
                 </div>
               </div>
             </div>
@@ -260,7 +278,7 @@ export default function ForensicEvidencePage() {
               </h3>
             </div>
             <p className="text-xs text-linear-ink-subtle">
-              An independent third party can traverse these sibling hashes bottom-up using RFC 6962 parent hashing (0x01 || left || right) to independently arrive at the Ed25519-signed checkpoint Merkle root.
+              Traverse these sibling hashes bottom-up using the project's RFC 6962-style parent hashing (0x01 || left || right). A trusted checkpoint signature and public key are required to authenticate the resulting root.
             </p>
 
             <div className="space-y-2.5 pt-1">

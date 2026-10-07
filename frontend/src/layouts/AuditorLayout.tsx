@@ -241,7 +241,7 @@ export default function AuditorLayout() {
                     )}
                     {incident.anchorMismatch && (
                         <span className="text-xs font-mono font-medium bg-rose-500/15 text-rose-100 px-2 py-0.5 rounded border border-rose-400/30">
-                        External Anchor Mismatch
+                        Anchor Record Mismatch
                       </span>
                     )}
                   </div>

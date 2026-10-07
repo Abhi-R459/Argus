@@ -52,10 +52,16 @@ The hash chain detects the tamper because:
 
 ## Attack Simulation Steps
 
-### Setup: Insert legitimate data
+### Setup: Insert the audit fixture
+
+The raw `BYTEA` values below are deliberately invalid PII envelopes in a
+test-only direct-SQL fixture. They simulate a privileged writer bypassing the
+application; they are not a supported way to create an employee. Current API,
+seed, and benchmark writers use the AES-GCM envelope helper. Run this scenario
+only against an isolated test database (see `db/tests/README.md`).
 
 ```sql
--- As API (argus app user): set session context
+-- Deliberate raw fixture; not an application/API insert.
 SET LOCAL argus.actor_user_id = 1;
 SET LOCAL argus.actor_employee_id = 0;
 

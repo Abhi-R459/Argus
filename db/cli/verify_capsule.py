@@ -255,7 +255,8 @@ class CapsuleReader:
 # ==============================================================================
 
 def verify_capsule(
-    capsule_target: Union[str, Path, bytes, io.BytesIO, zipfile.ZipFile]
+    capsule_target: Union[str, Path, bytes, io.BytesIO, zipfile.ZipFile],
+    trusted_public_key_pem: Union[str, bytes, None] = None,
 ) -> Tuple[bool, str, Dict[str, Any]]:
     """Perform independent cryptographic verification of an .arguscap bundle.
 
@@ -295,9 +296,18 @@ def verify_capsule(
             "audit_path_depth": len(merkle_proof.get("audit_path", [])),
             "signature_valid": False,
             "leaf_hash_valid": False,
-            "path_valid": False,
-            "root_match": False,
+        "path_valid": False,
+        "root_match": False,
         }
+
+        if trusted_public_key_pem is None:
+            return (
+                False,
+                "A trusted public key must be supplied separately; the capsule's bundled key is not a trust anchor.",
+                details,
+            )
+        if isinstance(trusted_public_key_pem, bytes):
+            trusted_public_key_pem = trusted_public_key_pem.decode("utf-8")
 
         # 2. Checkpoint signature verification
         checkpoint_hash = checkpoint.get("checkpoint_hash", "")
@@ -316,10 +326,9 @@ def verify_capsule(
 
         # Try post-Merkle bound payload first, fallback to legacy checkpoint_hash
         bound_payload = f"{checkpoint_hash}:{merkle_root}".encode("utf-8")
-        sig_ok = verify_signature(public_key_pem, bound_payload, sig_bytes)
-        if not sig_ok:
-            # Fallback check
-            sig_ok = verify_signature(public_key_pem, checkpoint_hash.encode("utf-8"), sig_bytes)
+        # Merkle-bearing checkpoints must be signed over both the checkpoint
+        # digest and root, using a key trusted outside the archive.
+        sig_ok = verify_signature(trusted_public_key_pem, bound_payload, sig_bytes)
 
         details["signature_valid"] = sig_ok
         if not sig_ok:
@@ -420,6 +429,11 @@ def main() -> int:
         action="store_true",
         help="Output result as JSON",
     )
+    parser.add_argument(
+        "--trusted-public-key",
+        required=True,
+        help="PEM public key trusted independently of the capsule archive",
+    )
 
     args = parser.parse_args()
     target_path = args.capsule_flag or args.capsule_path
@@ -428,7 +442,13 @@ def main() -> int:
         parser.print_help()
         return 2
 
-    is_valid, message, details = verify_capsule(target_path)
+    try:
+        trusted_key_pem = Path(args.trusted_public_key).read_text(encoding="utf-8")
+    except OSError as exc:
+        parser.error(f"Cannot read trusted public key: {exc}")
+    is_valid, message, details = verify_capsule(
+        target_path, trusted_public_key_pem=trusted_key_pem
+    )
 
     if args.json:
         result_payload = {

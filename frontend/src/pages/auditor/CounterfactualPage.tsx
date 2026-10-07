@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '@clerk/clerk-react';
+import { Link } from 'react-router-dom';
 import {
   GitCompare, Play, AlertCircle, ShieldCheck,
   TrendingDown, DollarSign, Clock, Sparkles,
@@ -12,13 +13,14 @@ import {
   EmployeeListItem,
 } from '../../services/auditService';
 import PageHeader from '../../components/common/PageHeader';
+import { formatINR } from '../../lib/format';
 
 export default function CounterfactualPage() {
   const { getToken } = useAuth();
 
   // Inputs
   const [employeeId, setEmployeeId] = useState<number>(1);
-  const [skipSeqInput, setSkipSeqInput] = useState<string>('71');
+  const [skipSeqInput, setSkipSeqInput] = useState<string>('');
   const [asOfInput, setAsOfInput] = useState<string>('');
   
   // State
@@ -49,11 +51,19 @@ export default function CounterfactualPage() {
     if (e) e.preventDefault();
     setError(null);
 
+    if (!skipSeqInput.trim()) {
+      setError('Select at least one sequence ID from this employee’s audit history.');
+      return;
+    }
+
     // Parse skip sequence IDs
-    const parsedIds = skipSeqInput
-      .split(',')
-      .map((s) => parseInt(s.trim(), 10))
-      .filter((n) => !isNaN(n));
+    const idTokens = skipSeqInput.split(',').map((value) => value.trim());
+    const invalidToken = idTokens.find((value) => !/^[1-9]\d*$/.test(value) || !Number.isSafeInteger(Number(value)));
+    if (invalidToken !== undefined) {
+      setError(`Sequence ID “${invalidToken}” is invalid. Enter positive whole numbers separated by commas.`);
+      return;
+    }
+    const parsedIds = [...new Set(idTokens.map(Number))];
 
     if (parsedIds.length === 0) {
       setError('Please provide at least one valid sequence ID to exclude.');
@@ -99,7 +109,7 @@ export default function CounterfactualPage() {
           <>
           <span className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center gap-1.5">
             <Sparkles className="w-3.5 h-3.5" />
-            Novelty 11 · Prescriptive Simulation
+            Event-Exclusion Replay
           </span>
           <span className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-linear-surface-2 text-linear-ink-subtle border border-linear-hairline flex items-center gap-1.5">
             <ShieldCheck className="w-3.5 h-3.5 text-linear-primary" />
@@ -153,7 +163,7 @@ export default function CounterfactualPage() {
                 type="text"
                 value={skipSeqInput}
                 onChange={(e) => setSkipSeqInput(e.target.value)}
-                placeholder="e.g. 71, 72"
+                placeholder="Sequence IDs from the audit log"
                 className="w-full text-sm font-mono bg-linear-surface-2 border border-linear-hairline rounded-lg px-3 py-2 text-linear-ink focus:outline-hidden focus:border-linear-primary"
               />
             </div>
@@ -175,25 +185,12 @@ export default function CounterfactualPage() {
             </div>
           </div>
 
-          {/* Quick presets & Action */}
+          {/* Guidance & Action */}
           <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-linear-hairline/60">
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-linear-ink-muted">Quick Presets:</span>
-              <button
-                type="button"
-                onClick={() => setSkipSeqInput('71')}
-                className="text-xs px-2.5 py-1 rounded bg-linear-surface-2 hover:bg-linear-surface-3 text-linear-ink-subtle hover:text-linear-ink border border-linear-hairline transition-colors"
-              >
-                Seq #71 (Salary Spike)
-              </button>
-              <button
-                type="button"
-                onClick={() => setSkipSeqInput('124, 125')}
-                className="text-xs px-2.5 py-1 rounded bg-linear-surface-2 hover:bg-linear-surface-3 text-linear-ink-subtle hover:text-linear-ink border border-linear-hairline transition-colors"
-              >
-                Seq #124, 125 (Multi-Event)
-              </button>
-            </div>
+            <p className="text-xs text-linear-ink-muted">
+              IDs vary by database. Choose this employee’s event in the{' '}
+              <Link to="/auditor/log" className="text-linear-primary underline underline-offset-2">Audit Log</Link>.
+            </p>
 
             <button
               type="submit"
@@ -238,23 +235,23 @@ export default function CounterfactualPage() {
                 <TrendingDown className="w-4 h-4 text-amber-400" />
               </div>
               <div className="text-2xl font-bold text-amber-400 tracking-tight">
-                ${result.blast_radius.salary_overpaid_annual.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                {formatINR(result.blast_radius.salary_overpaid_annual, true)}
               </div>
               <p className="text-[11px] text-linear-ink-muted mt-1">
-                Actual (${result.blast_radius.salary_actual.toLocaleString()}) vs Replay (${result.blast_radius.salary_counterfactual.toLocaleString()})
+                Actual ({formatINR(result.blast_radius.salary_actual)}) vs Replay ({formatINR(result.blast_radius.salary_counterfactual)})
               </p>
             </div>
 
             <div className="bg-linear-surface-1 border border-linear-hairline rounded-xl p-4 shadow-xs">
               <div className="flex items-center justify-between text-xs text-linear-ink-subtle mb-1">
-                <span>Cumulative Overpaid</span>
+                <span>Estimated Cumulative Salary-Rate Exposure</span>
                 <DollarSign className="w-4 h-4 text-rose-400" />
               </div>
               <div className="text-2xl font-bold text-rose-400 tracking-tight">
-                ${result.blast_radius.salary_overpaid_cumulative.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                {formatINR(result.blast_radius.salary_overpaid_cumulative, true)}
               </div>
               <p className="text-[11px] text-linear-ink-muted mt-1">
-                Cumulative financial exposure over fraud tenure
+                Time-weighted salary-rate difference; not a payroll payment total
               </p>
             </div>
 
@@ -317,15 +314,15 @@ export default function CounterfactualPage() {
                       Compensation (Annual)
                     </td>
                     <td className="py-3 px-4 font-mono font-semibold text-linear-ink">
-                      ${Number(result.actual_state?.salary || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                      {formatINR(Number(result.actual_state?.salary || 0), true)}
                     </td>
                     <td className="py-3 px-4 font-mono font-semibold text-emerald-400">
-                      ${Number(result.counterfactual_state?.salary || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                      {formatINR(Number(result.counterfactual_state?.salary || 0), true)}
                     </td>
                     <td className="py-3 px-4">
                       {result.blast_radius.salary_overpaid_annual > 0 ? (
                         <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-rose-500/20 text-rose-300 border border-rose-500/30">
-                          - ${result.blast_radius.salary_overpaid_annual.toLocaleString()} / yr
+                          − {formatINR(result.blast_radius.salary_overpaid_annual)} / yr
                         </span>
                       ) : (
                         <span className="text-xs text-linear-ink-muted">Identical</span>
@@ -453,7 +450,7 @@ export default function CounterfactualPage() {
             <div className="flex items-center gap-2.5">
               <ShieldCheck className="w-5 h-5 text-emerald-400 shrink-0" />
               <span>
-                <strong>Cryptographic Integrity Guaranteed:</strong> The real PostgreSQL hash chain tail and audit log rows were not modified during this simulation. Replay runs in virtual read-only memory.
+                <strong>Read-Only Replay:</strong> The simulation leaves audit rows unchanged. Run chain verification separately to check their integrity. The exposure estimate is based on annual salary rates and effective dates, not payroll payments.
               </span>
             </div>
             <span className="text-[10px] font-mono text-linear-ink-muted shrink-0">

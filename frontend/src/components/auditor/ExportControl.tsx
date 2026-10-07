@@ -28,10 +28,10 @@ export default function ExportControl() {
       setTimeout(() => {
         setStatus('idle');
       }, 3500);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Export failed:', err);
       setStatus('error');
-      setErrorMessage(err.message || 'Failed to download evidence');
+      setErrorMessage(err instanceof Error ? err.message : 'Failed to download evidence');
     }
   };
 
@@ -85,8 +85,8 @@ export default function ExportControl() {
 
           <p className="text-sm text-linear-ink-subtle leading-relaxed">
             {format === 'arguspack'
-              ? 'Download a turnkey .arguspack archive with embedded zero-dependency standalone verifier, detached Ed25519 signature, manifest, and canonical events.'
-              : 'Download a single cryptographically signed JSON file containing the full audit hash chain and checkpoint signatures for lightweight verification.'}
+              ? 'Download a .arguspack archive with a standalone verifier and detached Ed25519 signature. Verify authenticity with a public key obtained through a trusted channel.'
+              : 'Download a signed JSON file containing the audit hash chain and checkpoint signatures. Verify authenticity with a public key obtained through a trusted channel.'}
           </p>
         </div>
 
@@ -123,7 +123,7 @@ export default function ExportControl() {
         {/* Screen Reader Live Region (F-110, F-122) */}
         <div aria-live="polite" className="sr-only">
           {status === 'loading' && `Generating ${format === 'arguspack' ? '.arguspack Bundle' : 'JSON Package'}...`}
-          {status === 'success' && 'Evidence export completed successfully and downloaded to disk.'}
+          {status === 'success' && 'Evidence export completed and the browser download was started.'}
           {status === 'error' && `Export failed: ${errorMessage}`}
         </div>
 

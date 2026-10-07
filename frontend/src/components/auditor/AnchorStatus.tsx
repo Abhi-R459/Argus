@@ -52,6 +52,14 @@ const STATUS_STYLES = {
     icon: 'text-status-warning',
     glow: 'shadow-xs',
   },
+  UNVERIFIED: {
+    border: 'border-linear-hairline',
+    bg: 'bg-linear-surface-1',
+    pillBg: 'bg-linear-surface-2 text-linear-ink-muted border-linear-hairline',
+    dot: 'bg-linear-ink-muted',
+    icon: 'text-linear-ink-muted',
+    glow: 'shadow-xs',
+  },
 };
 
 export default function AnchorStatus({ data }: AnchorStatusProps) {
@@ -73,7 +81,7 @@ export default function AnchorStatus({ data }: AnchorStatusProps) {
           </div>
           <div>
             <p className="text-xs text-linear-ink-subtle font-medium">Cryptographic anchor</p>
-            <h3 className="text-base font-semibold text-linear-ink">External checkpoint</h3>
+            <h3 className="text-base font-semibold text-linear-ink">Checkpoint anchor</h3>
           </div>
         </div>
         <span className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider border ${style.pillBg}`}>
@@ -104,12 +112,24 @@ export default function AnchorStatus({ data }: AnchorStatusProps) {
           <Clock className="w-3.5 h-3.5 text-linear-ink-subtle mt-0.5 flex-shrink-0" />
           <div>
             <p className="text-xs text-linear-ink-subtle font-medium mb-0.5">
-              Last anchored
+              {data.status === 'ANCHORED' || data.status === 'STALE'
+                ? (data.last_anchored ? 'Anchor record time' : 'Anchor timestamp unavailable')
+                : 'Latest checkpoint time'}
             </p>
-            <p className="text-xs text-linear-ink-muted">{formatTimestamp(data.last_anchored)}</p>
-            <p className="text-[10px] text-linear-ink-subtle mt-0.5">
-              {new Date(data.last_anchored).toLocaleString()}
-            </p>
+            {data.last_anchored ? (
+              <>
+                <p className="text-xs text-linear-ink-muted">{formatTimestamp(data.last_anchored)}</p>
+                <p className="text-[10px] text-linear-ink-subtle mt-0.5">
+                  {new Date(data.last_anchored).toLocaleString()}
+                </p>
+              </>
+            ) : (
+              <p className="text-xs text-linear-ink-muted">
+                {data.status === 'ANCHORED' || data.status === 'STALE'
+                  ? 'This anchor record does not contain a write timestamp.'
+                  : 'No anchor write timestamp is available.'}
+              </p>
+            )}
           </div>
         </div>
 
@@ -173,42 +193,47 @@ export default function AnchorStatus({ data }: AnchorStatusProps) {
             </p>
           )}
 
-          <div className="space-y-1.5 bg-linear-surface-2 p-2.5 rounded-xl border border-linear-hairline">
-            {data.witness_report.per_witness.map((w, idx) => {
-              const isValid = w.status === 'VALID';
-              return (
-                <div
-                  key={idx}
-                  className="flex items-center justify-between text-[11px] py-1 px-1.5 rounded hover:bg-linear-surface-1 transition-colors"
-                >
-                  <div className="flex items-center space-x-2 truncate pr-2">
-                    <span
-                      className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
-                        isValid ? 'bg-linear-success' : 'bg-status-warning'
-                      }`}
-                    />
-                    <span className="font-mono text-linear-ink truncate">{w.witness_name}</span>
-                  </div>
-                  <div className="flex items-center space-x-2 flex-shrink-0">
-                    {w.signature_hex && (
-                      <span className="font-mono text-[10px] text-linear-ink-subtle">
-                        {w.signature_hex.slice(0, 8)}...
+          {data.witness_report.per_witness.length > 0 && (
+            <div className="space-y-1.5 bg-linear-surface-2 p-2.5 rounded-xl border border-linear-hairline">
+              {data.witness_report.per_witness.map((w, idx) => {
+                const isValid = w.status === 'VALID';
+                const isUnknown = w.status === 'UNKNOWN';
+                return (
+                  <div
+                    key={idx}
+                    className="flex items-center justify-between text-[11px] py-1 px-1.5 rounded hover:bg-linear-surface-1 transition-colors"
+                  >
+                    <div className="flex items-center space-x-2 truncate pr-2">
+                      <span
+                        className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                          isValid ? 'bg-linear-success' : isUnknown ? 'bg-linear-ink-muted' : 'bg-status-warning'
+                        }`}
+                      />
+                      <span className="font-mono text-linear-ink truncate">{w.witness_name}</span>
+                    </div>
+                    <div className="flex items-center space-x-2 flex-shrink-0">
+                      {w.signature_hex && (
+                        <span className="font-mono text-[10px] text-linear-ink-subtle">
+                          {w.signature_hex.slice(0, 8)}...
+                        </span>
+                      )}
+                      <span
+                        className={`text-[9px] font-bold px-1.5 py-0.5 rounded border uppercase ${
+                          isValid
+                            ? 'bg-linear-success/10 text-linear-success border-linear-success/30'
+                            : isUnknown
+                              ? 'bg-linear-surface-1 text-linear-ink-muted border-linear-hairline'
+                              : 'bg-status-warning/10 text-status-warning border-status-warning/30'
+                        }`}
+                      >
+                        {w.status}
                       </span>
-                    )}
-                    <span
-                      className={`text-[9px] font-bold px-1.5 py-0.5 rounded border uppercase ${
-                        isValid
-                          ? 'bg-linear-success/10 text-linear-success border-linear-success/30'
-                          : 'bg-status-warning/10 text-status-warning border-status-warning/30'
-                      }`}
-                    >
-                      {w.status}
-                    </span>
+                    </div>
                   </div>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
       </div>

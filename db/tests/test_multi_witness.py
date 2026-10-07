@@ -19,6 +19,56 @@ from db.cli.witness_protocol import (
 )
 from db.cli.keygen import generate_keypair
 from db.cli.signer import sign_checkpoint
+from db.cli.witness_config import load_origin_public_key, load_public_keys, resolve_witness_store_path
+
+
+def _simulated_witness_keys(count=3):
+    """Build explicit test-only signers; production code must configure real witnesses."""
+    signers = {}
+    for index in range(count):
+        private_key, _ = generate_keypair()
+        signers[f"witness.{index + 1}"] = private_key
+    return signers
+
+
+def _simulated_origin_key():
+    """Provide an explicit test-only origin key."""
+    private_key, _ = generate_keypair()
+    return private_key
+
+
+def test_api_and_cli_resolve_the_same_witness_store_and_trusted_keys(tmp_path, monkeypatch):
+    anchor_file = tmp_path / "anchor" / "chain_anchor.log"
+    explicit_store = tmp_path / "anchor" / "multi_witness"
+    witness_keys = tmp_path / "witness-keys"
+    checkpoint_keys = tmp_path / "checkpoint-keys"
+    witness_keys.mkdir(parents=True)
+    checkpoint_keys.mkdir(parents=True)
+    (witness_keys / "witness%2Eone.pem").write_text("witness-public", encoding="utf-8")
+    (checkpoint_keys / "local%3Ademo%3Aed25519%3Av1.pem").write_text("origin-public", encoding="utf-8")
+
+    monkeypatch.setenv("ANCHOR_FILE_PATH", str(anchor_file))
+    monkeypatch.delenv("WITNESS_STORE_PATH", raising=False)
+    assert resolve_witness_store_path() == anchor_file.parent / "multi_witness"
+    monkeypatch.setenv("WITNESS_STORE_PATH", str(explicit_store))
+    assert resolve_witness_store_path() == explicit_store
+    assert resolve_witness_store_path(str(anchor_file)) == explicit_store
+    assert load_public_keys(witness_keys) == {"witness.one": "witness-public"}
+    assert load_origin_public_key("local:demo:ed25519:v1", checkpoint_keys) == "origin-public"
+    assert load_origin_public_key("untrusted-key-id", checkpoint_keys) is None
+
+
+def test_multi_witness_store_never_invents_a_quorum(tmp_path):
+    store = MultiWitnessAnchorStore(
+        threshold=2,
+        base_path=str(tmp_path / "empty"),
+        origin_signer=_simulated_origin_key(),
+    )
+
+    assert store.witness_signers == {}
+    assert store.witness_public_keys == {}
+    with pytest.raises(QuorumNotMetError):
+        store.push(1, json.dumps({"sequence_id": 1, "merkle_root": "a" * 64}))
 
 
 # ---------------------------------------------------------------------------
@@ -128,6 +178,8 @@ def test_multi_witness_store_push_and_verify(tmp_path):
         witnesses=[sub1, sub2, sub3],
         threshold=2,
         base_path=str(tmp_path / "mw"),
+        witness_signers=_simulated_witness_keys(),
+        origin_signer=_simulated_origin_key(),
     )
 
     payload = json.dumps({
@@ -169,6 +221,8 @@ def test_multi_witness_store_quorum_failure_when_witnesses_fail(tmp_path):
         witnesses=[],
         threshold=3,  # Requires 3
         base_path=str(tmp_path / "mw_fail"),
+        witness_signers=_simulated_witness_keys(),
+        origin_signer=_simulated_origin_key(),
     )
 
     # Deliberately remove 2 witness keys so only 1 can cosign
@@ -196,6 +250,8 @@ def test_multi_witness_store_detects_fork_on_push(tmp_path):
         witnesses=[],
         threshold=2,
         base_path=str(tmp_path / "mw_fork"),
+        witness_signers=_simulated_witness_keys(),
+        origin_signer=_simulated_origin_key(),
     )
 
     payload_a = json.dumps({

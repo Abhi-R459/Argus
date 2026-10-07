@@ -68,7 +68,6 @@ export default function EmployeeTable() {
       );
     },
     placeholderData: (prev) => prev,
-    refetchInterval: 3000,
   });
 
   // Query departments for filtering
@@ -79,6 +78,15 @@ export default function EmployeeTable() {
   });
 
   const items = data?.items ?? [];
+
+  // Keep the open inspector in sync with refreshed directory data after edits.
+  useEffect(() => {
+    if (!selectedEmployee) return;
+    const refreshedEmployee = items.find((item) => item.employee_id === selectedEmployee.employee_id);
+    if (refreshedEmployee && refreshedEmployee !== selectedEmployee) {
+      setSelectedEmployee(refreshedEmployee);
+    }
+  }, [items, selectedEmployee]);
 
   // Active filters list for FilterBar
   const activeFilters: ActiveFilterItem[] = [];
@@ -380,7 +388,7 @@ export default function EmployeeTable() {
                       </span>
                       <span className="text-[10px] font-mono text-slate-400 flex items-center gap-1">
                         <ShieldCheck className="w-3 h-3 text-emerald-600" />
-                        PII Encrypted
+                        Sensitive fields encrypted
                       </span>
                     </div>
                   </DataTable.Cell>

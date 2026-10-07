@@ -21,8 +21,6 @@ import pytest
 import psycopg2
 
 from db.cli.adversary import (
-    get_admin_connection,
-    resolve_db_url,
     attack_dba_row_tamper,
     attack_recompute_and_hide,
     attack_checkpoint_forgery,
@@ -39,12 +37,39 @@ from db.cli.keygen import load_public_key, get_default_key_dir
 
 @pytest.fixture
 def db_conn():
-    """Create live administrative database connection."""
-    url = resolve_db_url()
+    """Connect only to an explicitly designated disposable adversarial-test database.
+
+    These tests directly tamper with and later rewrite database rows. Never resolve
+    credentials from .env or an application runtime URL.
+    """
+    if os.environ.get("ARGUS_ENABLE_DESTRUCTIVE_TESTS") != "I_CONFIRM_DISPOSABLE_DATABASE":
+        pytest.skip(
+            "Destructive adversary tests require ARGUS_ENABLE_DESTRUCTIVE_TESTS="
+            "I_CONFIRM_DISPOSABLE_DATABASE."
+        )
+    url = os.environ.get("ARGUS_TEST_DATABASE_URL")
+    if not url:
+        pytest.skip("Set ARGUS_TEST_DATABASE_URL to a disposable PostgreSQL database for destructive tests.")
+    expected_name = os.environ.get("ARGUS_TEST_DATABASE_NAME", "").strip()
+    if not expected_name or "test" not in expected_name.casefold():
+        pytest.fail(
+            "Set ARGUS_TEST_DATABASE_NAME to the exact disposable database name; "
+            "the name must include 'test'."
+        )
     try:
         conn = psycopg2.connect(url, connect_timeout=3)
     except psycopg2.Error as exc:
         pytest.skip(f"Database not reachable for live adversary tests: {exc}")
+
+    with conn.cursor() as cur:
+        cur.execute("SELECT current_database()")
+        actual_name = cur.fetchone()[0]
+    if actual_name != expected_name:
+        conn.close()
+        pytest.fail(
+            f"Refusing destructive tests: connected database {actual_name!r} "
+            f"does not match ARGUS_TEST_DATABASE_NAME {expected_name!r}."
+        )
 
     yield conn
     conn.close()

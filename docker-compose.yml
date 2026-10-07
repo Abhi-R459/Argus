@@ -1,19 +1,15 @@
-version: '3.9'
-
 services:
   db:
     image: postgres:15-alpine
-    container_name: argus-postgres
     restart: unless-stopped
     environment:
       POSTGRES_DB: argus
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: password
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in the deployment environment}
     ports:
-      - '5433:5432'
+      - '127.0.0.1:${ARGUS_DATABASE_PORT:-5433}:5432'
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./db/init:/docker-entrypoint-initdb.d
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U postgres -d argus']
       interval: 5s
@@ -22,44 +18,132 @@ services:
 
   api:
     build:
-      context: ./api
-    container_name: argus-api
+      context: .
+      dockerfile: api/Dockerfile
     restart: unless-stopped
-    ports:
-      - '8000:8000'
     environment:
-      - DATABASE_URL=postgresql+asyncpg://postgres:password@db:5432/argus
-      - DATABASE_URL_MIGRATIONS=postgresql://postgres:password@db:5432/argus
-      - DATABASE_URL_HR_ADMIN=postgresql://hr_admin:password@db:5432/argus
-      - DATABASE_URL_COMPLIANCE_AUDITOR=postgresql://compliance_auditor:password@db:5432/argus
-      - SIGNING_PRIVATE_KEY_PATH=/app/keys/verifier_private_key.pem
-      - ANCHOR_STORE=local_file
-      - ANCHOR_FILE_PATH=/app/anchor/chain_anchor.log
-      - CHECKPOINT_INTERVAL=25
-    depends_on:
-      db:
-        condition: service_healthy
-    env_file:
-      - .env
+      APP_ENV: "${APP_ENV:-production}"
+      # Set these to complete managed-database URLs for hosted deployments.
+      # The defaults retain the local Compose PostgreSQL setup.
+      DATABASE_URL_HR_ADMIN: "${COMPOSE_DATABASE_URL_HR_ADMIN:-postgresql+asyncpg://hr_admin:${HR_ADMIN_PASSWORD:?Set HR_ADMIN_PASSWORD}@db:5432/argus}"
+      DATABASE_URL_COMPLIANCE_AUDITOR: "${COMPOSE_DATABASE_URL_COMPLIANCE_AUDITOR:-postgresql+asyncpg://compliance_auditor:${COMPLIANCE_AUDITOR_PASSWORD:?Set COMPLIANCE_AUDITOR_PASSWORD}@db:5432/argus}"
+      CLERK_JWT_KEY: ${CLERK_JWT_KEY:?Set CLERK_JWT_KEY}
+      CLERK_ISSUER: ${CLERK_ISSUER:-}
+      CLERK_AUTHORIZED_PARTIES: ${CLERK_AUTHORIZED_PARTIES:-}
+      PII_ENCRYPTION_KEY: ${PII_ENCRYPTION_KEY:?Set PII_ENCRYPTION_KEY}
+      AUDIT_SALT: ${AUDIT_SALT:?Set AUDIT_SALT}
+      AUDIT_CONTEXT_SECRET: ${AUDIT_CONTEXT_SECRET:?Set AUDIT_CONTEXT_SECRET}
+      AUDIT_CONTEXT_KEY_ID: ${AUDIT_CONTEXT_KEY_ID:-v1}
+      HR_ADMIN_EMAILS: ${HR_ADMIN_EMAILS:?Set HR_ADMIN_EMAILS}
+      COMPLIANCE_AUDITOR_EMAILS: ${COMPLIANCE_AUDITOR_EMAILS:?Set COMPLIANCE_AUDITOR_EMAILS}
+      SIGNING_PRIVATE_KEY_PATH: /run/secrets/argus_signing_private_key.pem
+      CHECKPOINT_PUBLIC_KEYS_DIR: /app/trusted-checkpoint-keys
+      WITNESS_PUBLIC_KEYS_DIR: /app/trusted-witness-keys
+      WITNESS_STORE_PATH: /app/anchor/multi_witness
+      ANCHOR_STORE: ${ANCHOR_STORE:-local_file}
+      ANCHOR_FILE_PATH: /app/anchor/chain_anchor.log
+      CHECKPOINT_INTERVAL: ${CHECKPOINT_INTERVAL:-25}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost}
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-2}
+      DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-1}
+    volumes:
+      - argus_anchor_data:/app/anchor
+      - ./trusted-checkpoint-keys:/app/trusted-checkpoint-keys:ro
+      - ./trusted-witness-keys:/app/trusted-witness-keys:ro
+    secrets:
+      - source: signing_private_key
+        target: argus_signing_private_key.pem
+    ports:
+      - '127.0.0.1:${ARGUS_API_PORT:-8000}:8000'
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health/ready', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   frontend:
     build:
       context: ./frontend
-    container_name: argus-frontend
+      args:
+        VITE_CLERK_PUBLISHABLE_KEY: ${VITE_CLERK_PUBLISHABLE_KEY:?Set VITE_CLERK_PUBLISHABLE_KEY}
+        VITE_API_URL: ${VITE_API_URL:-/api}
     restart: unless-stopped
     ports:
-      - '80:80'
+      - '127.0.0.1:${ARGUS_WEB_PORT:-80}:80'
     depends_on:
-      - api
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Run explicitly during deployment; migrations never run as an API side effect.
+  migrate:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    profiles: ["ops"]
+    restart: "no"
+    environment:
+      DATABASE_URL_MIGRATIONS: "${MIGRATIONS_DATABASE_URL:-postgresql://postgres:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@db:5432/argus}"
+      PII_ENCRYPTION_KEY: ${PII_ENCRYPTION_KEY:?Set PII_ENCRYPTION_KEY}
+      AUDIT_SALT: ${AUDIT_SALT:?Set AUDIT_SALT}
+      AUDIT_CONTEXT_SECRET: ${AUDIT_CONTEXT_SECRET:?Set AUDIT_CONTEXT_SECRET}
+      AUDIT_CONTEXT_KEY_ID: ${AUDIT_CONTEXT_KEY_ID:-v1}
+    command: ["python", "-m", "alembic", "-c", "alembic.ini", "upgrade", "head"]
+
+  # PostgreSQL's own client image keeps backup tooling out of the API image.
+  backup:
+    image: postgres:17-alpine
+    profiles: ["ops"]
+    restart: "no"
+    environment:
+      PGHOST: ${BACKUP_DATABASE_HOST:-db}
+      PGPORT: ${BACKUP_DATABASE_PORT:-5432}
+      PGDATABASE: ${BACKUP_DATABASE_NAME:-argus}
+      PGUSER: ${BACKUP_DATABASE_USER:-postgres}
+      PGPASSWORD: ${BACKUP_DATABASE_PASSWORD:-${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}}
+      PGSSLMODE: ${BACKUP_DATABASE_SSLMODE:-prefer}
+      BACKUP_DIR: /backups
+    volumes:
+      - ${ARGUS_BACKUP_DIR:-./backups}:/backups
+      - ./db/scripts/backup.sh:/scripts/backup.sh:ro
+    entrypoint: ["sh", "/scripts/backup.sh"]
+
+  # Manual-only: restore requires an empty, named target DB and confirmation.
+  restore:
+    image: postgres:17-alpine
+    profiles: ["ops"]
+    restart: "no"
+    environment:
+      PGHOST: ${RESTORE_DATABASE_HOST:-db}
+      PGPORT: ${RESTORE_DATABASE_PORT:-5432}
+      PGUSER: ${RESTORE_DATABASE_USER:-postgres}
+      PGPASSWORD: ${RESTORE_DATABASE_PASSWORD:-${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}}
+      PGSSLMODE: ${RESTORE_DATABASE_SSLMODE:-prefer}
+      PGDATABASE: ${RESTORE_TARGET_DATABASE:-argus_restore_unconfigured}
+      ARGUS_RESTORE_CONFIRM: ${ARGUS_RESTORE_CONFIRM:-}
+      RESTORE_BACKUP_DIR: ${RESTORE_BACKUP_DIR:-}
+    volumes:
+      - ${ARGUS_BACKUP_DIR:-./backups}:/backups:ro
+      - ./db/scripts/restore.sh:/scripts/restore.sh:ro
+    entrypoint: ["sh", "/scripts/restore.sh", "/backups/${RESTORE_BACKUP_DIR:-__unset__}"]
 
   adminer:
     image: adminer:latest
-    container_name: argus-adminer
     restart: unless-stopped
     ports:
-      - '8080:8080'
+      - '127.0.0.1:8080:8080'
     depends_on:
       - db
+    profiles: ["tools"]
 
 volumes:
   pgdata:
+  argus_anchor_data:
+
+secrets:
+  signing_private_key:
+    file: ${SIGNING_PRIVATE_KEY_FILE:?Set SIGNING_PRIVATE_KEY_FILE to a private-key file}

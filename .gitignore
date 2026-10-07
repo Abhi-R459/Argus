@@ -5,6 +5,8 @@
 *.pem
 *.key
 keys/
+trusted-checkpoint-keys/
+trusted-witness-keys/
 anchor/
 
 # Python

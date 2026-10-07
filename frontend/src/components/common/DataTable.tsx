@@ -128,42 +128,29 @@ export const DataTableRow = React.forwardRef<HTMLTableRowElement, DataTableRowPr
     },
     ref
   ) => {
-    let stateClasses = '';
-
-    if (portalTheme === 'auditor') {
-      if (isTampered) {
-        stateClasses = 'bg-status-warning/15 border-l-2 border-status-warning text-status-warning';
-      } else if (isSelected) {
-        stateClasses = 'bg-linear-primary/15 border-l-2 border-linear-primary font-medium';
-      } else if (isHighlighted) {
-        stateClasses = 'bg-linear-primary/5 border-l-2 border-linear-primary/50 transition-colors';
-      } else if (isFresh) {
-        stateClasses = 'bg-linear-primary/15 transition-colors duration-500';
-      } else {
-        stateClasses = 'hover:bg-linear-surface-2/60 border-l-2 border-transparent transition-colors duration-100';
-      }
-
-      if (isFocused && !isSelected && !isHighlighted) {
-        stateClasses += ' ring-1 ring-inset ring-linear-primary/70 bg-linear-surface-2/50';
-      }
-    } else {
-      // HR portal
-      if (isTampered) {
-        stateClasses = 'bg-rose-50 border-l-2 border-rose-500 text-rose-700';
-      } else if (isSelected) {
-        stateClasses = 'bg-slate-100/90 border-l-2 border-slate-900 font-medium';
-      } else if (isHighlighted) {
-        stateClasses = 'bg-portal-info/5 border-l-2 border-portal-info/60 transition-colors';
-      } else if (isFresh) {
-        stateClasses = 'bg-blue-50/60 transition-colors duration-500';
-      } else {
-        stateClasses = 'hover:bg-slate-50/80 border-l-2 border-transparent transition-colors duration-100';
-      }
-
-      if (isFocused && !isSelected && !isHighlighted) {
-        stateClasses += ' ring-1 ring-inset ring-slate-400/60 bg-slate-50/60';
-      }
-    }
+    const stateClasses = portalTheme === 'auditor'
+      ? `${isTampered
+        ? 'bg-status-warning/15 border-l-2 border-status-warning text-status-warning'
+        : isSelected
+          ? 'bg-linear-primary/15 border-l-2 border-linear-primary font-medium'
+          : isHighlighted
+            ? 'bg-linear-primary/5 border-l-2 border-linear-primary/50 transition-colors'
+            : isFresh
+              ? 'bg-linear-primary/15 transition-colors duration-500'
+              : 'hover:bg-linear-surface-2/60 border-l-2 border-transparent transition-colors duration-100'}${
+        isFocused && !isSelected && !isHighlighted ? ' ring-1 ring-inset ring-linear-primary/70 bg-linear-surface-2/50' : ''
+      }`
+      : `${isTampered
+        ? 'bg-rose-50 border-l-2 border-rose-500 text-rose-700'
+        : isSelected
+          ? 'bg-slate-100/90 border-l-2 border-slate-900 font-medium'
+          : isHighlighted
+            ? 'bg-portal-info/5 border-l-2 border-portal-info/60 transition-colors'
+            : isFresh
+              ? 'bg-blue-50/60 transition-colors duration-500'
+              : 'hover:bg-slate-50/80 border-l-2 border-transparent transition-colors duration-100'}${
+        isFocused && !isSelected && !isHighlighted ? ' ring-1 ring-inset ring-slate-400/60 bg-slate-50/60' : ''
+      }`;
 
     return (
       <tr

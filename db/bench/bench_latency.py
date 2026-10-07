@@ -30,6 +30,8 @@ import time
 from typing import Any
 
 import psycopg2
+from dotenv import load_dotenv
+from db.crypto.pii import prepare_employee_pii, validate_employee_pii_config
 
 from db.bench.seed import (
     _ensure_prerequisites,
@@ -131,15 +133,16 @@ def measure_insert_latency(
         for _ in range(num_samples):
             name = _random_name()
             role_id = random.choice(role_ids)
-            national_id = os.urandom(16)
-            contact_info = os.urandom(16)
+            national_id = f"LATENCY-{os.urandom(16).hex()}"
+            contact_info = f"Benchmark contact {os.urandom(16).hex()}"
+            encrypted_nid, encrypted_contact = prepare_employee_pii(cur, national_id, contact_info)
 
             t0 = time.perf_counter()
             cur.execute(
                 "INSERT INTO employees "
                 "(full_name, role_id, national_id_encrypted, contact_info_encrypted) "
                 "VALUES (%s, %s, %s, %s) RETURNING employee_id",
-                (name, role_id, national_id, contact_info),
+                (name, role_id, encrypted_nid, encrypted_contact),
             )
             emp_id = cur.fetchone()[0]
             conn.commit()
@@ -257,6 +260,10 @@ def run_latency_benchmarks(
     Returns:
         Exit code: 0 on success, 1 on error.
     """
+    load_dotenv()
+    # The run always measures INSERTs, including --skip-seed runs. Validate
+    # before connecting because the later setup may clear seeded tables.
+    validate_employee_pii_config()
     conn = get_connection(db_url)
     results: list[dict[str, Any]] = []
 

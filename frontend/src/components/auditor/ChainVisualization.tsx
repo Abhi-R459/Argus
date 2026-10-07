@@ -39,7 +39,7 @@ function DiffDrawer({ entry, isTampered }: DiffDrawerProps) {
       <DiffViewer
         oldValue={entry.old_value}
         newValue={entry.new_value}
-        operation={entry.operation as any}
+        operation={entry.operation}
         isTampered={isTampered}
         sequenceId={entry.entry_id}
       />
@@ -130,7 +130,7 @@ function ChainRow({ entry, isFirst, isTampered }: ChainRowProps) {
             <div className="w-5 h-5 rounded-full bg-linear-surface-3 border border-linear-hairline-strong flex items-center justify-center text-[9px] font-bold text-linear-primary uppercase shrink-0">
               {entry.actor_email.charAt(0)}
             </div>
-            <span className="text-xs text-linear-ink-muted max-w-[95px] sm:max-w-[110px] truncate" title={entry.actor_email}>
+            <span className="text-xs text-linear-ink-muted max-w-[95px] sm:max-w-[110px] truncate" title={'Current profile; immutable user ID ' + (entry.actor_user_id ?? 'unavailable')}>
               {entry.actor_email}
             </span>
           </div>

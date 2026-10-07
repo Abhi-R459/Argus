@@ -71,7 +71,10 @@ def _create_mock_capsule_bytes(seq_id=42):
     mock_cur.fetchone.side_effect = [sample_rows[0], cp_mock, None]
     mock_cur.fetchall.return_value = sample_rows
 
-    return generate_capsule(mock_conn, seq_id, public_key_pem=pub_pem.decode("utf-8"))
+    return (
+        generate_capsule(mock_conn, seq_id, public_key_pem=pub_pem.decode("utf-8")),
+        pub_pem.decode("utf-8"),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -132,7 +135,7 @@ async def test_capsule_uncheckpointed_tail(client_auditor: AsyncClient):
 
 async def test_capsule_auditor_success(client_auditor: AsyncClient):
     """Compliance auditor can download .arguscap bundle with valid ZIP headers and structure."""
-    fake_zip_bytes = _create_mock_capsule_bytes(42)
+    fake_zip_bytes, trusted_public_key = _create_mock_capsule_bytes(42)
 
     with patch("db.cli.capsule.generate_capsule", return_value=fake_zip_bytes):
         with patch("psycopg2.connect"):
@@ -142,7 +145,9 @@ async def test_capsule_auditor_success(client_auditor: AsyncClient):
             assert 'filename="proof_seq42.arguscap"' in response.headers["Content-Disposition"]
 
             # Verify bundle contents
-            is_valid, msg, details = verify_capsule(response.content)
+            is_valid, msg, details = verify_capsule(
+                response.content, trusted_public_key_pem=trusted_public_key
+            )
             assert is_valid is True
             assert details["sequence_id"] == 42
             assert details["signature_valid"] is True

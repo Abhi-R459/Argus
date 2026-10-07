@@ -1,3 +1,4 @@
+import { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { SignedIn, SignedOut, SignIn } from '@clerk/clerk-react';
 import { QueryClientProvider } from '@tanstack/react-query';
@@ -7,20 +8,20 @@ import AuditorLayout from './layouts/AuditorLayout';
 import RoleGuard from './components/auth/RoleGuard';
 import AuthDispatcher from './components/auth/AuthDispatcher';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
-import Dashboard from './pages/hr/Dashboard';
-import EmployeeList from './pages/hr/EmployeeList';
-import HRSettings from './pages/hr/HRSettings';
-import AuditorOverview from './pages/auditor/AuditorOverview';
-import AuditLogPage from './pages/auditor/AuditLogPage';
-import ActivityPage from './pages/auditor/ActivityPage';
-import AnalyticsPage from './pages/auditor/AnalyticsPage';
-import TimeTravelPage from './pages/auditor/TimeTravelPage';
-import AuditChainPage from './pages/auditor/AuditChainPage';
-import CounterfactualPage from './pages/auditor/CounterfactualPage';
-import ForensicEvidencePage from './pages/auditor/ForensicEvidencePage';
+const Dashboard = lazy(() => import('./pages/hr/Dashboard'));
+const EmployeeList = lazy(() => import('./pages/hr/EmployeeList'));
+const HRSettings = lazy(() => import('./pages/hr/HRSettings'));
+const AuditorOverview = lazy(() => import('./pages/auditor/AuditorOverview'));
+const AuditLogPage = lazy(() => import('./pages/auditor/AuditLogPage'));
+const ActivityPage = lazy(() => import('./pages/auditor/ActivityPage'));
+const AnalyticsPage = lazy(() => import('./pages/auditor/AnalyticsPage'));
+const TimeTravelPage = lazy(() => import('./pages/auditor/TimeTravelPage'));
+const AuditChainPage = lazy(() => import('./pages/auditor/AuditChainPage'));
+const CounterfactualPage = lazy(() => import('./pages/auditor/CounterfactualPage'));
+const ForensicEvidencePage = lazy(() => import('./pages/auditor/ForensicEvidencePage'));
 
 function ProtectedPortal({ allowedRole, children }: { allowedRole: 'hr_admin' | 'compliance_auditor'; children: React.ReactNode }) {
-  if (import.meta.env.DEV && typeof window !== 'undefined' && (window as any).__E2E_ROLE__) {
+  if (import.meta.env.DEV && typeof window !== 'undefined' && window.__E2E_ROLE__) {
     return <RoleGuard allowedRole={allowedRole}>{children}</RoleGuard>;
   }
   return (
@@ -35,6 +36,7 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
         <ErrorBoundary fallbackTitle="Application Error" fallbackSubtitle="An unexpected system error occurred. Please refresh or try again.">
+          <Suspense fallback={<div className="min-h-screen bg-linear-canvas text-linear-ink flex items-center justify-center" role="status">Loading page…</div>}>
           <Routes>
             {/* Root: redirect signed-in users based on role; show sign-in for guests */}
             <Route path="/" element={
@@ -83,6 +85,7 @@ function App() {
               <Route path="analytics" element={<AnalyticsPage />} />
             </Route>
           </Routes>
+          </Suspense>
         </ErrorBoundary>
       </BrowserRouter>
     </QueryClientProvider>

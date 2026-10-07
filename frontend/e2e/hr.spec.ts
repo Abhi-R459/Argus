@@ -5,7 +5,7 @@ test.describe('HR Admin Portal E2E', () => {
   test.beforeEach(async ({ page }) => {
     // Inject E2E role for HR Admin
     await page.addInitScript(() => {
-      (window as any).__E2E_ROLE__ = 'hr_admin';
+      (window as Window & { __E2E_ROLE__?: string }).__E2E_ROLE__ = 'hr_admin';
     });
     await mockArgusApi(page);
   });
@@ -73,12 +73,45 @@ test.describe('HR Admin Portal E2E', () => {
     }
   });
 
+  test('salary adjustment refreshes the open employee details and states PII protection accurately', async ({ page }) => {
+    await page.goto('http://localhost:5173/hr/employees');
+    await page.getByRole('row', { name: /M Maya Rao #1001/ })
+      .getByRole('button', { name: 'Adjust compensation for Maya Rao' })
+      .click();
+
+    await expect(page.getByText('Current annual compensation')).toBeVisible();
+    await expect(page.getByRole('dialog').getByText('₹7,80,000', { exact: true })).toBeVisible();
+    await page.locator('input[type="number"]').fill('1000000');
+    await page.getByRole('button', { name: 'Record Salary Adjustment' }).click();
+
+    await expect(page.getByText('Compensation adjustment validated and recorded to immutable ledger.')).toBeVisible();
+    await expect(page.getByRole('dialog').getByText('₹10,00,000', { exact: true })).toBeVisible();
+    await expect(page.getByRole('dialog').getByText('Sensitive fields encrypted')).toBeVisible();
+    await expect(page.getByRole('dialog').getByText(/Employee names and work email addresses remain plaintext/)).toBeVisible();
+  });
+
   test('HR Settings page rendering', async ({ page }) => {
     await page.goto('http://localhost:5173/hr/settings');
     await page.waitForLoadState('networkidle');
 
     // Settings header
     await expect(page.locator('h1', { hasText: 'Security & Access Management' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Create checkpoint now' })).toBeVisible();
+  });
+
+  test('HR Admin can create a checkpoint and sees its signed range', async ({ page }) => {
+    await page.goto('http://localhost:5173/hr/settings');
+
+    const requestPromise = page.waitForRequest((request) =>
+      new URL(request.url()).pathname.endsWith('/checkpoints/create') && request.method() === 'POST'
+    );
+    await page.getByRole('button', { name: 'Create checkpoint now' }).click();
+    const request = await requestPromise;
+
+    expect(request.postData()).toBeNull();
+    await expect(page.getByRole('status').filter({ hasText: 'Checkpoint #7 created and signed.' })).toBeVisible();
+    await expect(page.getByText(/Sealed 12 audit events through sequence #142/)).toBeVisible();
+    await expect(page.getByText(/No external anchor was created/)).toBeVisible();
   });
 
   test('HR mobile navigation opens and closes after route change', async ({ page }) => {

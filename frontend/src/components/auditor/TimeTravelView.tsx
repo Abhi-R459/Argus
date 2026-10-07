@@ -70,10 +70,12 @@ function getMutationSemanticNote(log: AuditLogItem) {
     if (log.action === 'DELETE') return 'Employee Record Deactivated / Archived';
   }
   if (log.table_name === 'salary_history') {
-    const amt = (log.new_value as any)?.amount;
-    const eff = (log.new_value as any)?.effective_date;
-    const formatted = amt ? formatINR(Number(amt)) : 'Rate Adjustment';
-    return `Compensation Updated to ${formatted}${eff ? ` (Effective: ${eff})` : ''}`;
+    const amt = log.new_value?.amount;
+    const eff = log.new_value?.effective_date;
+    const formatted = typeof amt === 'number' || typeof amt === 'string'
+      ? formatINR(Number(amt))
+      : 'Rate Adjustment';
+    return `Compensation Updated to ${formatted}${typeof eff === 'string' ? ` (Effective: ${eff})` : ''}`;
   }
   return `${log.action} on ${log.table_name}`;
 }
@@ -207,20 +209,21 @@ export default function TimeTravelView() {
 
   const employeeLogs: AuditLogItem[] = employeeLogsData?.items || [];
 
+  const { data: employeeOriginData } = useQuery({
+    queryKey: ['employeeAuditOrigin', parsedEmpId],
+    queryFn: () => fetchAuditLogs(
+      { employee_id: parsedEmpId, table_name: 'employees', action: 'INSERT', limit: 1 },
+      getToken,
+    ),
+    enabled: isValidEmpId,
+    staleTime: 60000,
+  });
+
   const latestMutation = useMemo(() => {
     return employeeLogs.length > 0 ? employeeLogs[0] : null;
   }, [employeeLogs]);
 
-  const initialMutation = useMemo(() => {
-    if (employeeLogs.length === 0) return null;
-    // Walk backwards from oldest to newest in the descending list
-    for (let i = employeeLogs.length - 1; i >= 0; i--) {
-      if (employeeLogs[i].table_name === 'employees' && employeeLogs[i].action.toUpperCase() === 'INSERT') {
-        return employeeLogs[i];
-      }
-    }
-    return employeeLogs[employeeLogs.length - 1];
-  }, [employeeLogs]);
+  const initialMutation = employeeOriginData?.items?.[0] ?? null;
 
   // Find active log index corresponding to current queryParams
   const activeLogIndex = useMemo(() => {
@@ -464,12 +467,9 @@ export default function TimeTravelView() {
 
   const handleStepLog = (direction: 'newer' | 'older') => {
     if (employeeLogs.length === 0) return;
-    let targetIdx = 0;
-    if (activeLogIndex === -1) {
-      targetIdx = direction === 'older' ? 0 : employeeLogs.length - 1;
-    } else {
-      targetIdx = direction === 'newer' ? activeLogIndex - 1 : activeLogIndex + 1;
-    }
+    const targetIdx = activeLogIndex === -1
+      ? direction === 'older' ? 0 : employeeLogs.length - 1
+      : direction === 'newer' ? activeLogIndex - 1 : activeLogIndex + 1;
 
     if (targetIdx >= 0 && targetIdx < employeeLogs.length) {
       const targetLog = employeeLogs[targetIdx];
@@ -501,8 +501,9 @@ export default function TimeTravelView() {
         </div>
 
         <p className="text-sm text-linear-ink-muted mb-6 max-w-3xl">
-          Deterministically reconstruct the exact state of any employee record at any past microsecond
-          using PostgreSQL stored routine <code className="text-linear-primary font-mono text-xs">reconstruct_employee_state(:emp_id, :as_of)</code>.
+          Reconstruct the employee state as recorded at a past timestamp. Salary changes follow their audit-event time;
+          Compensation effective dates remain event metadata. This uses PostgreSQL stored routine
+          <code className="text-linear-primary font-mono text-xs"> reconstruct_employee_state(:emp_id, :as_of)</code>.
           Select an employee below or choose a historical event directly from the mutation timeline.
         </p>
 
@@ -1007,7 +1008,10 @@ export default function TimeTravelView() {
                         {semanticNote}
                       </p>
                       <div className="text-[11px] text-linear-ink-muted flex items-center justify-between font-mono">
-                        <span>Actor: {log.actor_name}</span>
+                        <span>
+                          Actor profile: {log.actor_name}
+                          {log.actor_user_id === null ? ' (no user ID recorded)' : ` · immutable user ID ${log.actor_user_id}`}
+                        </span>
                         <span className="text-[10px] text-linear-ink-subtle">
                           {new Date(log.created_at).toLocaleTimeString()}
                         </span>

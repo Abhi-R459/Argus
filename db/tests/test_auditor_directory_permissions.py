@@ -1,8 +1,8 @@
 """Integration tests for Compliance Auditor Employee Directory Permissions & PII Shielding.
 
 Validates that:
-1. Static DDL scripts ensure compliance_auditor is granted SELECT on v_employee_directory
-   and NOT on raw employees table (PII shielding).
+1. Static DDL scripts ensure compliance_auditor is granted SELECT on the masked
+   v_compliance_employee_directory and NOT on raw employee data.
 2. Live database tests verify that compliance_auditor receives permission denied on `employees`
    table while successfully querying `v_employee_directory` and executing `reconstruct_employee_state`.
 """
@@ -25,10 +25,9 @@ requires_postgres = pytest.mark.skipif(
 
 
 def get_auditor_db_url():
-    url = os.environ.get(
-        "DATABASE_URL_COMPLIANCE_AUDITOR",
-        "postgresql://compliance_auditor:password@localhost:5433/argus",
-    )
+    url = os.environ.get("DATABASE_URL_COMPLIANCE_AUDITOR")
+    if not url:
+        pytest.skip("Set DATABASE_URL_COMPLIANCE_AUDITOR to a disposable PostgreSQL database.")
     if url.startswith("postgresql+asyncpg://"):
         url = url.replace("postgresql+asyncpg://", "postgresql://", 1)
     return url
@@ -43,7 +42,8 @@ class TestAuditorDirectoryStaticPermissions:
         with open(sql_path, "r", encoding="utf-8") as f:
             content = f.read()
 
-        assert "GRANT SELECT ON v_employee_directory TO compliance_auditor;" in content
+        assert "REVOKE SELECT ON v_employee_directory FROM compliance_auditor;" in content
+        assert "GRANT SELECT ON v_compliance_employee_directory TO compliance_auditor;" in content
         assert "GRANT SELECT, INSERT, UPDATE ON employees TO hr_admin;" in content
         # Ensure raw employees table is NOT granted to compliance_auditor
         assert "GRANT SELECT ON employees TO compliance_auditor" not in content
@@ -77,9 +77,10 @@ class TestAuditorDirectoryLivePermissions:
         """compliance_auditor must be allowed to SELECT from v_employee_directory."""
         engine = create_engine(get_auditor_db_url())
         with engine.connect() as conn:
-            res = conn.execute(text("SELECT employee_id, full_name, role_title, department_name FROM v_employee_directory LIMIT 5;"))
+            res = conn.execute(text("SELECT employee_id, full_name, role_title, department_name FROM v_compliance_employee_directory LIMIT 5;"))
             rows = res.fetchall()
             assert isinstance(rows, list)
+            assert all(row.full_name.startswith("Employee #") for row in rows)
         engine.dispose()
 
     def test_time_travel_stored_routine_executable_by_auditor(self):

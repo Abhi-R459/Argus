@@ -24,7 +24,7 @@ from typing import Any
 
 import dotenv
 import psycopg2
-import psycopg2.extras
+from db.crypto.pii import prepare_employee_pii, set_employee_audit_context, validate_employee_pii_config
 
 dotenv.load_dotenv()
 
@@ -357,8 +357,7 @@ def seed_curated_workforce(
                     p["full_name"],
                     p["email"],
                     role_id,
-                    p["national_id"].encode("utf-8"),
-                    p["contact_info"].encode("utf-8"),
+                    *prepare_employee_pii(cur, p["national_id"], p["contact_info"]),
                     p["date_hired"],
                     True,  # Start active; Tariq is deactivated below to create audit event
                 ),
@@ -381,6 +380,7 @@ def seed_curated_workforce(
             for step in p["history"]:
                 if step["type"] == "promotion":
                     new_role_id = role_map[step["role_title"]]
+                    set_employee_audit_context(cur, p["national_id"])
                     cur.execute(
                         "UPDATE employees SET role_id = %s WHERE employee_id = %s;",
                         (new_role_id, emp_id),
@@ -427,6 +427,7 @@ def seed_curated_workforce(
 
             # Deactivation event if persona is inactive
             if not p["is_active"]:
+                set_employee_audit_context(cur, p["national_id"])
                 cur.execute(
                     "UPDATE employees SET is_active = FALSE WHERE employee_id = %s;",
                     (emp_id,),
@@ -440,6 +441,7 @@ def seed_curated_workforce(
             nat_id = f"ARGUS-NAT-{idx:04d}-X"
             contact = f"+91 9{random.randint(1000, 9999)} {random.randint(10000, 99999)} | Corporate Campus, Sector {random.randint(1, 45)}"
 
+            encrypted_nid, encrypted_contact = prepare_employee_pii(cur, nat_id, contact)
             cur.execute(
                 """
                 INSERT INTO employees
@@ -447,7 +449,7 @@ def seed_curated_workforce(
                 VALUES (%s, %s, %s, %s, %s, %s, TRUE)
                 RETURNING employee_id;
                 """,
-                (name, email, role_id, nat_id.encode("utf-8"), contact.encode("utf-8"), hired),
+                (name, email, role_id, encrypted_nid, encrypted_contact, hired),
             )
             emp_id = cur.fetchone()[0]
             employee_id_map[name] = emp_id
@@ -480,14 +482,15 @@ def generate_scale_workforce(
     first_names = ["Alex", "Jordan", "Taylor", "Morgan", "Sam", "Chris", "Pat", "Robin", "Devon", "Casey", "Avery", "Riley"]
     last_names = ["Anderson", "Bennett", "Campbell", "Donovan", "Edwards", "Fletcher", "Gibson", "Harper", "Ingram", "Jenkins", "Knight"]
 
-    logger.info("Generating %d scale employees in batches of %d...", num_scale, batch_size)
+    if batch_size < 1:
+        raise ValueError("batch_size must be at least 1")
+    logger.info("Generating %d scale employees (commit interval %d)...", num_scale, batch_size)
     total_created = 0
 
     with conn.cursor() as cur:
         cur.execute("SET argus.actor_user_id = '0'")
         cur.execute("SET argus.actor_employee_id = '0'")
 
-        batch: list[tuple] = []
         for i in range(num_scale):
             idx = start_index + i
             fn = random.choice(first_names)
@@ -495,35 +498,28 @@ def generate_scale_workforce(
             name = f"{fn} {ln}"
             email = f"{fn.lower()}.{ln.lower()}.{idx}@argus-security.io"
             role_id = random.choice(role_ids)
-            nat_id = f"ARGUS-SCALE-{idx:06d}".encode("utf-8")
-            contact = f"Extension #{idx} | Node {random.randint(1, 8)}".encode("utf-8")
+            nat_id = f"ARGUS-SCALE-{idx:06d}"
+            contact = f"Extension #{idx} | Node {random.randint(1, 8)}"
             hired = datetime.date(2023, 1, 1) + datetime.timedelta(days=random.randint(0, 700))
 
-            batch.append((name, email, role_id, nat_id, contact, hired, True))
-
-            if len(batch) >= batch_size or i == num_scale - 1:
-                cur_batch = batch
-                batch = []
-                query = """
+            encrypted_nid, encrypted_contact = prepare_employee_pii(cur, nat_id, contact)
+            cur.execute(
+                """
                 INSERT INTO employees
                     (full_name, email, role_id, national_id_encrypted, contact_info_encrypted, date_hired, is_active)
-                VALUES %s
+                VALUES (%s, %s, %s, %s, %s, %s, TRUE)
                 RETURNING employee_id, date_hired;
-                """
-                inserted = psycopg2.extras.execute_values(cur, query, cur_batch, fetch=True)
-                
-                # Insert initial salaries
-                salary_batch = [
-                    (emp_id, random.randint(800000, 3000000), date_hired)
-                    for emp_id, date_hired in inserted
-                ]
-                psycopg2.extras.execute_values(
-                    cur,
-                    "INSERT INTO salary_history (employee_id, amount, effective_date) VALUES %s",
-                    salary_batch,
-                )
+                """,
+                (name, email, role_id, encrypted_nid, encrypted_contact, hired),
+            )
+            emp_id, date_hired = cur.fetchone()
+            cur.execute(
+                "INSERT INTO salary_history (employee_id, amount, effective_date) VALUES (%s, %s, %s)",
+                (emp_id, random.randint(800000, 3000000), date_hired),
+            )
+            if (i + 1) % batch_size == 0 or i == num_scale - 1:
                 conn.commit()
-                total_created += len(inserted)
+                total_created += min(batch_size, num_scale - total_created)
                 if total_created % 2000 == 0 or total_created == num_scale:
                     logger.info("  Scale progress: %d / %d employees inserted.", total_created, num_scale)
 
@@ -623,6 +619,10 @@ def main() -> int:
         help="Skip truncating existing data (appends new data).",
     )
     args = parser.parse_args()
+
+    # Validate before connecting or purging: a missing key must never leave the
+    # demo database truncated with the subsequent employee inserts failing.
+    validate_employee_pii_config()
 
     conn = get_db_connection(args.db_url)
     try:

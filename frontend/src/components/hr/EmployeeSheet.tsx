@@ -381,39 +381,39 @@ export function EmployeeSheet({
             </div>
           </div>
 
-          {/* Cryptographic Shield & PII Protection */}
+          {/* PII storage status */}
           <div className="bg-white rounded-2xl border border-slate-200/80 p-4 space-y-3 shadow-2xs">
             <div className="flex items-center justify-between">
               <h4 className="text-xs font-semibold text-slate-900 tracking-tight flex items-center gap-1.5">
                 <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-                PII encryption & shielding
+                PII storage status
               </h4>
               <span className="text-[10px] font-mono font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
-                pgcrypto active
+                Sensitive fields encrypted
               </span>
             </div>
             <div className="space-y-2 text-xs">
               <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 border border-slate-200/60">
                 <span className="text-slate-600 font-medium flex items-center gap-1.5">
                   <Lock className="w-3 h-3 text-slate-400" />
-                  National ID (Aadhaar / SSN)
+                  National ID
                 </span>
                 <span className="font-mono text-xs text-slate-400 tracking-widest">
-                  •••• •••• ••••
+                  Encrypted at rest
                 </span>
               </div>
               <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 border border-slate-200/60">
                 <span className="text-slate-600 font-medium flex items-center gap-1.5">
                   <Lock className="w-3 h-3 text-slate-400" />
-                  Contact credentials
+                  Contact information
                 </span>
                 <span className="font-mono text-[11px] text-slate-500">
-                  AES-256 Symmetric
+                  Encrypted at rest
                 </span>
               </div>
             </div>
             <p className="text-[11px] text-slate-500 leading-relaxed">
-              PII attributes are encrypted at rest using PostgreSQL <code className="font-mono text-slate-800 bg-slate-100 px-1 py-0.5 rounded">pgp_sym_encrypt</code> and shielded from unauthorized query endpoints.
+              National ID and contact information are encrypted at rest. Employee names and work email addresses remain plaintext in the current schema. Keep using synthetic records until direct identifiers are also encrypted.
             </p>
           </div>
 
@@ -555,17 +555,17 @@ export function EmployeeSheet({
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1.5 flex items-center justify-between">
                 <span>Contact information</span>
-                <span className="text-[11px] text-slate-500 font-normal">Encrypted payload</span>
+                <span className="text-[11px] text-amber-700 font-normal">Stored without encryption</span>
               </label>
               <textarea
                 {...registerProfile('contact_info')}
                 rows={3}
-                placeholder="Enter new contact details to update encrypted payload (leave blank to retain current)..."
+                placeholder="Enter contact details (currently stored without encryption; leave blank to retain current)..."
                 className="w-full px-3.5 py-2 bg-slate-50/60 hover:bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 focus:bg-white focus:outline-none focus:ring-4 focus:ring-portal-primary/20 focus:border-slate-900 transition-all shadow-2xs"
               />
               <p className="mt-1.5 text-[11px] text-slate-500 flex items-center gap-1">
                 <Lock className="w-3 h-3 text-emerald-600 shrink-0" />
-                Payload is symmetrically encrypted via PostgreSQL pgcrypto before storage.
+              Contact details are currently stored without encryption. Do not enter real personal data.
               </p>
               {profileErrors.contact_info && (
                 <p className="mt-1 text-xs text-rose-600 font-medium">{profileErrors.contact_info.message}</p>

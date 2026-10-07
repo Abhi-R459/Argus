@@ -18,6 +18,7 @@ class AuditLogItem(BaseModel):
     """
 
     sequence_id: int
+    actor_user_id: Optional[int]
     actor_name: str
     employee_id: Optional[int]
     action: str          # INSERT | UPDATE | DELETE
@@ -121,6 +122,7 @@ class ChainEntry(BaseModel):
     table_name: str
     operation: str                      # INSERT | UPDATE | DELETE
     actor_email: str
+    actor_user_id: Optional[int] = None
     actor_role: str
     timestamp: datetime
     severity: str                       # low | medium | high | critical
@@ -132,7 +134,8 @@ class ChainEntry(BaseModel):
 
 class WitnessItem(BaseModel):
     witness_name: str
-    status: str                         # VALID | FAILED | PENDING
+    status: str                         # VALID | FAILED | UNKNOWN
+    reason: Optional[str] = None
     signature_hex: Optional[str] = None
     timestamp: Optional[str] = None
 
@@ -152,10 +155,10 @@ class WitnessReport(BaseModel):
 class AnchorInfo(BaseModel):
     """Response from GET /api/anchor/status."""
 
-    status: str                         # ANCHORED | STALE | MISSING
+    status: str                         # ANCHORED | STALE | MISSING | MISMATCH | UNVERIFIED
     anchor_store: str                   # local_file | github_repo
     anchor_location: str
-    last_anchored: datetime
+    last_anchored: Optional[datetime] = None
     anchor_hash: str
     entries_since_anchor: int
     witness_report: Optional[WitnessReport] = None
@@ -168,8 +171,8 @@ class AnchorInfo(BaseModel):
 class CounterfactualRequest(BaseModel):
     """Request payload for POST /api/audit-logs/counterfactual."""
 
-    employee_id: int
-    skip_sequence_ids: List[int]
+    employee_id: int = Field(gt=0)
+    skip_sequence_ids: List[int] = Field(max_length=100)
     as_of: Optional[str] = None
 
 

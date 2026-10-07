@@ -29,11 +29,14 @@ pytestmark = pytest.mark.asyncio
 
 
 @pytest.fixture(autouse=True)
-def reset_service_state():
+def reset_service_state(monkeypatch):
     """Reset rate limiter and audit logger before each test."""
+    monkeypatch.setenv("AUDIT_SALT", "test-blind-index-salt-is-at-least-32-bytes")
+    get_settings.cache_clear()
     rate_limiter.reset()
     audit_logger.clear_audit_events()
     yield
+    get_settings.cache_clear()
     rate_limiter.reset()
     audit_logger.clear_audit_events()
 
@@ -157,6 +160,18 @@ async def test_blind_search_empty_match(client_auditor: AsyncClient, mock_db_ses
     assert len(data["items"]) == 0
 
 
+async def test_blind_search_fails_closed_without_unique_audit_salt(
+    client_auditor: AsyncClient,
+):
+    from types import SimpleNamespace
+    from unittest.mock import patch
+
+    with patch("api.routers.audits.get_settings", return_value=SimpleNamespace(AUDIT_SALT="short")):
+        response = await client_auditor.get("/api/audit-logs?national_id_search=123-45-6789")
+
+    assert response.status_code == 503
+
+
 async def test_blind_search_hr_forbidden(client_hr: AsyncClient):
     """Assert hr_admin cannot search audit logs by blind index."""
     response = await client_hr.get("/api/audit-logs?national_id_search=123-45-6789")
@@ -184,6 +199,7 @@ async def test_audit_log_cursor_pages_do_not_overlap(client_auditor: AsyncClient
     def row(sequence_id: int):
         return SimpleNamespace(
             sequence_id=sequence_id,
+            actor_user_id=2,
             actor_name="Auditor",
             employee_id=7,
             action="UPDATE",
@@ -205,6 +221,7 @@ async def test_audit_log_cursor_pages_do_not_overlap(client_auditor: AsyncClient
     assert first.status_code == 200
     first_page = first.json()
     assert [item["sequence_id"] for item in first_page["items"]] == [5, 4]
+    assert all(item["actor_user_id"] == 2 for item in first_page["items"])
     assert first_page["next_cursor"] == 4
     assert first_page["has_more"] is True
 

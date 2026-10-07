@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """BENCH-001 / BENCH-002: Synthetic data seeding for Argus benchmark suite.
 
-Generates synthetic employees and salary records to populate the database
-for benchmark testing. Uses optimized batch inserts and commits for high-volume
-workloads (100K+ rows).
+Generates synthetic employees and salary records to populate the database.
+Salary rows are batched; employee rows are inserted individually so each
+employee receives the matching transaction-local audit blind index.
 
 Usage::
 
@@ -26,6 +26,8 @@ from typing import Any
 
 import psycopg2
 import psycopg2.extras
+from dotenv import load_dotenv
+from db.crypto.pii import prepare_employee_pii, validate_employee_pii_config
 
 logger = logging.getLogger("argus.bench.seed")
 
@@ -167,7 +169,7 @@ def seed_employees(
     role_ids: list[int],
     batch_size: int = 1000,
 ) -> list[int]:
-    """Insert synthetic employees in batches using execute_values.
+    """Insert encrypted synthetic employees, committing every batch_size rows.
 
     Args:
         conn: psycopg2 connection.
@@ -181,9 +183,11 @@ def seed_employees(
     """
     if num_employees <= 0:
         return []
+    if batch_size < 1:
+        raise ValueError("batch_size must be at least 1")
 
     employee_ids: list[int] = []
-    logger.info("Inserting %d employees (batch_size=%d) …", num_employees, batch_size)
+    logger.info("Inserting %d employees (commit interval=%d) …", num_employees, batch_size)
 
     with conn.cursor() as cur:
         # Set session variable for triggers across transactions
@@ -191,37 +195,22 @@ def seed_employees(
         cur.execute("SET argus.actor_user_id = %s", (str(actor_user_id),))
 
         from datetime import date, timedelta
-        batch: list[tuple] = []
         for i in range(num_employees):
             name = _random_name()
             email = f"{name.lower().replace(' ', '.')}.{i}_{os.urandom(4).hex()}@argus.test"
             role_id = random.choice(role_ids)
-            national_id = os.urandom(16)  # simulated encrypted bytes
-            contact_info = os.urandom(16)
+            national_id = f"BENCH-{i:08d}-{os.urandom(4).hex()}"
+            contact_info = f"Benchmark contact {os.urandom(8).hex()}"
             date_hired = date(2023, 1, 1) + timedelta(days=random.randint(0, 700))
-
-            batch.append((
-                name,
-                email,
-                role_id,
-                national_id,
-                contact_info,
-                date_hired,
-            ))
-
-            if len(batch) >= batch_size or i == num_employees - 1:
-                query = (
-                    "INSERT INTO employees "
-                    "(full_name, email, role_id, national_id_encrypted, contact_info_encrypted, date_hired) "
-                    "VALUES %s RETURNING employee_id"
-                )
-                returned_rows = psycopg2.extras.execute_values(
-                    cur,
-                    query,
-                    batch,
-                    fetch=True,
-                )
-                employee_ids.extend(r[0] for r in returned_rows)
+            encrypted_nid, encrypted_contact = prepare_employee_pii(cur, national_id, contact_info)
+            cur.execute(
+                "INSERT INTO employees "
+                "(full_name, email, role_id, national_id_encrypted, contact_info_encrypted, date_hired) "
+                "VALUES (%s, %s, %s, %s, %s, %s) RETURNING employee_id",
+                (name, email, role_id, encrypted_nid, encrypted_contact, date_hired),
+            )
+            employee_ids.append(cur.fetchone()[0])
+            if (i + 1) % batch_size == 0 or i == num_employees - 1:
                 conn.commit()
 
                 if len(employee_ids) % (batch_size * 5) == 0 or len(employee_ids) == num_employees:
@@ -231,7 +220,6 @@ def seed_employees(
                         num_employees,
                         (len(employee_ids) / num_employees) * 100,
                     )
-                batch = []
 
     logger.info("Successfully inserted %d employees.", len(employee_ids))
     return employee_ids
@@ -422,6 +410,7 @@ def main() -> int:
     )
 
     args = parser.parse_args()
+    load_dotenv()
 
     logging.basicConfig(
         level=getattr(logging, args.log_level),
@@ -432,6 +421,11 @@ def main() -> int:
     if args.seed is not None:
         random.seed(args.seed)
         logger.info("Random seed initialized to: %d", args.seed)
+
+    # Fail before database setup/clear so an invalid key cannot produce a
+    # partially reset database or allow plaintext fallback.
+    if not args.clear_only:
+        validate_employee_pii_config()
 
     conn = get_connection(args.db_url)
     try:

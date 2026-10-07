@@ -132,9 +132,10 @@ def generate_capsule(
     if target_row is None:
         raise SequenceNotFoundError(f"Sequence ID {seq_id} not found in audit_log.")
 
+    # Preserve database-native values while hashing. The Merkle tree canonicalizer
+    # converts datetime objects with ``str``; converting only the capsule copy to
+    # ISO-8601 changes the leaf bytes and makes an otherwise valid proof fail.
     target_dict = dict(target_row)
-    if hasattr(target_dict.get("created_at"), "isoformat"):
-        target_dict["created_at"] = target_dict["created_at"].isoformat()
 
     # 2. Find the enclosing checkpoint: lowest sequence_id >= seq_id
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -201,10 +202,7 @@ def generate_capsule(
 
     rows = []
     for r in interval_rows:
-        rd = dict(r)
-        if hasattr(rd.get("created_at"), "isoformat"):
-            rd["created_at"] = rd["created_at"].isoformat()
-        rows.append(rd)
+        rows.append(dict(r))
 
     # 5. Build Merkle tree and generate proof for seq_id
     tree = ArgusMerkleTree.build(rows)
@@ -219,6 +217,8 @@ def generate_capsule(
 
     # 7. Format signature hex
     raw_sig = cp_dict.get("signature")
+    if isinstance(raw_sig, memoryview):
+        raw_sig = raw_sig.tobytes()
     sig_hex = raw_sig.hex() if isinstance(raw_sig, (bytes, bytearray)) else (str(raw_sig) if raw_sig else "")
 
     checkpoint_payload = {
@@ -299,14 +299,13 @@ def main() -> int:
     parser.add_argument(
         "--db-url",
         type=str,
-        default=os.environ.get(
-            "DATABASE_URL",
-            "postgresql://argus_user:argus_secure_password_2026@localhost:5432/argus_db",
-        ),
+        default=os.environ.get("DATABASE_URL"),
         help="PostgreSQL connection string",
     )
 
     args = parser.parse_args()
+    if not args.db_url:
+        parser.error("provide --db-url or set DATABASE_URL")
     out_file = args.output or f"proof_seq{args.seq}.arguscap"
 
     try:

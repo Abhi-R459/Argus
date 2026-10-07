@@ -1,6 +1,7 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+@config "../tailwind.config.js";
+@source "../index.html";
+@source "./";
 
 :root {
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);

@@ -23,6 +23,8 @@ export interface IncidentState {
   isCompromised: boolean;
   tamperedSeqId: number | null;
   anchorMismatch: boolean;
+  verificationStatus: VerificationResult['status'] | 'checking';
+  verificationChecks: Record<string, 'pass' | 'fail' | 'unknown'>;
   unreviewedFlagsCount: number;
   lastVerifiedAt: string | null;
   details: string | null;
@@ -44,7 +46,8 @@ export interface ChainEntry {
   table_name: string;
   operation: AuditOperation;
   actor_email: string;
-  actor_role: 'hr_admin' | 'compliance_auditor' | 'system';
+  actor_user_id?: number | null;
+  actor_role: 'hr_admin' | 'compliance_auditor' | 'system' | 'unknown';
   timestamp: string;           // ISO timestamp
   severity: Severity;
   old_value: Record<string, unknown> | null;
@@ -53,7 +56,8 @@ export interface ChainEntry {
 
 export interface WitnessItem {
   witness_name: string;
-  status: 'VALID' | 'FAILED' | 'PENDING' | string;
+  status: 'VALID' | 'FAILED' | 'UNKNOWN' | string;
+  reason?: string | null;
   signature_hex?: string | null;
   timestamp?: string | null;
 }
@@ -71,10 +75,10 @@ export interface WitnessReport {
 }
 
 export interface AnchorInfo {
-  status: 'ANCHORED' | 'STALE' | 'MISSING' | 'MISMATCH';
+  status: 'ANCHORED' | 'STALE' | 'MISSING' | 'MISMATCH' | 'UNVERIFIED';
   anchor_store: AnchorStoreType;
   anchor_location: string;
-  last_anchored: string;       // ISO timestamp
+  last_anchored: string | null; // ISO timestamp only when recorded by the anchor
   anchor_hash: string;
   entries_since_anchor: number;
   witness_report?: WitnessReport | null;
@@ -177,6 +181,7 @@ export interface RoleItem {
 
 export interface AuditLogItem {
   sequence_id: number;
+  actor_user_id: number | null;
   actor_name: string;
   employee_id: number | null;
   action: 'INSERT' | 'UPDATE' | 'DELETE';
@@ -376,14 +381,21 @@ export async function downloadSignedEvidence(
     }
   }
 
+  saveBlobDownload(blob, filename);
+}
+
+function saveBlobDownload(blob: Blob, filename: string): void {
   const url = window.URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  window.URL.revokeObjectURL(url);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.style.display = 'none';
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  // Revoke after the browser has had time to consume the blob URL. Immediate
+  // revocation can cancel downloads in some browser implementations.
+  window.setTimeout(() => window.URL.revokeObjectURL(url), 1000);
 }
 
 // ─── BRIDGE-001 / BRIDGE-002: Live Chain & Anchor Synchronization ───────────
@@ -409,20 +421,18 @@ export function useIncidentStatus(): IncidentState {
 
   const verificationQuery = useQuery({
     queryKey: ['chain-verification'],
+    enabled: false,
     queryFn: () => runVerification(getToken),
-    refetchInterval: 3000,
   });
 
   const anchorQuery = useQuery({
     queryKey: ['anchor-status'],
     queryFn: () => fetchAnchorStatus(getToken),
-    refetchInterval: 4000,
   });
 
   const flagsQuery = useQuery({
     queryKey: SUSPICIOUS_FLAGS_QUERY_KEY,
     queryFn: () => fetchSuspiciousFlags(getToken),
-    refetchInterval: 3000,
   });
 
   const isVerificationTampered = verificationQuery.data?.status === 'tampered';
@@ -439,10 +449,14 @@ export function useIncidentStatus(): IncidentState {
     isCompromised,
     tamperedSeqId,
     anchorMismatch,
+    verificationStatus: verificationQuery.data?.status ?? (verificationQuery.isFetching ? 'checking' : 'unknown'),
+    verificationChecks: verificationQuery.data?.verification_checks ?? {},
     unreviewedFlagsCount,
-    lastVerifiedAt: verificationQuery.data ? new Date().toISOString() : null,
+    lastVerifiedAt: verificationQuery.dataUpdatedAt
+      ? new Date(verificationQuery.dataUpdatedAt).toISOString()
+      : null,
     details: verificationQuery.data?.details ?? null,
-    isLoading: verificationQuery.isLoading || anchorQuery.isLoading,
+    isLoading: verificationQuery.isFetching || anchorQuery.isLoading,
     isUnavailable,
     refetch: () => {
       verificationQuery.refetch();
@@ -493,14 +507,7 @@ export async function downloadEvidencePack(
     }
   }
 
-  const url = window.URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  window.URL.revokeObjectURL(url);
+  saveBlobDownload(blob, filename);
 }
 
 // ─── LIVE-001: Live Telemetry, Dashboard Stats & Real Engine Testing ──────────
@@ -537,15 +544,19 @@ export async function fetchDepartments(
 export async function fetchRoles(
   getToken: () => Promise<string | null>,
 ): Promise<RoleItem[]> {
-  const data = (await fetchWithAuth('/roles', {}, getToken)) as any[];
-  return (data || []).map((r: any) => {
-    const minVal = Number(r.salary_band_min ?? r.min_salary ?? 0);
-    const maxVal = Number(r.salary_band_max ?? r.max_salary ?? 0);
+  const data: unknown = await fetchWithAuth('/roles', {}, getToken);
+  if (!Array.isArray(data)) return [];
+
+  return data.filter((item): item is Record<string, unknown> =>
+    typeof item === 'object' && item !== null && !Array.isArray(item),
+  ).map((role) => {
+    const minVal = Number(role.salary_band_min ?? role.min_salary ?? 0);
+    const maxVal = Number(role.salary_band_max ?? role.max_salary ?? 0);
     return {
-      role_id: r.role_id,
-      department_id: r.department_id,
-      department_name: r.department_name || '',
-      title: r.title || '',
+      role_id: Number(role.role_id),
+      department_id: Number(role.department_id),
+      department_name: typeof role.department_name === 'string' ? role.department_name : '',
+      title: typeof role.title === 'string' ? role.title : '',
       salary_band_min: minVal,
       salary_band_max: maxVal,
       min_salary: minVal,
@@ -673,17 +684,44 @@ export async function getMerkleProof(
   return fetchWithAuth(`/audit-logs/${seqId}/proof`, {}, getToken);
 }
 
+export interface CreatedCheckpoint {
+  checkpoint_id: number;
+  sequence_id: number;
+  checkpoint_hash: string;
+  merkle_root: string;
+  merkle_leaf_count: number;
+  entries_sealed: number;
+  signature_status: 'signed';
+  key_id: string;
+  created_at: string;
+  external_anchor_created: false;
+}
+
+export async function createCheckpointNow(
+  getToken: () => Promise<string | null>,
+): Promise<CreatedCheckpoint> {
+  return fetchWithAuth('/checkpoints/create', { method: 'POST' }, getToken);
+}
+
 export async function downloadCapsule(
   seqId: number,
-  getToken: () => Promise<string | null>,
-): Promise<void> {
-  const token = await getToken();
+  getToken: (options?: { skipCache?: boolean }) => Promise<string | null>,
+): Promise<string> {
+  let token = await getToken();
   const headers = new Headers();
   if (token) {
     headers.set('Authorization', `Bearer ${token}`);
   }
 
-  const response = await fetch(`${API_BASE_URL}/audit-logs/${seqId}/capsule`, { headers });
+  let response = await fetch(`${API_BASE_URL}/audit-logs/${seqId}/capsule`, { headers });
+  if (response.status === 401) {
+    const freshToken = await getToken({ skipCache: true });
+    if (freshToken && freshToken !== token) {
+      token = freshToken;
+      headers.set('Authorization', `Bearer ${token}`);
+      response = await fetch(`${API_BASE_URL}/audit-logs/${seqId}/capsule`, { headers });
+    }
+  }
   
   if (!response.ok) {
     let errorDetail = 'Failed to export forensic capsule';
@@ -707,14 +745,8 @@ export async function downloadCapsule(
     }
   }
 
-  const url = window.URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  window.URL.revokeObjectURL(url);
-  document.body.removeChild(a);
+  saveBlobDownload(blob, filename);
+  return filename;
 }
 
 

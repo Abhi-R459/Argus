@@ -2,7 +2,7 @@
 
 > **Document Version:** 2.0  
 > **Date:** September 2026  
-> **Status:** ✅ Implemented & Verified in Phase 13 (NOVEL-010)  
+> **Status:** Protocol and verifier prototype implemented; independent deployment is not verified. The current local demo has no persisted witness note and reports witness status as **Unverified**. This specification describes the target protocol, not the currently configured demo trust boundary.
 > **Task Mapping:** `NOVEL-010-A` through `NOVEL-010-E` (Phase 13, Milestone 13.3)  
 > **Applicable Branch:** `feature/abhinav-core`  
 > **Implementation Reference:** `db/cli/witness_protocol.py`, `db/cli/anchor_store.py` (`MultiWitnessAnchorStore`), `db/cli/verifier.py`, `api/routers/audits.py`, `frontend/src/components/auditor/AnchorStatus.tsx`  

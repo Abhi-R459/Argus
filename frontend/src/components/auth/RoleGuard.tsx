@@ -2,6 +2,7 @@ import { Navigate, Outlet } from 'react-router-dom';
 import { useAuth } from '@clerk/clerk-react';
 import { useQuery } from '@tanstack/react-query';
 import { fetchMyProfile, UserProfile } from '../../services/auditService';
+import ProfileLoadError from './ProfileLoadError';
 
 interface RoleGuardProps {
   allowedRole: 'hr_admin' | 'compliance_auditor';
@@ -9,11 +10,11 @@ interface RoleGuardProps {
 }
 
 export default function RoleGuard({ allowedRole, children }: RoleGuardProps) {
-  const devE2ERole = (import.meta.env.DEV && typeof window !== 'undefined' && (window as any).__E2E_ROLE__) as 'hr_admin' | 'compliance_auditor' | undefined;
+  const devE2ERole = import.meta.env.DEV && typeof window !== 'undefined' ? window.__E2E_ROLE__ : undefined;
 
   const { getToken, isLoaded } = useAuth();
 
-  const { data: profile, isLoading, isError } = useQuery<UserProfile>({
+  const { data: profile, isLoading, isError, refetch } = useQuery<UserProfile>({
     queryKey: ['myProfile'],
     queryFn: () => fetchMyProfile(() => getToken()),
     enabled: isLoaded && !devE2ERole,
@@ -38,8 +39,7 @@ export default function RoleGuard({ allowedRole, children }: RoleGuardProps) {
   }
 
   if (isError || !profile) {
-    // If profile cannot be loaded, fallback to root
-    return <Navigate to="/" replace />;
+    return <ProfileLoadError onRetry={() => void refetch()} />;
   }
 
   // If user role does not match the allowed role, redirect to their authorized portal

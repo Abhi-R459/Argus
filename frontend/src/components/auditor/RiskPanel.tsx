@@ -21,7 +21,6 @@ export default function RiskPanel() {
   const { data: flags = [], isLoading, isError, refetch } = useQuery<SuspiciousFlagItem[]>({
     queryKey: SUSPICIOUS_FLAGS_QUERY_KEY,
     queryFn: () => fetchSuspiciousFlags(() => getToken()),
-    refetchInterval: 5000,
   });
 
   const reviewMutation = useMutation({

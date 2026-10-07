@@ -32,7 +32,7 @@ export default function AuditorOverview() {
         getToken,
         tamperedSeqId ? { around_seq: tamperedSeqId, limit: 12 } : { limit: 10 }
       ),
-    refetchInterval: 2500,
+    refetchInterval: 15_000,
   });
 
   const {
@@ -43,7 +43,6 @@ export default function AuditorOverview() {
   } = useQuery({
     queryKey: ['anchor-status'],
     queryFn: () => fetchAnchorStatus(getToken),
-    refetchInterval: 4000,
   });
 
   const {
@@ -53,7 +52,6 @@ export default function AuditorOverview() {
   } = useQuery<SuspiciousFlagItem[]>({
     queryKey: SUSPICIOUS_FLAGS_QUERY_KEY,
     queryFn: () => fetchSuspiciousFlags(getToken),
-    refetchInterval: 5000,
   });
   const pendingRiskCount = suspiciousFlags?.filter((flag) => !flag.reviewed_at).length ?? 0;
 
@@ -61,7 +59,7 @@ export default function AuditorOverview() {
     <div className="space-y-6">
       <PageHeader
         title="Integrity Overview"
-        description="Verification, external anchoring, and recent audit-chain activity."
+        description="Verification, checkpoint anchoring, and recent audit-chain activity."
       />
       {/* Integrity checks get the working width; evidence export sits in its own compact action row. */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-start">

@@ -142,13 +142,86 @@ def test_verify_capsule_roundtrip(sample_rows, sample_checkpoint):
         public_key_pem=sample_checkpoint["pub_pem"],
     )
 
-    is_valid, msg, details = verify_capsule(bundle_bytes)
+    is_valid, msg, details = verify_capsule(
+        bundle_bytes, trusted_public_key_pem=sample_checkpoint["pub_pem"]
+    )
     assert is_valid is True
     assert details["signature_valid"] is True
     assert details["leaf_hash_valid"] is True
     assert details["path_valid"] is True
     assert details["root_match"] is True
     assert "SUCCESS" in msg
+
+
+def test_capsule_roundtrip_preserves_postgres_datetime_and_memoryview_signature(sample_rows):
+    """PostgreSQL datetime/memoryview values must retain verifiable wire bytes."""
+    from db.cli.keygen import generate_keypair
+    from db.cli.signer import sign_checkpoint
+
+    rows = [dict(row, created_at=datetime(2026, 10, 7, 5, 0, tzinfo=timezone.utc)) for row in sample_rows]
+    tree = ArgusMerkleTree.build(rows)
+    private_pem, public_pem = generate_keypair()
+    checkpoint_hash = "postgres-checkpoint-hash"
+    signature = sign_checkpoint(private_pem, f"{checkpoint_hash}:{tree.root}".encode())
+    checkpoint = {
+        "checkpoint_id": 9,
+        "sequence_id": 5,
+        "checkpoint_hash": checkpoint_hash,
+        "signature": memoryview(signature),
+        "key_id": "local:ed25519:test",
+        "merkle_root": tree.root,
+        "merkle_leaf_count": len(rows),
+        "created_at": datetime(2026, 10, 7, 5, 1, tzinfo=timezone.utc),
+    }
+
+    mock_conn = MagicMock()
+    mock_cur = MagicMock()
+    mock_conn.cursor.return_value.__enter__.return_value = mock_cur
+    mock_cur.fetchone.side_effect = [rows[2], checkpoint, None]
+    mock_cur.fetchall.return_value = rows
+
+    bundle = generate_capsule(
+        mock_conn,
+        seq_id=3,
+        public_key_pem=public_pem.decode("utf-8"),
+    )
+    valid, message, details = verify_capsule(bundle, trusted_public_key_pem=public_pem)
+
+    assert valid, message
+    assert details["signature_valid"] is True
+    assert details["leaf_hash_valid"] is True
+    assert details["path_valid"] is True
+    assert details["root_match"] is True
+
+
+def test_verify_capsule_requires_external_trust_anchor(sample_rows, sample_checkpoint):
+    """An archive must not establish trust in its own bundled public key."""
+    mock_conn = MagicMock()
+    mock_cur = MagicMock()
+    mock_conn.cursor.return_value.__enter__.return_value = mock_cur
+    mock_cur.fetchone.side_effect = [
+        next(r for r in sample_rows if r["sequence_id"] == 3),
+        sample_checkpoint,
+        None,
+    ]
+    mock_cur.fetchall.return_value = sample_rows
+
+    bundle = generate_capsule(
+        mock_conn, seq_id=3, public_key_pem=sample_checkpoint["pub_pem"]
+    )
+
+    valid, message, details = verify_capsule(bundle)
+    assert valid is False
+    assert details["signature_valid"] is False
+    assert "trusted public key" in message.lower()
+
+    from db.cli.keygen import generate_keypair
+    _, unrelated_public_key = generate_keypair()
+    valid, _, details = verify_capsule(
+        bundle, trusted_public_key_pem=unrelated_public_key.decode("utf-8")
+    )
+    assert valid is False
+    assert details["signature_valid"] is False
 
 
 def test_verify_capsule_tampered_evidence_row(sample_rows, sample_checkpoint):
@@ -181,7 +254,9 @@ def test_verify_capsule_tampered_evidence_row(sample_rows, sample_checkpoint):
                 zout.writestr(item, data)
 
     tampered_bytes = out_buf.getvalue()
-    is_valid, msg, details = verify_capsule(tampered_bytes)
+    is_valid, msg, details = verify_capsule(
+        tampered_bytes, trusted_public_key_pem=sample_checkpoint["pub_pem"]
+    )
 
     assert is_valid is False
     assert details["leaf_hash_valid"] is False
@@ -219,7 +294,9 @@ def test_verify_capsule_tampered_merkle_sibling(sample_rows, sample_checkpoint):
                 zout.writestr(item, data)
 
     tampered_bytes = out_buf.getvalue()
-    is_valid, msg, details = verify_capsule(tampered_bytes)
+    is_valid, msg, details = verify_capsule(
+        tampered_bytes, trusted_public_key_pem=sample_checkpoint["pub_pem"]
+    )
 
     assert is_valid is False
     assert details["path_valid"] is False
@@ -254,7 +331,9 @@ def test_verify_capsule_tampered_checkpoint_signature(sample_rows, sample_checkp
                 zout.writestr(item, data)
 
     tampered_bytes = out_buf.getvalue()
-    is_valid, msg, details = verify_capsule(tampered_bytes)
+    is_valid, msg, details = verify_capsule(
+        tampered_bytes, trusted_public_key_pem=sample_checkpoint["pub_pem"]
+    )
 
     assert is_valid is False
     assert details["signature_valid"] is False
@@ -326,10 +405,19 @@ def test_verify_capsule_cli_exit_codes(sample_rows, sample_checkpoint, tmp_path)
         output_path=valid_file,
         public_key_pem=sample_checkpoint["pub_pem"],
     )
+    trusted_key_file = tmp_path / "trusted_public_key.pem"
+    trusted_key_file.write_text(sample_checkpoint["pub_pem"], encoding="utf-8")
 
     # 1. Run CLI on valid capsule -> exit code 0
     res_valid = subprocess.run(
-        [sys.executable, "-m", "db.cli.verify_capsule", str(valid_file)],
+        [
+            sys.executable,
+            "-m",
+            "db.cli.verify_capsule",
+            str(valid_file),
+            "--trusted-public-key",
+            str(trusted_key_file),
+        ],
         capture_output=True,
         text=True,
     )
@@ -349,10 +437,16 @@ def test_verify_capsule_cli_exit_codes(sample_rows, sample_checkpoint, tmp_path)
                 zout.writestr(item, data)
 
     res_tampered = subprocess.run(
-        [sys.executable, "-m", "db.cli.verify_capsule", str(tampered_file)],
+        [
+            sys.executable,
+            "-m",
+            "db.cli.verify_capsule",
+            str(tampered_file),
+            "--trusted-public-key",
+            str(trusted_key_file),
+        ],
         capture_output=True,
         text=True,
     )
     assert res_tampered.returncode == 1
     assert "[FAIL]" in res_tampered.stdout
-

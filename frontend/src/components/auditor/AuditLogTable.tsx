@@ -111,7 +111,11 @@ const AuditRow = React.forwardRef<
             <div className="w-4 h-4 rounded-full bg-linear-surface-3 border border-linear-hairline flex items-center justify-center text-[8px] font-bold text-linear-primary uppercase">
               {entry.actor_name.charAt(0)}
             </div>
-            <span className="truncate">{entry.actor_name}</span>
+            <span className="truncate" title={entry.actor_user_id === null ? 'No immutable actor user ID recorded' : `Current profile for immutable user ID ${entry.actor_user_id}`}>
+              {entry.actor_user_id === null
+                ? `${entry.actor_name} · no user ID`
+                : `${entry.actor_name} · user #${entry.actor_user_id}`}
+            </span>
           </div>
         </DataTable.Cell>
 
@@ -253,7 +257,6 @@ export default function AuditLogTable() {
       before_sequence_id: cursorByPage[filters.page ?? 1],
     }, getToken),
     placeholderData: (prev) => prev,
-    refetchInterval: 3000,
   });
 
   const items = data?.items ?? [];
@@ -424,7 +427,13 @@ export default function AuditLogTable() {
             <Filter className="w-3 h-3 text-linear-ink-muted" />
             <select
               value={filters.action ?? ''}
-              onChange={(e) => handleFilterChange({ action: (e.target.value || undefined) as any, page: 1 })}
+              onChange={(e) => {
+                const value = e.target.value;
+                const action = ['INSERT', 'UPDATE', 'DELETE'].includes(value)
+                  ? value as NonNullable<AuditLogFilters['action']>
+                  : undefined;
+                handleFilterChange({ action, page: 1 });
+              }}
               className="bg-linear-canvas border border-linear-hairline rounded-lg px-2.5 py-1.5 text-xs text-linear-ink focus:outline-none focus:border-linear-primary font-mono"
             >
               <option value="">All Actions</option>
@@ -437,7 +446,13 @@ export default function AuditLogTable() {
           {/* Severity filter */}
           <select
             value={filters.severity ?? ''}
-            onChange={(e) => handleFilterChange({ severity: (e.target.value || undefined) as any, page: 1 })}
+            onChange={(e) => {
+              const value = e.target.value;
+              const severity = ['INFO', 'WARNING', 'CRITICAL'].includes(value)
+                ? value as NonNullable<AuditLogFilters['severity']>
+                : undefined;
+              handleFilterChange({ severity, page: 1 });
+            }}
             className="bg-linear-canvas border border-linear-hairline rounded-lg px-2.5 py-1.5 text-xs text-linear-ink focus:outline-none focus:border-linear-primary font-mono"
           >
             <option value="">All Severities</option>

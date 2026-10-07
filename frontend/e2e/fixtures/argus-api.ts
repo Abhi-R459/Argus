@@ -51,8 +51,41 @@ export async function mockArgusApi(page: Page): Promise<void> {
     const method = route.request().method();
     let response: unknown;
 
+    const salaryMatch = endpoint.match(/^\/employees\/(\d+)\/salary$/);
+    if (salaryMatch && method === 'POST') {
+      const employee = employees.find((item) => item.employee_id === Number(salaryMatch[1]));
+      const body = route.request().postDataJSON() as { amount?: number };
+      if (employee && typeof body.amount === 'number') employee.salary = body.amount;
+      await route.fulfill({
+        status: employee ? 200 : 404,
+        contentType: 'application/json',
+        body: JSON.stringify(employee ? { employee_id: employee.employee_id, salary: employee.salary } : { detail: 'Employee not found' }),
+      });
+      return;
+    }
+
     if (endpoint === '/suspicious-activity/refresh' && method === 'POST') {
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'refreshed' }) });
+      return;
+    }
+
+    if (endpoint === '/checkpoints/create' && method === 'POST') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          checkpoint_id: 7,
+          sequence_id: 142,
+          checkpoint_hash: 'a'.repeat(64),
+          merkle_root: 'b'.repeat(64),
+          merkle_leaf_count: 12,
+          entries_sealed: 12,
+          signature_status: 'signed',
+          key_id: 'local:ed25519:v1',
+          created_at: new Date().toISOString(),
+          external_anchor_created: false,
+        }),
+      });
       return;
     }
 
@@ -158,7 +191,12 @@ export async function mockArgusApi(page: Page): Promise<void> {
         };
         break;
       default:
-        response = [];
+        await route.fulfill({
+          status: 501,
+          contentType: 'application/json',
+          body: JSON.stringify({ detail: `Unhandled E2E API route: ${method} ${endpoint}` }),
+        });
+        return;
     }
 
     await route.fulfill({

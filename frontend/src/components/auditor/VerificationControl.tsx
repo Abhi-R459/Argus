@@ -23,13 +23,14 @@ export default function VerificationControl({ onResult }: VerificationControlPro
     error,
     refetch,
     isFetching,
+    dataUpdatedAt,
   } = useQuery({
     queryKey: ['chain-verification'],
+    enabled: false,
     queryFn: async () => {
       const res = await runVerification(getToken);
       return res;
     },
-    refetchInterval: 30000,
   });
 
   useEffect(() => {
@@ -51,7 +52,7 @@ export default function VerificationControl({ onResult }: VerificationControlPro
   };
   const checkRows = [
     { key: 'hash_chain', label: 'Audit hash chain' },
-    { key: 'external_anchor', label: 'External anchor comparison' },
+    { key: 'external_anchor', label: 'Configured anchor record comparison' },
     { key: 'checkpoint_signatures', label: 'Checkpoint signatures' },
   ];
   const verifiedCheckCount = checkRows.filter((check) => checkStatus(check.key) === 'pass').length;
@@ -61,7 +62,7 @@ export default function VerificationControl({ onResult }: VerificationControlPro
       {/* Screen Reader Live Region (F-122) */}
       <div aria-live="polite" className="sr-only">
         {isFetching && 'Scanning hash chain and walking entries from last checkpoint.'}
-        {isIntact && 'Verification complete. Chain is intact with zero anomalies.'}
+        {isIntact && `Last check passed through sequence ${lastResult?.last_verified_sequence_id}.`}
         {isTampered && `Warning: Tampering detected at sequence ID ${lastResult?.tampered_sequence_id}.`}
       </div>
 
@@ -88,7 +89,7 @@ export default function VerificationControl({ onResult }: VerificationControlPro
               }`}
             >
               <span className={`w-1.5 h-1.5 rounded-full ${isIntact ? 'bg-linear-success' : isUnverified ? 'bg-linear-ink-muted' : 'bg-status-warning'}`} />
-              <span>{isIntact ? 'Verified' : isTampered ? 'Tampered' : lastResult?.status === 'error' ? 'Unavailable' : 'Unverified'}</span>
+              <span>{isIntact ? 'Last check passed' : isTampered ? 'Tampered' : lastResult?.status === 'error' ? 'Unavailable' : 'Unverified'}</span>
             </span>
           )}
           {lastResult && (
@@ -114,7 +115,7 @@ export default function VerificationControl({ onResult }: VerificationControlPro
             <div className="text-center">
               <p className="text-sm text-linear-ink font-medium">Run Chain Verification</p>
               <p className="text-xs text-linear-ink-subtle mt-1 max-w-xs">
-                Walks the full audit hash chain and compares against the anchor store.
+                Walks the full audit hash chain and checks the latest local anchor record.
               </p>
             </div>
             <Button
@@ -193,9 +194,13 @@ export default function VerificationControl({ onResult }: VerificationControlPro
                 )}
                 <div>
                   <p className={`font-bold text-sm ${isIntact ? 'text-linear-success' : isUnverified ? 'text-linear-ink' : 'text-status-warning'}`}>
-                    {isIntact ? 'Verification Complete' : isTampered ? 'Tampering Detected' : lastResult?.status === 'error' ? 'Verification Unavailable' : 'Verification Incomplete'}
+                    {isIntact ? 'Last check passed' : isTampered ? 'Tampering Detected' : lastResult?.status === 'error' ? 'Verification Unavailable' : 'Verification Incomplete'}
                   </p>
                   <p className="text-xs text-linear-ink-subtle mt-0.5 leading-relaxed">{lastResult.details}</p>
+                  <p className="text-[11px] text-linear-ink-muted mt-1">
+                    Checked through sequence #{lastResult.last_verified_sequence_id}
+                    {dataUpdatedAt ? ` · ${new Date(dataUpdatedAt).toLocaleString()}` : ''}. Run again to check newer events.
+                  </p>
                 </div>
               </div>
 
@@ -208,7 +213,7 @@ export default function VerificationControl({ onResult }: VerificationControlPro
                   </p>
                 </div>
                 <div className="bg-linear-surface-2/80 border border-linear-hairline rounded-lg px-2.5 py-1.5">
-                  <p className="text-xs text-linear-ink-subtle font-medium">Anchor match</p>
+                  <p className="text-xs text-linear-ink-subtle font-medium">Configured anchor record</p>
                   <p className={`text-sm font-bold mt-0.5 ${checkStatus('external_anchor') === 'pass' ? 'text-linear-success' : checkStatus('external_anchor') === 'unknown' ? 'text-linear-ink-muted' : 'text-status-warning'}`}>
                     {checkStatus('external_anchor') === 'pass' ? 'Verified' : checkStatus('external_anchor') === 'fail' ? 'Mismatch' : 'Unverified'}
                   </p>
@@ -250,7 +255,7 @@ export default function VerificationControl({ onResult }: VerificationControlPro
               </div>
 
               <p className="text-[11px] text-linear-ink-subtle leading-relaxed">
-                This result covers the hash-chain walk, available local anchors, and signed checkpoints. Merkle proofs are verified separately when generated.
+                This result covers the hash-chain walk, the configured anchor record, and signed checkpoints. A local file anchor is not an independent external trust domain. Merkle proofs are verified separately when generated.
               </p>
 
               <div className="space-y-1.5 bg-linear-surface-2 p-2.5 rounded-xl border border-linear-hairline">
@@ -277,11 +282,11 @@ export default function VerificationControl({ onResult }: VerificationControlPro
         )}
       </div>
 
-      {/* Footer: Verification schedule / cadence */}
+      {/* Footer: Verification runs on demand */}
       <div className="border-t border-linear-hairline px-5 py-3 shrink-0">
         <div className="flex items-center justify-between">
-          <p className="text-xs text-linear-ink-subtle">Continuous audit schedule</p>
-          <span className="text-xs font-mono text-linear-ink">Polling every 30s</span>
+          <p className="text-xs text-linear-ink-subtle">Integrity verification</p>
+          <span className="text-xs font-mono text-linear-ink">Runs on demand</span>
         </div>
       </div>
     </div>

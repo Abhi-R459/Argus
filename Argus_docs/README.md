@@ -1,5 +1,12 @@
 # Argus
 
+> **Historical team handoff guide.** Some routes, hosting references, and setup
+> details below predate the current implementation. For the current local
+> walkthrough and safe demo seeding, use the root [README](../README.md),
+> [Local Professor Demo Setup](../docs/LOCAL_DEMO_SETUP.md), and
+> [Conference Positioning and Professor Walkthrough](../docs/CONFERENCE_AND_DEMO_GUIDE.md).
+> For current API behavior, use [API Reference](API_REFERENCE.md).
+
 **A tamper-evident, self-verifying audit trail engine for PostgreSQL.**
 
 BCSE302L Database Systems — course project by Abhinav & Nidhurshek
@@ -24,7 +31,7 @@ BCSE302L Database Systems — course project by Abhinav & Nidhurshek
 
 Most systems that claim to keep an "audit log" are really just storing that log in an ordinary database table — one that anyone with sufficient privilege, including the database administrator being watched, can quietly edit or delete. PostgreSQL itself has no built-in way to prevent this; even Amazon discontinued its own managed solution to this exact problem (QLDB) in 2025.
 
-**Argus closes that gap natively in Postgres.** Every change to a small Employee Records system (the demo domain) is captured by an `AFTER` trigger into a hash-chained, append-only `audit_log`: each entry's hash incorporates the hash of the entry before it, so altering any past row invalidates every hash that follows. A standalone verification tool — deliberately a separate process from the web application, with its own credentials and its own signing key — walks this chain and proves, mathematically, whether it has been tampered with. Periodic checkpoints are cryptographically signed and anchored outside the application's reach, which additionally catches a subtler attack: an adversary who edits history *and* recomputes every hash afterward to hide it.
+**Argus is a PostgreSQL tamper-evidence prototype.** Monitored row changes are captured by `AFTER` triggers in a hash-linked audit log, and the standalone verifier checks the chain and available checkpoint evidence. External anchoring depends on the configured provider; a local file is not an independent trust domain. The HR-only on-demand checkpoint action uses a local key in development/demo and is disabled in production until managed signing is integrated. The standalone verifier remains a separate process, but the demo signing route does not provide an independent signer boundary.
 
 Two application roles sit on top of this: an **HR Admin** who manages employee records (the "watched" role), and a **Compliance Auditor** who can only read the audit trail and run verification (the "watching" role). Clerk supplies secure authentication; Argus keeps the course-required local `users` table with a `role` column and maps the verified Clerk user to real PostgreSQL roles with `GRANT`/`REVOKE` privilege separation.
 
@@ -43,7 +50,7 @@ Full requirements, threat model, and research framing live in [`PRD_Argus.md`](.
 | Migrations | Alembic |
 | Auth | Clerk Hobby: prebuilt login/logout, OAuth, managed sessions; local `users.role` authorizes Argus access |
 | Containerization | Docker Compose |
-| Deployment | Neon Free PostgreSQL, Render Free FastAPI, Render Static Site or Vercel Hobby React frontend |
+| Deployment | Earlier free-tier target plan only; the verified walkthrough runs locally with Docker Compose and Clerk Development. See the root `docs/LOCAL_DEMO_SETUP.md`. |
 | External anchor | Pluggable: Local File, GitHub repository, RFC 3161 TSA (.tsr), and AWS S3 Object Lock (COMPLIANCE WORM) |
 
 **ORM boundary, briefly:** standard CRUD, local user/RBAC lookups, and dashboard reads go through SQLAlchemy. Raw SQL/PL-pgSQL is used only where the course rubric explicitly allows it — triggers, locking, the time-travel function, the suspicious-activity procedure, and the verifier's chain walk.

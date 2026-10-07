@@ -31,6 +31,8 @@ export default function AuditChainPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const incident = useIncidentStatus();
+  const hashChainStatus = incident.verificationChecks.hash_chain ?? 'unknown';
+  const anchorStatus = incident.verificationChecks.external_anchor ?? 'unknown';
 
   // Search input ref for keyboard '/' shortcut
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -486,48 +488,48 @@ export default function AuditChainPage() {
         <div className="bg-linear-surface-1 border border-linear-hairline rounded-lg p-3">
           <div className="flex items-center justify-between">
             <span className="text-[11px] text-linear-ink-muted font-medium">Chain Integrity</span>
-            <Shield className="w-3.5 h-3.5 text-linear-success" />
+            <Shield className={`w-3.5 h-3.5 ${hashChainStatus === 'pass' ? 'text-linear-success' : hashChainStatus === 'fail' ? 'text-status-warning' : 'text-linear-ink-muted'}`} />
           </div>
           <div className="mt-1 flex items-center space-x-2">
             <span
               className={`w-2 h-2 rounded-full ${
-                incident.isCompromised ? 'bg-status-warning' : 'bg-linear-success'
+                hashChainStatus === 'pass' ? 'bg-linear-success' : hashChainStatus === 'fail' ? 'bg-status-warning' : 'bg-linear-ink-muted'
               }`}
             />
             <span
               className={`text-xs font-bold font-mono ${
-                incident.isCompromised ? 'text-status-warning' : 'text-linear-success'
+                hashChainStatus === 'pass' ? 'text-linear-success' : hashChainStatus === 'fail' ? 'text-status-warning' : 'text-linear-ink-muted'
               }`}
             >
-              {incident.isCompromised ? 'TAMPERED' : 'SEALED & INTACT'}
+              {hashChainStatus === 'pass' ? 'HASH CHAIN VERIFIED' : hashChainStatus === 'fail' ? 'HASH CHAIN FAILED' : 'HASH CHAIN UNVERIFIED'}
             </span>
           </div>
           <span className="text-[10px] text-linear-ink-muted font-mono block">
-            {incident.isCompromised ? `Breach: #${incident.tamperedSeqId}` : '0 hash anomalies'}
+            {hashChainStatus === 'fail' ? `Breach: #${incident.tamperedSeqId ?? 'unknown'}` : incident.verificationStatus === 'intact' ? 'All verification checks passed' : 'Overall integrity is not fully verified'}
           </span>
         </div>
 
         <div className="bg-linear-surface-1 border border-linear-hairline rounded-lg p-3">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] text-linear-ink-muted font-medium">External Anchor</span>
-            <ShieldCheck className="w-3.5 h-3.5 text-sky-400" />
+            <span className="text-[11px] text-linear-ink-muted font-medium">Configured Anchor Record</span>
+            <ShieldCheck className={`w-3.5 h-3.5 ${anchorStatus === 'pass' ? 'text-linear-success' : anchorStatus === 'fail' ? 'text-status-warning' : 'text-linear-ink-muted'}`} />
           </div>
           <div className="mt-1 flex items-center space-x-2">
             <span
               className={`w-2 h-2 rounded-full ${
-                incident.anchorMismatch ? 'bg-status-warning' : 'bg-sky-400'
+                anchorStatus === 'pass' ? 'bg-linear-success' : anchorStatus === 'fail' ? 'bg-status-warning' : 'bg-linear-ink-muted'
               }`}
             />
             <span
               className={`text-xs font-bold font-mono ${
-                incident.anchorMismatch ? 'text-status-warning' : 'text-sky-400'
+                anchorStatus === 'pass' ? 'text-linear-success' : anchorStatus === 'fail' ? 'text-status-warning' : 'text-linear-ink-muted'
               }`}
             >
-              {incident.anchorMismatch ? 'MISMATCH' : 'SYNCHRONIZED'}
+              {anchorStatus === 'pass' ? 'RECORD MATCHED' : anchorStatus === 'fail' ? 'MISMATCH' : 'UNVERIFIED'}
             </span>
           </div>
           <span className="text-[10px] text-linear-ink-muted font-mono block">
-            Ed25519 Signed Commit
+            {anchorStatus === 'pass' ? 'Compared with the configured anchor source record' : 'No successful anchor comparison is available'}
           </span>
         </div>
 
@@ -761,7 +763,7 @@ export default function AuditChainPage() {
                 <DataTable.HeadCell className="w-16">Seq #</DataTable.HeadCell>
                 <DataTable.HeadCell className="w-20">Action</DataTable.HeadCell>
                 <DataTable.HeadCell className="w-28">Table</DataTable.HeadCell>
-                <DataTable.HeadCell>Actor</DataTable.HeadCell>
+                <DataTable.HeadCell>Current account</DataTable.HeadCell>
                 <DataTable.HeadCell>Computed Hash</DataTable.HeadCell>
                 <DataTable.HeadCell>Previous Hash</DataTable.HeadCell>
                 <DataTable.HeadCell align="right">Recorded</DataTable.HeadCell>
@@ -835,7 +837,7 @@ export default function AuditChainPage() {
                       </DataTable.Cell>
 
                       {/* Actor */}
-                      <DataTable.Cell className="text-linear-ink-muted max-w-[140px] truncate">
+                      <DataTable.Cell className="text-linear-ink-muted max-w-[140px] truncate" title={'Current profile; immutable user ID ' + (entry.actor_user_id ?? 'unavailable')}>
                         {entry.actor_email}
                       </DataTable.Cell>
 
@@ -965,10 +967,11 @@ export default function AuditChainPage() {
 
                 <div className="flex items-center gap-2">
                   {(() => {
-                    const empId =
-                      (selectedBlock.new_value as any)?.employee_id ||
-                      (selectedBlock.old_value as any)?.employee_id ||
-                      (selectedBlock.new_value as any)?.id;
+                    const empId = [
+                      selectedBlock.new_value?.employee_id,
+                      selectedBlock.old_value?.employee_id,
+                      selectedBlock.new_value?.id,
+                    ].find((value) => typeof value === 'string' || typeof value === 'number');
 
                     return (
                       <Button
@@ -1068,9 +1071,9 @@ export default function AuditChainPage() {
               {/* Event Metadata */}
               <div className="grid grid-cols-2 gap-2 text-xs bg-linear-canvas p-3 rounded-lg border border-linear-hairline">
                 <div>
-                  <span className="text-[10px] text-linear-ink-muted uppercase tracking-wider block">Actor</span>
+                  <span className="text-[10px] text-linear-ink-muted uppercase tracking-wider block">Current account</span>
                   <span className="text-linear-ink font-medium truncate block">{selectedBlock.actor_email}</span>
-                  <span className="text-[10px] text-linear-ink-subtle font-mono">({selectedBlock.actor_role})</span>
+                  <span className="text-[10px] text-linear-ink-subtle font-mono">User #{selectedBlock.actor_user_id ?? 'unknown'} · {selectedBlock.actor_role}</span>
                 </div>
                 <div>
                   <span className="text-[10px] text-linear-ink-muted uppercase tracking-wider block">Recorded At</span>

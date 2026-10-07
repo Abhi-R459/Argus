@@ -1,5 +1,9 @@
 # Argus: A Native Tamper-Evident Audit Trail and Cryptographic Verification Engine for PostgreSQL
 
+> **Pre-submission draft — not ready to submit or present as a validated paper.** Performance numbers, standards/compliance language, and novelty claims elsewhere in this file have not been reconciled with the current implementation and reproducible measurements. Use [Conference Positioning and Professor Walkthrough](CONFERENCE_AND_DEMO_GUIDE.md) for the current, narrower contribution and honest demo script.
+
+> **Current witness/checkpoint caveat (2026-10-07):** Multi-witness sections in this draft describe the prototype/target protocol. The local demo has no persisted witness note and shows witness quorum as **Unverified**. HR on-demand signing loads a local development key into FastAPI and is disabled in production pending a managed signer. Do not present the multi-witness quorum or independent signer boundary as deployed results.
+
 **Track:** Database Core, Security & Cryptographic Verification Engine  
 **Course:** BCSE302L — Database Management Systems  
 **Authors:** Abhinav (Database Core, Security & Verification Engine) & Nidhurshek (Application, API & Client Dashboard)  

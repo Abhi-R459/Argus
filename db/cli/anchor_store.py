@@ -33,6 +33,7 @@ from datetime import datetime, timezone, timedelta
 import hashlib
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 import urllib.error
@@ -641,6 +642,8 @@ class MultiWitnessAnchorStore(AnchorStore):
         origin_signer: Any = None,
         witness_signers: Optional[Dict[str, Any]] = None,
         witness_names: Optional[list[str]] = None,
+        witness_public_keys: Optional[Dict[str, str]] = None,
+        origin_public_key_pem: Optional[str] = None,
     ):
         self.witnesses: list[AnchorStore] = list(witnesses) if witnesses else []
         self.threshold = threshold
@@ -649,37 +652,79 @@ class MultiWitnessAnchorStore(AnchorStore):
         self.origin_signer = origin_signer
         self._history: Dict[int, Any] = {}
 
-        # Resolve or generate witness keypairs for simulated cosigning
+        # Signing keys are supplied explicitly by configured witness adapters.
+        # Generating identities here would let a single process impersonate a
+        # witness quorum and would make persisted notes unverifiable on restart.
         self.witness_signers: Dict[str, Any] = dict(witness_signers) if witness_signers else {}
-        self.witness_public_keys: Dict[str, str] = {}
-        names = witness_names or self.DEFAULT_WITNESS_NAMES
-
-        from db.cli.keygen import generate_keypair
-        for name in names:
-            if name not in self.witness_signers:
-                priv_pem, pub_pem = generate_keypair()
-                self.witness_signers[name] = priv_pem
-                self.witness_public_keys[name] = pub_pem.decode("utf-8")
-            else:
-                signer_val = self.witness_signers[name]
-                if hasattr(signer_val, "public_key_pem"):
-                    self.witness_public_keys[name] = signer_val.public_key_pem
-                elif isinstance(signer_val, bytes) and b"BEGIN PUBLIC KEY" in signer_val:
-                    self.witness_public_keys[name] = signer_val.decode("utf-8")
-                else:
-                    _, pub_pem = generate_keypair()
-                    self.witness_public_keys[name] = pub_pem.decode("utf-8")
+        self.witness_public_keys: Dict[str, str] = dict(witness_public_keys or {})
+        for name, signer_val in self.witness_signers.items():
+            if name in self.witness_public_keys:
+                continue
+            if hasattr(signer_val, "public_key_pem"):
+                self.witness_public_keys[name] = signer_val.public_key_pem
+            elif hasattr(signer_val, "get_public_key"):
+                from cryptography.hazmat.primitives import serialization
+                self.witness_public_keys[name] = signer_val.get_public_key().public_bytes(
+                    serialization.Encoding.PEM,
+                    serialization.PublicFormat.SubjectPublicKeyInfo,
+                ).decode("utf-8")
+            elif hasattr(signer_val, "public_key"):
+                from cryptography.hazmat.primitives import serialization
+                self.witness_public_keys[name] = signer_val.public_key().public_bytes(
+                    serialization.Encoding.PEM,
+                    serialization.PublicFormat.SubjectPublicKeyInfo,
+                ).decode("utf-8")
+            elif isinstance(signer_val, (bytes, str)):
+                from cryptography.hazmat.primitives import serialization
+                key_bytes = signer_val.encode("utf-8") if isinstance(signer_val, str) else signer_val
+                try:
+                    private_key = serialization.load_pem_private_key(key_bytes, password=None)
+                    self.witness_public_keys[name] = private_key.public_key().public_bytes(
+                        serialization.Encoding.PEM,
+                        serialization.PublicFormat.SubjectPublicKeyInfo,
+                    ).decode("utf-8")
+                except (TypeError, ValueError):
+                    # Trust keys are explicit; never invent an unrelated key.
+                    continue
 
         # Resolve origin public key
-        self.origin_public_key_pem: Optional[str] = None
-        if self.origin_signer is not None and hasattr(self.origin_signer, "public_key_pem"):
-            self.origin_public_key_pem = self.origin_signer.public_key_pem
-        else:
+        self.origin_public_key_pem: Optional[str] = origin_public_key_pem
+        if self.origin_public_key_pem is None and self.origin_signer is not None:
+            try:
+                from cryptography.hazmat.primitives import serialization
+                if hasattr(self.origin_signer, "public_key_pem"):
+                    self.origin_public_key_pem = self.origin_signer.public_key_pem
+                elif hasattr(self.origin_signer, "get_public_key"):
+                    public_key = self.origin_signer.get_public_key()
+                    self.origin_public_key_pem = public_key.public_bytes(
+                        serialization.Encoding.PEM,
+                        serialization.PublicFormat.SubjectPublicKeyInfo,
+                    ).decode("utf-8")
+                elif hasattr(self.origin_signer, "public_key"):
+                    public_key = self.origin_signer.public_key()
+                    self.origin_public_key_pem = public_key.public_bytes(
+                        serialization.Encoding.PEM,
+                        serialization.PublicFormat.SubjectPublicKeyInfo,
+                    ).decode("utf-8")
+                else:
+                    key_bytes = (
+                        self.origin_signer.encode("utf-8")
+                        if isinstance(self.origin_signer, str)
+                        else self.origin_signer
+                    )
+                    private_key = serialization.load_pem_private_key(key_bytes, password=None)
+                    self.origin_public_key_pem = private_key.public_key().public_bytes(
+                        serialization.Encoding.PEM,
+                        serialization.PublicFormat.SubjectPublicKeyInfo,
+                    ).decode("utf-8")
+            except Exception:
+                self.origin_public_key_pem = None
+        if self.origin_public_key_pem is None:
             try:
                 from db.cli.capsule import resolve_public_key_pem
                 self.origin_public_key_pem = resolve_public_key_pem()
             except Exception:
-                pass
+                self.origin_public_key_pem = None
 
     def detect_fork(self, note_a: Any, note_b: Any) -> None:
         """Assert consistency between two checkpoint notes for the same sequence."""
@@ -736,11 +781,40 @@ class MultiWitnessAnchorStore(AnchorStore):
         origin_signer = self.origin_signer
         if origin_signer is None:
             try:
-                from db.cli.keygen import load_private_key
-                origin_signer = load_private_key("keys/signing_key.pem")
-            except Exception:
-                from db.cli.keygen import generate_keypair
-                origin_signer, _ = generate_keypair()
+                from db.cli.keygen import load_private_key, get_default_key_dir
+                configured_key_path = os.environ.get("SIGNING_PRIVATE_KEY_PATH")
+                candidate_paths = [
+                    configured_key_path,
+                    "keys/signing_key.pem",
+                    str(Path(get_default_key_dir()) / "signing_key.pem"),
+                ]
+                key_path = next(
+                    (Path(path) for path in candidate_paths if path and Path(path).is_file()),
+                    None,
+                )
+                if key_path is None:
+                    raise FileNotFoundError("No origin signing key is configured.")
+                origin_signer = load_private_key(str(key_path))
+            except Exception as exc:
+                raise RuntimeError(
+                    "Multi-witness anchoring requires an explicitly configured origin signing key."
+                ) from exc
+
+        if self.origin_public_key_pem is None:
+            from cryptography.hazmat.primitives import serialization
+            if hasattr(origin_signer, "get_public_key"):
+                public_key = origin_signer.get_public_key()
+            elif hasattr(origin_signer, "public_key"):
+                public_key = origin_signer.public_key()
+            else:
+                from cryptography.hazmat.primitives import serialization
+                key_bytes = origin_signer.encode("utf-8") if isinstance(origin_signer, str) else origin_signer
+                private_key = serialization.load_pem_private_key(key_bytes, password=None)
+                public_key = private_key.public_key()
+            self.origin_public_key_pem = public_key.public_bytes(
+                serialization.Encoding.PEM,
+                serialization.PublicFormat.SubjectPublicKeyInfo,
+            ).decode("utf-8")
 
         origin_sig_bytes = sign_checkpoint(origin_signer, body_bytes)
         origin_sig = WitnessSignature(
@@ -845,8 +919,8 @@ class MultiWitnessAnchorStore(AnchorStore):
             "merkle_root": witnessed.note.merkle_root,
             "quorum_satisfied": is_valid,
             "required_threshold": self.threshold,
-            "total_witnesses": len(self.witness_signers),
-            "cosigned_witnesses": len(witnessed.witness_signatures),
+            "total_witnesses": len(witnessed.witness_signatures),
+            "cosigned_witnesses": report.get("valid_witness_count", 0),
             "message": msg,
             "per_witness": [
                 {
@@ -856,8 +930,15 @@ class MultiWitnessAnchorStore(AnchorStore):
                         if report.get("per_witness_status", {})
                         .get(w.witness_name, {})
                         .get("valid")
+                        else "UNKNOWN"
+                        if report.get("per_witness_status", {})
+                        .get(w.witness_name, {})
+                        .get("reason") == "Missing public key"
                         else "FAILED"
                     ),
+                    "reason": report.get("per_witness_status", {})
+                    .get(w.witness_name, {})
+                    .get("reason"),
                     "signature_hex": w.signature_hex(),
                     "timestamp": w.timestamp,
                 }
@@ -882,8 +963,11 @@ def get_anchor_store(config: dict) -> AnchorStore:
     store_type = str(config.get("type", "")).lower()
 
     if store_type in ("multi_witness", "witness", "multi"):
+        from db.cli.witness_config import resolve_witness_store_path
         threshold = int(config.get("threshold", 2))
-        base_path = config.get("base_path") or config.get("path") or "anchors/multi_witness"
+        base_path = config.get("base_path") or config.get("path") or str(
+            resolve_witness_store_path()
+        )
         witnesses_cfgs = config.get("witnesses", [])
         witness_instances: list[AnchorStore] = []
         for w_cfg in witnesses_cfgs:

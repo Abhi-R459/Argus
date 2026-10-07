@@ -1,0 +1,54 @@
+# Isolated laptop demo overlay. It deliberately overrides hosted database URLs
+# and binds the stack to loopback-only alternate ports.
+services:
+  api:
+    environment:
+      APP_ENV: development
+      DATABASE_URL_HR_ADMIN: postgresql+asyncpg://hr_admin:${HR_ADMIN_PASSWORD:?Set HR_ADMIN_PASSWORD}@db:5432/argus
+      DATABASE_URL_COMPLIANCE_AUDITOR: postgresql+asyncpg://compliance_auditor:${COMPLIANCE_AUDITOR_PASSWORD:?Set COMPLIANCE_AUDITOR_PASSWORD}@db:5432/argus
+      CORS_ORIGINS: http://localhost:8088
+      CLERK_AUTHORIZED_PARTIES: http://localhost:8088
+  migrate:
+    environment:
+      DATABASE_URL_MIGRATIONS: postgresql://postgres:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@db:5432/argus
+
+  demo-provision:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    profiles: ['demo']
+    restart: 'no'
+    environment:
+      DATABASE_URL_MIGRATIONS: postgresql://postgres:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@db:5432/argus
+      HR_ADMIN_PASSWORD: ${HR_ADMIN_PASSWORD:?Set HR_ADMIN_PASSWORD}
+      COMPLIANCE_AUDITOR_PASSWORD: ${COMPLIANCE_AUDITOR_PASSWORD:?Set COMPLIANCE_AUDITOR_PASSWORD}
+    command: ['python', '-m', 'db.cli.provision_roles']
+    depends_on:
+      db:
+        condition: service_healthy
+
+  demo-seed:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    profiles: ['demo']
+    restart: 'no'
+    environment:
+      DATABASE_URL_MIGRATIONS: postgresql://postgres:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@db:5432/argus
+      PII_ENCRYPTION_KEY: ${PII_ENCRYPTION_KEY:?Set PII_ENCRYPTION_KEY}
+      AUDIT_SALT: ${AUDIT_SALT:?Set AUDIT_SALT}
+      AUDIT_CONTEXT_SECRET: ${AUDIT_CONTEXT_SECRET:?Set AUDIT_CONTEXT_SECRET}
+      AUDIT_CONTEXT_KEY_ID: ${AUDIT_CONTEXT_KEY_ID:-v1}
+      SIGNING_PRIVATE_KEY_PATH: /run/secrets/argus_signing_private_key.pem
+      ANCHOR_STORE: local_file
+      ANCHOR_FILE_PATH: /app/anchor/chain_anchor.log
+    volumes:
+      - argus_anchor_data:/app/anchor
+    secrets:
+      - source: signing_private_key
+        target: argus_signing_private_key.pem
+    command: ['python', '-m', 'db.seed_demo']
+    depends_on:
+      db:
+        condition: service_healthy
+

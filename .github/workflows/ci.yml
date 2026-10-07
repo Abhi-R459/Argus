@@ -34,7 +34,12 @@ jobs:
       run: |
         cd api
         python -m pip install --upgrade pip
-        pip install -r requirements.txt
+        pip install --require-hashes -r requirements-dev.lock
+        python -m pip install pip-audit
+    - name: Audit Python dependencies
+      run: |
+        cd api
+        pip-audit -r requirements.lock
     - name: Run Pytest
       env:
         DATABASE_URL: postgresql+asyncpg://postgres:password@localhost:5432/argus
@@ -54,6 +59,10 @@ jobs:
       run: |
         cd frontend
         npm ci
+    - name: Audit frontend dependencies
+      run: |
+        cd frontend
+        npm audit --audit-level=high
     - name: Install Playwright Browsers
       run: |
         cd frontend

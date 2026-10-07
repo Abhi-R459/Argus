@@ -58,16 +58,27 @@ async def test_system_metrics_auditor(client_auditor: AsyncClient, mock_db_sessi
     m_pgcrypto = MagicMock(); m_pgcrypto.scalar.return_value = 1
     m_perm = MagicMock(); m_perm.scalar.return_value = True
     m_match = MagicMock(); m_match.scalar.return_value = True
+    no_checkpoint = MagicMock(); no_checkpoint.first.return_value = None
+    no_tail = MagicMock(); no_tail.first.return_value = (105,)
 
     mock_db_session.execute.side_effect = [
-        m_hit, m_sz, m_cnt, m_chk_cnt, m_tables, m_pgcrypto, m_perm, m_match
+        m_hit, m_sz, m_cnt, m_chk_cnt, m_tables, m_pgcrypto, m_perm, m_match,
+        no_checkpoint, no_tail,
     ]
     nested = MagicMock()
     nested.__aenter__ = AsyncMock(return_value=None)
     nested.__aexit__ = AsyncMock(return_value=False)
     mock_db_session.begin_nested = MagicMock(return_value=nested)
 
-    with patch('api.routers.audits.get_settings', return_value=SimpleNamespace(CLERK_JWT_KEY='test-public-key')):
+    from api.routers import audits
+    verification = SimpleNamespace(verification_checks={
+        'hash_chain': 'pass',
+        'external_anchor': 'pass',
+        'checkpoint_signatures': 'pass',
+    })
+    test_settings = audits.get_settings().model_copy(update={'CLERK_JWT_KEY': 'test-public-key'})
+    with patch('api.routers.audits.get_settings', return_value=test_settings), \
+         patch('api.routers.audits.run_verification', return_value=verification):
         response = await client_auditor.get('/api/analytics/system-metrics')
     assert response.status_code == 200
     data = response.json()
@@ -75,7 +86,7 @@ async def test_system_metrics_auditor(client_auditor: AsyncClient, mock_db_sessi
     assert data['db_size'] == '8500 kB'
     assert data['audit_log_size'] == '250 kB'
     assert len(data['table_stats']) == 1
-    assert data['security_score'] == 100
+    assert data['security_score'] == 88
     assert data['security_checks']['pgcrypto_active'] is True
     assert data['security_checks']['role_isolation'] is True
     assert data['security_checks']['chain_continuous'] is True
@@ -99,11 +110,19 @@ async def test_system_metrics_reports_unknown_checks_without_false_green(client_
     nested.__aexit__ = AsyncMock(return_value=False)
     mock_db_session.begin_nested = MagicMock(return_value=nested)
 
-    with patch('api.routers.audits.get_settings', return_value=SimpleNamespace(CLERK_JWT_KEY='test-public-key')):
+    from api.routers import audits
+    verification = SimpleNamespace(verification_checks={
+        'hash_chain': 'unknown',
+        'external_anchor': 'unknown',
+        'checkpoint_signatures': 'unknown',
+    })
+    test_settings = audits.get_settings().model_copy(update={'CLERK_JWT_KEY': 'test-public-key'})
+    with patch('api.routers.audits.get_settings', return_value=test_settings), \
+         patch('api.routers.audits.run_verification', return_value=verification):
         response = await client_auditor.get('/api/analytics/system-metrics')
     assert response.status_code == 200
     data = response.json()
-    assert data['security_score'] == 25
+    assert data['security_score'] == 12
     assert data['security_check_details']['pgcrypto_active'] == 'unknown'
     assert data['security_checks']['pgcrypto_active'] is False
 
