@@ -33,6 +33,7 @@ const AuditRow = React.forwardRef<
   {
     entry: AuditLogItem;
     isTampered?: boolean;
+    tamperDetails?: string | null;
     isTargetSeq?: boolean;
     isSelected?: boolean;
     isFocused?: boolean;
@@ -44,6 +45,7 @@ const AuditRow = React.forwardRef<
     {
       entry,
       isTampered,
+      tamperDetails,
       isTargetSeq,
       isSelected,
       isFocused,
@@ -60,7 +62,8 @@ const AuditRow = React.forwardRef<
       <>
         <DataTable.Row
           ref={ref}
-          isSelected={isSelected || isTargetSeq}
+          isSelected={isSelected}
+          isHighlighted={isTargetSeq}
           isFocused={isFocused}
           isTampered={isTampered}
           portalTheme="auditor"
@@ -72,14 +75,14 @@ const AuditRow = React.forwardRef<
           <div className="flex items-center space-x-1.5">
             <span
               className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
-                isTampered ? 'bg-grafana-orange' : getSeverityDotClass(entry.severity)
+                isTampered ? 'bg-status-warning' : getSeverityDotClass(entry.severity)
               }`}
             />
-            <span className={isTampered ? 'text-grafana-orange' : 'text-linear-ink'}>
+            <span className={isTampered ? 'text-status-warning' : 'text-linear-ink'}>
               #{entry.sequence_id}
             </span>
             {isTampered && (
-              <span className="text-[10px] font-mono font-bold bg-grafana-orange/20 text-grafana-orange border border-grafana-orange/40 px-1 py-0.5 rounded">
+              <span className="text-[10px] font-mono font-bold bg-status-warning/20 text-status-warning border border-status-warning/40 px-1 py-0.5 rounded">
                 TAMPERED
               </span>
             )}
@@ -108,7 +111,11 @@ const AuditRow = React.forwardRef<
             <div className="w-4 h-4 rounded-full bg-linear-surface-3 border border-linear-hairline flex items-center justify-center text-[8px] font-bold text-linear-primary uppercase">
               {entry.actor_name.charAt(0)}
             </div>
-            <span className="truncate">{entry.actor_name}</span>
+            <span className="truncate" title={entry.actor_user_id === null ? 'No immutable actor user ID recorded' : `Current profile for immutable user ID ${entry.actor_user_id}`}>
+              {entry.actor_user_id === null
+                ? `${entry.actor_name} · no user ID`
+                : `${entry.actor_name} · user #${entry.actor_user_id}`}
+            </span>
           </div>
         </DataTable.Cell>
 
@@ -169,6 +176,9 @@ const AuditRow = React.forwardRef<
                     oldValue={entry.old_value}
                     newValue={entry.new_value}
                     operation={entry.action}
+                    isTampered={isTampered}
+                    tamperDetails={tamperDetails}
+                    sequenceId={entry.sequence_id}
                   />
                   <div className="flex items-center justify-end space-x-2 pt-2 border-t border-linear-hairline/60">
                     <Button
@@ -230,8 +240,9 @@ export default function AuditLogTable() {
     limit: 25,
     sequence_id: targetSeqId,
   });
+  const [cursorByPage, setCursorByPage] = useState<Record<number, number>>({});
 
-  const [focusedRowIndex, setFocusedRowIndex] = useState<number>(0);
+  const [focusedRowIndex, setFocusedRowIndex] = useState<number>(-1);
   const [openRowSeq, setOpenRowSeq] = useState<number | null>(targetSeqId ?? null);
 
   const {
@@ -241,9 +252,11 @@ export default function AuditLogTable() {
     refetch,
   } = useQuery({
     queryKey: ['audit-logs', filters],
-    queryFn: () => fetchAuditLogs(filters, getToken),
+    queryFn: () => fetchAuditLogs({
+      ...filters,
+      before_sequence_id: cursorByPage[filters.page ?? 1],
+    }, getToken),
     placeholderData: (prev) => prev,
-    refetchInterval: 3000,
   });
 
   const items = data?.items ?? [];
@@ -262,12 +275,23 @@ export default function AuditLogTable() {
   useEffect(() => {
     rowRefs.current = rowRefs.current.slice(0, items.length);
     if (items.length > 0 && focusedRowIndex >= items.length) {
-      setFocusedRowIndex(0);
+      setFocusedRowIndex(-1);
     }
   }, [items.length, focusedRowIndex]);
 
   const handleFilterChange = (patch: Partial<AuditLogFilters>) => {
+    if (Object.keys(patch).some((key) => key !== 'page')) {
+      setCursorByPage({});
+    }
     setFilters((prev) => ({ ...prev, ...patch }));
+  };
+
+  const goToNextPage = () => {
+    const nextPage = (filters.page ?? 1) + 1;
+    if (data?.next_cursor) {
+      setCursorByPage((previous) => ({ ...previous, [nextPage]: data.next_cursor! }));
+    }
+    handleFilterChange({ page: Math.min(totalPages, nextPage) });
   };
 
   // Active filter items for FilterBar
@@ -314,6 +338,7 @@ export default function AuditLogTable() {
   }
 
   const handleClearAll = () => {
+    setCursorByPage({});
     setFilters({ page: 1, limit: 25 });
   };
 
@@ -402,7 +427,13 @@ export default function AuditLogTable() {
             <Filter className="w-3 h-3 text-linear-ink-muted" />
             <select
               value={filters.action ?? ''}
-              onChange={(e) => handleFilterChange({ action: (e.target.value || undefined) as any, page: 1 })}
+              onChange={(e) => {
+                const value = e.target.value;
+                const action = ['INSERT', 'UPDATE', 'DELETE'].includes(value)
+                  ? value as NonNullable<AuditLogFilters['action']>
+                  : undefined;
+                handleFilterChange({ action, page: 1 });
+              }}
               className="bg-linear-canvas border border-linear-hairline rounded-lg px-2.5 py-1.5 text-xs text-linear-ink focus:outline-none focus:border-linear-primary font-mono"
             >
               <option value="">All Actions</option>
@@ -415,7 +446,13 @@ export default function AuditLogTable() {
           {/* Severity filter */}
           <select
             value={filters.severity ?? ''}
-            onChange={(e) => handleFilterChange({ severity: (e.target.value || undefined) as any, page: 1 })}
+            onChange={(e) => {
+              const value = e.target.value;
+              const severity = ['INFO', 'WARNING', 'CRITICAL'].includes(value)
+                ? value as NonNullable<AuditLogFilters['severity']>
+                : undefined;
+              handleFilterChange({ severity, page: 1 });
+            }}
             className="bg-linear-canvas border border-linear-hairline rounded-lg px-2.5 py-1.5 text-xs text-linear-ink focus:outline-none focus:border-linear-primary font-mono"
           >
             <option value="">All Severities</option>
@@ -475,6 +512,7 @@ export default function AuditLogTable() {
                 }}
                 entry={entry}
                 isTampered={incident.tamperedSeqId === entry.sequence_id}
+                tamperDetails={incident.tamperedSeqId === entry.sequence_id ? incident.details : undefined}
                 isTargetSeq={targetSeqId === entry.sequence_id}
                 isSelected={openRowSeq === entry.sequence_id}
                 isFocused={focusedRowIndex === idx}
@@ -514,8 +552,8 @@ export default function AuditLogTable() {
             variant="secondary"
             size="sm"
             portalTheme="auditor"
-            onClick={() => handleFilterChange({ page: Math.min(totalPages, (filters.page ?? 1) + 1) })}
-            disabled={(filters.page ?? 1) >= totalPages || isFetching}
+            onClick={goToNextPage}
+            disabled={(filters.page ?? 1) >= totalPages || isFetching || (data?.has_more === false)}
             rightIcon={<ChevronRight className="w-3 h-3" />}
           >
             Next

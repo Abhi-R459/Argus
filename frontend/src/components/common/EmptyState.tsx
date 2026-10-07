@@ -27,10 +27,10 @@ export function EmptyState({
     >
       {icon && (
         <div
-          className={`mb-3 p-3 rounded-2xl flex items-center justify-center ${
+          className={`mb-3 p-3 rounded-xl flex items-center justify-center ${
             isAuditor
               ? 'bg-linear-surface-2 text-linear-ink-subtle border border-linear-hairline'
-              : 'bg-slate-100 text-slate-400 border border-slate-200/80 shadow-2xs'
+              : 'bg-slate-100 text-slate-600 border border-slate-200/80 shadow-2xs'
           }`}
         >
           {icon}
@@ -45,7 +45,7 @@ export function EmptyState({
       </h3>
       {description && (
         <p
-          className={`text-xs mt-1 max-w-sm ${
+          className={`text-sm mt-1 max-w-sm leading-6 ${
             isAuditor ? 'text-linear-ink-subtle' : 'text-slate-500'
           }`}
         >

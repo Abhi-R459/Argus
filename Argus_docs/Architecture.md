@@ -68,7 +68,7 @@ graph TD
 
 **The `B0 → C0 → B1` path is the two-layer RBAC bridge:** Clerk authenticates the person, FastAPI verifies the Clerk token, and the verified subject is mapped to one local `users` row. Its database-owned `role` value determines which application connection pool (`hr_admin` or `compliance_auditor`) is used downstream. Clerk authentication does not replace the course-required local users table, and a client-provided role never selects database privileges.
 
-**Why the Verifier CLI still sits outside the Backend box:** unchanged from the original design. If verification logic lived inside the same FastAPI process that `hr_admin` actions flow through, a compromise of that process could compromise the thing meant to catch it. Running it as an independent process, with its own credentials and its own private key, is what makes "independently verify" a real claim rather than a marketing one.
+**Why the Verifier CLI still sits outside the Backend box:** chain verification remains an independent CLI operation so the process being audited is not the only verifier. There is a development/demo-only exception for signing: the HR-only on-demand checkpoint API loads the local signing key into FastAPI to sign a requested checkpoint. The HR user does not receive the key bytes, but a compromised API process could access the local key. The API rejects this local signer in production; a managed signer adapter is required before enabling the production endpoint.
 
 ---
 
@@ -294,7 +294,7 @@ The third branch is the entire reason the anchor exists. A superuser who edits a
 | Database roles | `GRANT`/`REVOKE` — `hr_admin` has no `UPDATE`/`DELETE` on `audit_log`; `compliance_auditor` has no write access anywhere | Privilege misuse, log tampering by the app's own admin role |
 | Database triggers | Business-rule enforcement (Section 5.7), severity tagging | Policy violations bypassing app-layer checks |
 | Hash chain | SHA-256, each entry chained to the previous | Silent single-entry tampering |
-| Checkpoint signing | Asymmetric signature over periodic checkpoints, key never exposed to the app or `hr_admin` | Forged/planted anchor entries |
+| Checkpoint signing | Periodic verifier signing; development/demo HR on-demand signing uses a local key loaded by FastAPI. HR receives only the signed result, not the key. Production rejects the local signer until managed signing is integrated. | Forged/planted anchor entries; API compromise remains within the demo signing threat boundary |
 | External anchor | Tail hash compared against a location outside `hr_admin`'s reach | Recompute-and-hide (edit + rehash everything after) |
 | Encryption at rest | `pgcrypto` on sensitive columns plus redacted audit JSONB payloads | Data exposure even with read access |
 
@@ -339,7 +339,7 @@ Both exist to back real dashboard functionality — neither is a throwaway artif
 ### 6.3 Deployment
 
 - **Containerization:** Docker Compose locally (`postgres`, `api`, `frontend` services); images pushed to Docker Hub
-- **Cloud target:** Neon Free hosts PostgreSQL; Render Free hosts FastAPI; Render Static Site or Vercel Hobby hosts React. Render Free Postgres is deliberately not used because it expires after 30 days and has no backups
+- **Historical cloud target (not a verified deployment):** Neon Free PostgreSQL with a free API/frontend host was considered. The current verified professor walkthrough uses isolated local Docker Compose and Clerk Development; consult `docs/LOCAL_DEMO_SETUP.md` before presenting the runtime setup.
 - **External anchor:** `AnchorStore` supports pluggable adapters: local filesystem for development, GitHub repository commits, RFC 3161 Time-Stamping Authority notarization (`.tsr`), and AWS S3 Object Lock in `COMPLIANCE` WORM mode. The database-superuser threat model excludes compromise of the external anchor, its token, or the signing key
 - **Secrets:** `.env` / deployment secrets, excluded via `.gitignore` — Neon URLs, Clerk keys, GitHub anchor token, and signing key paths are never hardcoded or committed
 - **Backup/recovery:** native `pg_dump` / `pg_restore`, hashed and verified per Section 5.11 — this already exceeds what the rubric asks for (verified integrity, not just a backup existing)

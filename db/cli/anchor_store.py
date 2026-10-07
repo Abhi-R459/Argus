@@ -33,6 +33,7 @@ from datetime import datetime, timezone, timedelta
 import hashlib
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 import urllib.error
@@ -614,12 +615,344 @@ class S3WormAnchorStore(AnchorStore):
             return False
 
 
+# ==============================================================================
+# Multi-Witness WORM Anchoring (RFC 9162 / NOVEL-010-B)
+# ==============================================================================
+
+class MultiWitnessAnchorStore(AnchorStore):
+    """Decentralized multi-witness anchor store enforcing M-of-N cosigning quorum (NOVEL-010-B).
+
+    Combines multiple heterogeneous witness anchor adapters (e.g. S3 WORM, RFC 3161 TSA,
+    GitHub, and local storage). Checkpoints are formatted as canonical RFC 9162 Notes,
+    signed by the Origin, and concurrently cosigned by witnesses. A 2-of-3 quorum is
+    required before the checkpoint is considered validly anchored.
+    """
+
+    DEFAULT_WITNESS_NAMES = [
+        "witness.s3worm.aws/v1",
+        "witness.rfc3161.tsa/v1",
+        "witness.github.git/v1",
+    ]
+
+    def __init__(
+        self,
+        witnesses: Optional[Any] = None,
+        threshold: int = 2,
+        base_path: str = "anchors/multi_witness",
+        origin_signer: Any = None,
+        witness_signers: Optional[Dict[str, Any]] = None,
+        witness_names: Optional[list[str]] = None,
+        witness_public_keys: Optional[Dict[str, str]] = None,
+        origin_public_key_pem: Optional[str] = None,
+    ):
+        self.witnesses: list[AnchorStore] = list(witnesses) if witnesses else []
+        self.threshold = threshold
+        self.base_path = Path(base_path)
+        self.base_path.mkdir(parents=True, exist_ok=True)
+        self.origin_signer = origin_signer
+        self._history: Dict[int, Any] = {}
+
+        # Signing keys are supplied explicitly by configured witness adapters.
+        # Generating identities here would let a single process impersonate a
+        # witness quorum and would make persisted notes unverifiable on restart.
+        self.witness_signers: Dict[str, Any] = dict(witness_signers) if witness_signers else {}
+        self.witness_public_keys: Dict[str, str] = dict(witness_public_keys or {})
+        for name, signer_val in self.witness_signers.items():
+            if name in self.witness_public_keys:
+                continue
+            if hasattr(signer_val, "public_key_pem"):
+                self.witness_public_keys[name] = signer_val.public_key_pem
+            elif hasattr(signer_val, "get_public_key"):
+                from cryptography.hazmat.primitives import serialization
+                self.witness_public_keys[name] = signer_val.get_public_key().public_bytes(
+                    serialization.Encoding.PEM,
+                    serialization.PublicFormat.SubjectPublicKeyInfo,
+                ).decode("utf-8")
+            elif hasattr(signer_val, "public_key"):
+                from cryptography.hazmat.primitives import serialization
+                self.witness_public_keys[name] = signer_val.public_key().public_bytes(
+                    serialization.Encoding.PEM,
+                    serialization.PublicFormat.SubjectPublicKeyInfo,
+                ).decode("utf-8")
+            elif isinstance(signer_val, (bytes, str)):
+                from cryptography.hazmat.primitives import serialization
+                key_bytes = signer_val.encode("utf-8") if isinstance(signer_val, str) else signer_val
+                try:
+                    private_key = serialization.load_pem_private_key(key_bytes, password=None)
+                    self.witness_public_keys[name] = private_key.public_key().public_bytes(
+                        serialization.Encoding.PEM,
+                        serialization.PublicFormat.SubjectPublicKeyInfo,
+                    ).decode("utf-8")
+                except (TypeError, ValueError):
+                    # Trust keys are explicit; never invent an unrelated key.
+                    continue
+
+        # Resolve origin public key
+        self.origin_public_key_pem: Optional[str] = origin_public_key_pem
+        if self.origin_public_key_pem is None and self.origin_signer is not None:
+            try:
+                from cryptography.hazmat.primitives import serialization
+                if hasattr(self.origin_signer, "public_key_pem"):
+                    self.origin_public_key_pem = self.origin_signer.public_key_pem
+                elif hasattr(self.origin_signer, "get_public_key"):
+                    public_key = self.origin_signer.get_public_key()
+                    self.origin_public_key_pem = public_key.public_bytes(
+                        serialization.Encoding.PEM,
+                        serialization.PublicFormat.SubjectPublicKeyInfo,
+                    ).decode("utf-8")
+                elif hasattr(self.origin_signer, "public_key"):
+                    public_key = self.origin_signer.public_key()
+                    self.origin_public_key_pem = public_key.public_bytes(
+                        serialization.Encoding.PEM,
+                        serialization.PublicFormat.SubjectPublicKeyInfo,
+                    ).decode("utf-8")
+                else:
+                    key_bytes = (
+                        self.origin_signer.encode("utf-8")
+                        if isinstance(self.origin_signer, str)
+                        else self.origin_signer
+                    )
+                    private_key = serialization.load_pem_private_key(key_bytes, password=None)
+                    self.origin_public_key_pem = private_key.public_key().public_bytes(
+                        serialization.Encoding.PEM,
+                        serialization.PublicFormat.SubjectPublicKeyInfo,
+                    ).decode("utf-8")
+            except Exception:
+                self.origin_public_key_pem = None
+        if self.origin_public_key_pem is None:
+            try:
+                from db.cli.capsule import resolve_public_key_pem
+                self.origin_public_key_pem = resolve_public_key_pem()
+            except Exception:
+                self.origin_public_key_pem = None
+
+    def detect_fork(self, note_a: Any, note_b: Any) -> None:
+        """Assert consistency between two checkpoint notes for the same sequence."""
+        if note_a.sequence_id == note_b.sequence_id:
+            if note_a.merkle_root != note_b.merkle_root:
+                from db.cli.witness_protocol import ProofOfMisbehavior
+                raise ProofOfMisbehavior(
+                    sequence_id=note_a.sequence_id,
+                    root_a=note_a.merkle_root,
+                    root_b=note_b.merkle_root,
+                    note_a=note_a,
+                    note_b=note_b,
+                )
+
+    def push(self, checkpoint_id: int, payload_json: str) -> str:
+        """Format RFC 9162 Note, sign by origin, submit to all witnesses, and verify quorum."""
+        from db.cli.witness_protocol import (
+            CheckpointNote,
+            WitnessSignature,
+            WitnessedCheckpoint,
+            QuorumNotMetError,
+        )
+        from db.cli.signer import sign_checkpoint
+
+        try:
+            payload_data = json.loads(payload_json)
+        except Exception:
+            payload_data = {"raw": payload_json}
+
+        seq_id = int(payload_data.get("sequence_id", checkpoint_id))
+        merkle_root = payload_data.get("merkle_root")
+        if not merkle_root:
+            merkle_root = hashlib.sha256(payload_json.encode("utf-8")).hexdigest()
+
+        note = CheckpointNote(
+            sequence_id=seq_id,
+            merkle_root=merkle_root,
+            checkpoint_hash=payload_data.get("checkpoint_hash"),
+            metadata={
+                "checkpoint_id": checkpoint_id,
+                "created_at": payload_data.get("created_at"),
+                "entries_count": payload_data.get("entries_count", payload_data.get("merkle_leaf_count", 1)),
+            },
+        )
+
+        # Split-view / equivocation check against observed history
+        if seq_id in self._history:
+            self.detect_fork(self._history[seq_id], note)
+        self._history[seq_id] = note
+
+        body_bytes = note.body_bytes()
+
+        # Sign with origin key
+        origin_signer = self.origin_signer
+        if origin_signer is None:
+            try:
+                from db.cli.keygen import load_private_key, get_default_key_dir
+                configured_key_path = os.environ.get("SIGNING_PRIVATE_KEY_PATH")
+                candidate_paths = [
+                    configured_key_path,
+                    "keys/signing_key.pem",
+                    str(Path(get_default_key_dir()) / "signing_key.pem"),
+                ]
+                key_path = next(
+                    (Path(path) for path in candidate_paths if path and Path(path).is_file()),
+                    None,
+                )
+                if key_path is None:
+                    raise FileNotFoundError("No origin signing key is configured.")
+                origin_signer = load_private_key(str(key_path))
+            except Exception as exc:
+                raise RuntimeError(
+                    "Multi-witness anchoring requires an explicitly configured origin signing key."
+                ) from exc
+
+        if self.origin_public_key_pem is None:
+            from cryptography.hazmat.primitives import serialization
+            if hasattr(origin_signer, "get_public_key"):
+                public_key = origin_signer.get_public_key()
+            elif hasattr(origin_signer, "public_key"):
+                public_key = origin_signer.public_key()
+            else:
+                from cryptography.hazmat.primitives import serialization
+                key_bytes = origin_signer.encode("utf-8") if isinstance(origin_signer, str) else origin_signer
+                private_key = serialization.load_pem_private_key(key_bytes, password=None)
+                public_key = private_key.public_key()
+            self.origin_public_key_pem = public_key.public_bytes(
+                serialization.Encoding.PEM,
+                serialization.PublicFormat.SubjectPublicKeyInfo,
+            ).decode("utf-8")
+
+        origin_sig_bytes = sign_checkpoint(origin_signer, body_bytes)
+        origin_sig = WitnessSignature(
+            witness_name="argus.origin",
+            signature_bytes=origin_sig_bytes,
+            public_key_pem=self.origin_public_key_pem,
+        )
+
+        # Collect witness cosignatures
+        collected_signatures: list[WitnessSignature] = []
+        witness_errors: Dict[str, str] = {}
+
+        for idx, (w_name, w_key) in enumerate(self.witness_signers.items()):
+            try:
+                if idx < len(self.witnesses):
+                    try:
+                        self.witnesses[idx].push(checkpoint_id, payload_json)
+                    except Exception as sub_err:
+                        logger.warning("Witness store %s push failed: %s", w_name, sub_err)
+
+                w_sig_bytes = sign_checkpoint(w_key, body_bytes)
+                collected_signatures.append(
+                    WitnessSignature(
+                        witness_name=w_name,
+                        signature_bytes=w_sig_bytes,
+                        public_key_pem=self.witness_public_keys.get(w_name),
+                    )
+                )
+            except Exception as e:
+                witness_errors[w_name] = str(e)
+                logger.warning("Witness %s failed to cosign: %s", w_name, e)
+
+        # Check quorum threshold
+        if len(collected_signatures) < self.threshold:
+            raise QuorumNotMetError(
+                collected=len(collected_signatures),
+                required=self.threshold,
+                details={
+                    "checkpoint_id": checkpoint_id,
+                    "sequence_id": seq_id,
+                    "witness_errors": witness_errors,
+                },
+            )
+
+        witnessed = WitnessedCheckpoint(
+            note=note,
+            origin_signature=origin_sig,
+            witness_signatures=collected_signatures,
+        )
+
+        # Persist locally in archive dir
+        note_path = self.base_path / f"{checkpoint_id}.note"
+        note_path.write_text(witnessed.serialize(), encoding="utf-8")
+
+        json_path = self.base_path / f"{checkpoint_id}.json"
+        json_path.write_text(json.dumps(witnessed.to_dict(), indent=2), encoding="utf-8")
+
+        return f"multi_witness://{len(collected_signatures)}_of_{len(self.witness_signers)}/{checkpoint_id}"
+
+    def verify(self, checkpoint_id: int) -> bool:
+        """Verify witness quorum and cryptographic validity of stored note."""
+        from db.cli.witness_protocol import WitnessedCheckpoint, verify_witness_quorum
+
+        note_path = self.base_path / f"{checkpoint_id}.note"
+        if not note_path.is_file():
+            return False
+
+        try:
+            witnessed = WitnessedCheckpoint.from_text(note_path.read_text(encoding="utf-8"))
+            keys = dict(self.witness_public_keys)
+            keys["argus.origin"] = self.origin_public_key_pem or ""
+
+            is_valid, _, _ = verify_witness_quorum(
+                witnessed, keys, threshold=self.threshold
+            )
+            return is_valid
+        except Exception:
+            return False
+
+    def get_witness_report(self, checkpoint_id: int) -> Dict[str, Any]:
+        """Generate detailed witness quorum telemetry report for APIs and dashboards."""
+        from db.cli.witness_protocol import WitnessedCheckpoint, verify_witness_quorum
+
+        note_path = self.base_path / f"{checkpoint_id}.note"
+        if not note_path.is_file():
+            return {
+                "checkpoint_id": checkpoint_id,
+                "quorum_satisfied": False,
+                "error": "Checkpoint note not found on anchor storage",
+            }
+
+        witnessed = WitnessedCheckpoint.from_text(note_path.read_text(encoding="utf-8"))
+        keys = dict(self.witness_public_keys)
+        keys["argus.origin"] = self.origin_public_key_pem or ""
+
+        is_valid, msg, report = verify_witness_quorum(
+            witnessed, keys, threshold=self.threshold
+        )
+        return {
+            "checkpoint_id": checkpoint_id,
+            "sequence_id": witnessed.note.sequence_id,
+            "merkle_root": witnessed.note.merkle_root,
+            "quorum_satisfied": is_valid,
+            "required_threshold": self.threshold,
+            "total_witnesses": len(witnessed.witness_signatures),
+            "cosigned_witnesses": report.get("valid_witness_count", 0),
+            "message": msg,
+            "per_witness": [
+                {
+                    "witness_name": w.witness_name,
+                    "status": (
+                        "VALID"
+                        if report.get("per_witness_status", {})
+                        .get(w.witness_name, {})
+                        .get("valid")
+                        else "UNKNOWN"
+                        if report.get("per_witness_status", {})
+                        .get(w.witness_name, {})
+                        .get("reason") == "Missing public key"
+                        else "FAILED"
+                    ),
+                    "reason": report.get("per_witness_status", {})
+                    .get(w.witness_name, {})
+                    .get("reason"),
+                    "signature_hex": w.signature_hex(),
+                    "timestamp": w.timestamp,
+                }
+                for w in witnessed.witness_signatures
+            ],
+        }
+
+
 def get_anchor_store(config: dict) -> AnchorStore:
     """Factory function to get the appropriate anchor store based on configuration.
 
     Args:
         config (dict): Configuration dictionary. Must contain a 'type' key
-                       ('local', 'github', 'rfc3161', or 's3_worm') and required parameters.
+                       ('local', 'github', 'rfc3161', 's3_worm', or 'multi_witness') and required parameters.
 
     Returns:
         AnchorStore: An instance of the configured anchor store.
@@ -629,7 +962,26 @@ def get_anchor_store(config: dict) -> AnchorStore:
     """
     store_type = str(config.get("type", "")).lower()
 
-    if store_type == "local":
+    if store_type in ("multi_witness", "witness", "multi"):
+        from db.cli.witness_config import resolve_witness_store_path
+        threshold = int(config.get("threshold", 2))
+        base_path = config.get("base_path") or config.get("path") or str(
+            resolve_witness_store_path()
+        )
+        witnesses_cfgs = config.get("witnesses", [])
+        witness_instances: list[AnchorStore] = []
+        for w_cfg in witnesses_cfgs:
+            if isinstance(w_cfg, dict):
+                witness_instances.append(get_anchor_store(w_cfg))
+            elif isinstance(w_cfg, AnchorStore):
+                witness_instances.append(w_cfg)
+        return MultiWitnessAnchorStore(
+            witnesses=witness_instances,
+            threshold=threshold,
+            base_path=base_path,
+        )
+
+    elif store_type == "local":
         base_path = config.get("path") or config.get("base_path")
         if not base_path:
             raise ValueError("LocalFileAnchorStore requires 'path' or 'base_path' in config.")

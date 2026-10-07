@@ -61,8 +61,8 @@ export function LiveStreamBadge({
         </span>
       ) : (
         <span className="flex items-center gap-1.5">
-          <span className="inline-flex rounded-full h-2 w-2 bg-grafana-orange" />
-          <span className="text-[11px] font-semibold text-grafana-orange uppercase tracking-wider">
+          <span className="inline-flex rounded-full h-2 w-2 bg-status-warning" />
+          <span className="text-[11px] font-semibold text-status-warning uppercase tracking-wider">
             Paused
           </span>
         </span>
@@ -72,7 +72,7 @@ export function LiveStreamBadge({
         type="button"
         onClick={onToggleStream}
         className={`ml-1 p-1 rounded transition-colors duration-100 focus-visible:outline-none focus-visible:ring-1 ${
-          portalTheme === 'auditor' ? 'focus-visible:ring-linear-primary' : 'focus-visible:ring-grafana-orange'
+          portalTheme === 'auditor' ? 'focus-visible:ring-linear-primary' : 'focus-visible:ring-status-warning'
         } ${buttonHoverClasses}`}
         title={isStreaming ? 'Pause live stream (p)' : 'Resume live stream (p)'}
         aria-label={isStreaming ? 'Pause live stream' : 'Resume live stream'}

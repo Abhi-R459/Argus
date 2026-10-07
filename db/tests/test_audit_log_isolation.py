@@ -52,6 +52,68 @@ class TestAuditLogPrivilegeStaticVerification:
         assert "SECURITY DEFINER" in emp_sql, "trg_employees_hash_chain_fn must be SECURITY DEFINER"
         assert "SECURITY DEFINER" in salary_sql, "trg_salary_history_hash_chain_fn must be SECURITY DEFINER"
 
+    def test_security_definer_audit_triggers_pin_search_path(self):
+        """Keep caller-writable schemas out of SECURITY DEFINER trigger lookup."""
+        import re
+
+        sql_paths = [
+            os.path.join(os.path.dirname(__file__), "..", "triggers", "audit_employees.sql"),
+            os.path.join(os.path.dirname(__file__), "..", "triggers", "audit_salary_history.sql"),
+        ]
+        function_names = [
+            "trg_employees_hash_chain_fn",
+            "trg_salary_history_hash_chain_fn",
+        ]
+        for sql_path, function_name in zip(sql_paths, function_names):
+            with open(sql_path, "r", encoding="utf-8") as f:
+                sql = f.read()
+            function_ddl = re.search(
+                rf"CREATE OR REPLACE FUNCTION {function_name}\(\)(.*?)(?=\$\$;)",
+                sql,
+                re.IGNORECASE | re.DOTALL,
+            )
+            assert function_ddl is not None, f"Missing definition for {function_name}"
+            assert re.search(
+                r"SECURITY DEFINER\s+SET\s+search_path\s*=\s*pg_catalog\s*,\s*public\s*,\s*pg_temp",
+                function_ddl.group(1),
+                re.IGNORECASE,
+            ), f"{function_name} must pin search_path with pg_temp last"
+
+        migration_path = os.path.join(
+            os.path.dirname(__file__), "..", "alembic", "versions", "016_secure_trigger_search_path.py"
+        )
+        with open(migration_path, "r", encoding="utf-8") as f:
+            migration = f.read()
+        for function_name in function_names:
+            assert re.search(
+                rf"ALTER FUNCTION (?:public\.)?{function_name}\(\)\s+SET search_path TO pg_catalog, public, extensions, pg_temp",
+                migration,
+                re.IGNORECASE,
+            ), f"Forward migration must pin search_path for {function_name}"
+
+    def test_supabase_public_api_defaults_are_restricted_before_tables(self):
+        """Prevent Supabase anon/authenticated defaults from exposing Argus data."""
+        root = os.path.dirname(__file__)
+        initial_migration = os.path.join(
+            root, "..", "alembic", "versions", "001_core_entity_tables.py"
+        )
+        lockdown_migration = os.path.join(
+            root, "..", "alembic", "versions", "021_supabase_public_schema_lockdown.py"
+        )
+        with open(initial_migration, "r", encoding="utf-8") as f:
+            initial_sql = f.read()
+        with open(lockdown_migration, "r", encoding="utf-8") as f:
+            lockdown_sql = f.read()
+
+        assert initial_sql.index("op.execute") < initial_sql.index("op.create_table")
+        for role in ("anon", "authenticated", "service_role"):
+            assert role in initial_sql
+            assert role in lockdown_sql
+        assert "REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM PUBLIC" in lockdown_sql
+        assert "p.proowner = (SELECT oid FROM pg_roles WHERE rolname = current_user)" in lockdown_sql
+        assert "REVOKE EXECUTE ON %s %I.%I(%s) FROM PUBLIC" in lockdown_sql
+        assert "ALTER DEFAULT PRIVILEGES" in lockdown_sql
+
     def test_migration_011_structure(self):
         """Verify migration 011 exists and targets 010_blind_indexing."""
         import importlib
@@ -67,7 +129,9 @@ class TestAuditLogLivePrivilegeIsolation:
     @pytest.fixture
     def pg_conn(self):
         import psycopg2
-        db_url = os.environ.get("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/argus")
+        db_url = os.environ.get("DATABASE_URL") or os.environ.get("DATABASE_URL_HR_ADMIN")
+        if not db_url:
+            pytest.skip("Set DATABASE_URL or DATABASE_URL_HR_ADMIN to a disposable PostgreSQL database.")
         conn = psycopg2.connect(db_url)
         conn.autocommit = False
         yield conn

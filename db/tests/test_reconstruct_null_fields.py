@@ -28,7 +28,10 @@ requires_postgres = pytest.mark.skipif(
 
 
 def get_db_url():
-    return os.environ.get("DATABASE_URL", "postgresql://postgres:password@localhost:5433/argus")
+    url = os.environ.get("DATABASE_URL")
+    if not url:
+        pytest.skip("Set DATABASE_URL to a disposable PostgreSQL database.")
+    return url
 
 
 @pytest.fixture(scope="module")

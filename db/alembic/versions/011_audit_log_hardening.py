@@ -23,18 +23,18 @@ def upgrade() -> None:
     """Explicitly revoke write/truncate privileges on audit_log from non-owners."""
     bind = op.get_bind()
     if bind.dialect.name == "postgresql":
-        statements = [
-            "REVOKE ALL PRIVILEGES ON audit_log FROM PUBLIC;",
-            "REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON audit_log FROM hr_admin, compliance_auditor, PUBLIC;",
-            "GRANT SELECT ON audit_log TO hr_admin, compliance_auditor;",
-            "ALTER TABLE audit_log DROP CONSTRAINT IF EXISTS fk_audit_log_employee_id;",
-        ]
-        for stmt in statements:
-            try:
-                op.execute(sa.text(stmt))
-            except Exception:
-                # Roles might not exist yet in test/CI environments
-                pass
+        op.execute(sa.text("REVOKE ALL PRIVILEGES ON audit_log FROM PUBLIC"))
+        roles = set(bind.execute(sa.text(
+            "SELECT rolname FROM pg_roles "
+            "WHERE rolname IN ('hr_admin', 'compliance_auditor')"
+        )).scalars().all())
+        if "hr_admin" in roles:
+            op.execute(sa.text("REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON audit_log FROM hr_admin"))
+            op.execute(sa.text("GRANT SELECT ON audit_log TO hr_admin"))
+        if "compliance_auditor" in roles:
+            op.execute(sa.text("REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON audit_log FROM compliance_auditor"))
+            op.execute(sa.text("GRANT SELECT ON audit_log TO compliance_auditor"))
+        op.execute(sa.text("ALTER TABLE audit_log DROP CONSTRAINT IF EXISTS fk_audit_log_employee_id"))
 
 
 def downgrade() -> None:

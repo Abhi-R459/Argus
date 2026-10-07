@@ -1,8 +1,7 @@
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from jose import jwt, JWTError
-import httpx
-from functools import lru_cache
+import jwt
+from jwt.exceptions import PyJWTError
 from ..config import get_settings
 
 security = HTTPBearer()
@@ -46,12 +45,21 @@ async def verify_clerk_token(
         keys = await _fetch_clerk_jwks()
         
         if "pem_key" in keys:
-            # Decode using the PEM public key
+            issuer = settings.CLERK_ISSUER.strip() or None
+            required_claims = ["exp", "iat", "sub"]
+            options = {
+                "verify_aud": False,  # Clerk session tokens do not always include aud.
+                "verify_iss": issuer is not None,
+                "require": required_claims,
+            }
+            if settings.APP_ENV in {"staging", "production"}:
+                options["require"].append("iss")
             payload = jwt.decode(
                 token,
                 keys["pem_key"],
                 algorithms=["RS256"],
-                options={"verify_aud": False},  # Clerk doesn't always set aud
+                issuer=issuer,
+                options=options,
             )
         else:
             raise HTTPException(
@@ -64,10 +72,23 @@ async def verify_clerk_token(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid token: missing subject claim."
             )
+
+        authorized_parties = settings.authorized_parties
+        authorized_party = payload.get("azp")
+        if settings.APP_ENV in {"staging", "production"} and not authorized_party:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid token: missing authorized party claim.",
+            )
+        if authorized_party and authorized_parties and authorized_party.rstrip("/") not in authorized_parties:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid token: untrusted authorized party.",
+            )
         
         return payload
         
-    except JWTError as e:
+    except PyJWTError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=f"Invalid or expired authorization token."

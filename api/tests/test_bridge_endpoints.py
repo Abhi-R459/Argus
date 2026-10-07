@@ -123,11 +123,22 @@ async def test_anchor_status_missing(client_auditor: AsyncClient, mock_db_sessio
     assert data["entries_since_anchor"] == 15
 
 
-async def test_anchor_status_anchored(client_auditor: AsyncClient, mock_db_session: AsyncMock):
+async def test_anchor_status_anchored(client_auditor: AsyncClient, mock_db_session: AsyncMock, tmp_path, monkeypatch):
     """Assert /api/anchor/status returns ANCHORED when delta is within threshold."""
     now = datetime.now(timezone.utc)
+    from api.routers import audits
+    settings = audits.get_settings()
+    anchor_dir = tmp_path / "anchors"
+    anchor_dir.mkdir()
+    (anchor_dir / "2.json").write_text(json.dumps({
+        "checkpoint_id": 2, "sequence_id": 100, "checkpoint_hash": "f" * 64,
+    }), encoding="utf-8")
+    monkeypatch.setattr(
+        audits, "get_settings",
+        lambda: settings.model_copy(update={"ANCHOR_FILE_PATH": str(anchor_dir / "chain_anchor.log")}),
+    )
     chk_mock = MagicMock()
-    chk_mock.first.return_value = (100, "f" * 64, now)
+    chk_mock.first.return_value = (2, 100, "f" * 64, now, "local:ed25519:v1")
 
     state_mock = MagicMock()
     state_mock.first.return_value = (105,)
@@ -140,13 +151,53 @@ async def test_anchor_status_anchored(client_auditor: AsyncClient, mock_db_sessi
     assert data["status"] == "ANCHORED"
     assert data["entries_since_anchor"] == 5
     assert data["anchor_hash"] == f"sha256:{'f' * 64}"
+    assert data["last_anchored"] is None  # Legacy anchor had no write timestamp.
 
 
-async def test_anchor_status_stale(client_auditor: AsyncClient, mock_db_session: AsyncMock):
+@pytest.mark.asyncio
+async def test_anchor_status_uses_persisted_anchor_write_time(client_auditor: AsyncClient, mock_db_session: AsyncMock, tmp_path, monkeypatch):
+    from api.routers import audits
+    settings = audits.get_settings()
+    anchor_dir = tmp_path / "anchors"
+    anchor_dir.mkdir()
+    anchored_at = datetime(2026, 10, 7, 6, 0, tzinfo=timezone.utc)
+    (anchor_dir / "2.json").write_text(json.dumps({
+        "checkpoint_id": 2,
+        "sequence_id": 100,
+        "checkpoint_hash": "f" * 64,
+        "anchored_at": anchored_at.isoformat(),
+    }), encoding="utf-8")
+    monkeypatch.setattr(
+        audits, "get_settings",
+        lambda: settings.model_copy(update={"ANCHOR_FILE_PATH": str(anchor_dir / "chain_anchor.log")}),
+    )
+    chk_mock = MagicMock()
+    chk_mock.first.return_value = (2, 100, "f" * 64, datetime(2026, 10, 7, 5, 0, tzinfo=timezone.utc), "local:ed25519:v1")
+    state_mock = MagicMock()
+    state_mock.first.return_value = (105,)
+    mock_db_session.execute.side_effect = [chk_mock, state_mock]
+
+    response = await client_auditor.get("/api/anchor/status")
+    assert response.status_code == 200
+    assert response.json()["last_anchored"] == anchored_at.isoformat().replace("+00:00", "Z")
+
+
+async def test_anchor_status_stale(client_auditor: AsyncClient, mock_db_session: AsyncMock, tmp_path, monkeypatch):
     """Assert /api/anchor/status returns STALE when delta exceeds checkpoint threshold."""
     now = datetime.now(timezone.utc)
+    from api.routers import audits
+    settings = audits.get_settings()
+    anchor_dir = tmp_path / "anchors"
+    anchor_dir.mkdir()
+    (anchor_dir / "2.json").write_text(json.dumps({
+        "checkpoint_id": 2, "sequence_id": 100, "checkpoint_hash": "f" * 64,
+    }), encoding="utf-8")
+    monkeypatch.setattr(
+        audits, "get_settings",
+        lambda: settings.model_copy(update={"ANCHOR_FILE_PATH": str(anchor_dir / "chain_anchor.log")}),
+    )
     chk_mock = MagicMock()
-    chk_mock.first.return_value = (100, "f" * 64, now)
+    chk_mock.first.return_value = (2, 100, "f" * 64, now, "local:ed25519:v1")
 
     state_mock = MagicMock()
     state_mock.first.return_value = (200,)  # 100 entries behind > 50
@@ -164,16 +215,28 @@ async def test_anchor_status_mismatch(client_auditor: AsyncClient, mock_db_sessi
     """Assert /api/anchor/status returns MISMATCH when external anchor differs from DB checkpoint."""
     now = datetime.now(timezone.utc)
     seq_id = 50
-    if os.path.exists("anchor/2.json"):
-        try:
-            with open("anchor/2.json", "r", encoding="utf-8") as f:
-                seq_id = json.load(f).get("sequence_id", 50)
-        except Exception:
-            pass
+    from api.routers import audits
+
+    settings = audits.get_settings()
+    anchor_dir = tmp_path / "anchors"
+    anchor_dir.mkdir()
+    (anchor_dir / "2.json").write_text(
+        json.dumps({
+            "checkpoint_id": 2,
+            "sequence_id": seq_id,
+            "checkpoint_hash": "a" * 64,
+        }),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        audits,
+        "get_settings",
+        lambda: settings.model_copy(update={"ANCHOR_FILE_PATH": str(anchor_dir / "chain_anchor.log")}),
+    )
 
     chk_mock = MagicMock()
     # Sequence matches anchor/2.json, but has a tampered hash in DB
-    chk_mock.first.return_value = (seq_id, "bad" * 21 + "b", now)
+    chk_mock.first.return_value = (2, seq_id, "bad" * 21 + "b", now, "local:ed25519:v1")
 
     state_mock = MagicMock()
     state_mock.first.return_value = (seq_id + 1,)

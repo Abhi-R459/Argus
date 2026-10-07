@@ -7,6 +7,10 @@ export class ApiError extends Error {
   }
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
 /**
  * A wrapper around fetch that attaches the Clerk JWT token.
  * Use this inside a React component context where `getToken` from `useAuth()` is available.
@@ -14,9 +18,12 @@ export class ApiError extends Error {
 export async function fetchWithAuth(
   url: string,
   options: RequestInit = {},
-  getToken: () => Promise<string | null>
+  getToken: (options?: { skipCache?: boolean }) => Promise<string | null>
 ) {
-  const token = await getToken();
+  const isE2EMock = Boolean(import.meta.env.DEV && typeof window !== 'undefined' && window.__E2E_ROLE__);
+  const token = isE2EMock
+    ? window.__E2E_TOKEN__ || 'e2e-mock-token'
+    : await getToken();
   
   const headers = new Headers(options.headers);
   if (token) {
@@ -28,21 +35,38 @@ export async function fetchWithAuth(
     headers.set('Content-Type', 'application/json');
   }
 
-  const response = await fetch(`${API_BASE_URL}${url}`, {
+  let response = await fetch(`${API_BASE_URL}${url}`, {
     ...options,
     headers
   });
 
+  // Clerk may return a cached session JWT that expires between UI actions.
+  // Refresh once on authorization failure, then surface the server response.
+  if (response.status === 401 && !isE2EMock) {
+    const freshToken = await getToken({ skipCache: true });
+    if (freshToken && freshToken !== token) {
+      const retryHeaders = new Headers(headers);
+      retryHeaders.set('Authorization', `Bearer ${freshToken}`);
+      response = await fetch(`${API_BASE_URL}${url}`, {
+        ...options,
+        headers: retryHeaders,
+      });
+    }
+  }
+
   if (!response.ok) {
     let errorDetail = 'An unexpected API error occurred';
     try {
-      const errorData = await response.json();
-      if (typeof errorData.detail === 'string') {
-        errorDetail = errorData.detail;
-      } else if (Array.isArray(errorData.detail)) {
-        errorDetail = errorData.detail.map((d: any) => d.msg || JSON.stringify(d)).join('; ');
-      } else if (errorData.detail) {
-        errorDetail = JSON.stringify(errorData.detail);
+      const errorData: unknown = await response.json();
+      const detail = isRecord(errorData) ? errorData.detail : undefined;
+      if (typeof detail === 'string') {
+        errorDetail = detail;
+      } else if (Array.isArray(detail)) {
+        errorDetail = detail.map((item) =>
+          isRecord(item) && typeof item.msg === 'string' ? item.msg : JSON.stringify(item),
+        ).join('; ');
+      } else if (detail) {
+        errorDetail = JSON.stringify(detail);
       }
     } catch {
       // Ignore JSON parse errors for non-JSON error responses

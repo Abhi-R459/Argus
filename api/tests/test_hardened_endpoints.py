@@ -3,6 +3,8 @@ from httpx import AsyncClient
 from unittest.mock import AsyncMock, patch, MagicMock
 from api.config import get_settings
 from api.models.user import User
+from api.main import app
+from api.middleware.clerk import verify_clerk_token
 
 pytestmark = pytest.mark.asyncio
 
@@ -28,16 +30,47 @@ async def test_role_switch_gated_by_setting(client_hr: AsyncClient):
     finally:
         settings.ALLOW_DEMO_ROLE_SWITCH = original_flag
 
+
+async def test_untrusted_email_and_metadata_cannot_provision_auditor(client_unauth: AsyncClient):
+    """A name containing audit and user-controlled role claims must not grant access."""
+    from types import SimpleNamespace
+
+    session = AsyncMock()
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = None
+    session.execute.return_value = result
+    session.__aenter__.return_value = session
+    session.__aexit__.return_value = None
+
+    app.dependency_overrides[verify_clerk_token] = lambda: {
+        "sub": "new_clerk_user",
+        "email": "auditor@unprovisioned.test",
+        "email_verified": True,
+        "unsafe_metadata": {"role": "compliance_auditor"},
+    }
+    with patch("api.routers.auth.get_session_factory", return_value=MagicMock(return_value=session)), \
+         patch("api.routers.auth.get_settings", return_value=SimpleNamespace(
+             HR_ADMIN_EMAILS="", COMPLIANCE_AUDITOR_EMAILS=""
+         )):
+        response = await client_unauth.post("/api/auth/sync")
+    assert response.status_code == 403
+
 async def test_concurrency_benchmark_diagnostic_path(client_auditor: AsyncClient, mock_db_session: AsyncMock):
     """Assert /api/analytics/diagnostics/concurrency-benchmark is accessible to auditors."""
-    m_tail = MagicMock(); m_tail.scalar.return_value = 10
-    m_row = MagicMock(); m_row.first.return_value = (10, "dummy_hash")
-    mock_db_session.execute.side_effect = [m_tail, m_row, m_row]
+    def make_worker_session():
+        worker_session = AsyncMock()
+        worker_session.__aenter__.return_value = worker_session
+        worker_session.__aexit__.return_value = None
+        result = MagicMock()
+        result.one.return_value = (10, 25, True)
+        worker_session.execute.return_value = result
+        return worker_session
 
-    response = await client_auditor.post(
-        "/api/analytics/diagnostics/concurrency-benchmark",
-        json={"workers": 2},
-    )
+    with patch("api.routers.audits.get_session_factory", return_value=MagicMock(side_effect=make_worker_session)):
+        response = await client_auditor.post(
+            "/api/analytics/diagnostics/concurrency-benchmark",
+            json={"workers": 2},
+        )
     assert response.status_code == 200
     payload = response.json()
     assert payload["workers"] == 2

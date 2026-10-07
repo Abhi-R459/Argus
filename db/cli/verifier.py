@@ -72,35 +72,12 @@ def _configure_logging(level_name: str) -> None:
 # Database connection helper
 # ---------------------------------------------------------------------------
 def resolve_db_url(db_url: str | None = None) -> str:
-    """Resolve PostgreSQL connection string for superuser administration/verification."""
-    if db_url:
-        url = db_url
-    else:
-        try:
-            from dotenv import load_dotenv
-            load_dotenv()
-        except Exception:
-            pass
-        url = os.environ.get("DATABASE_URL") or os.environ.get("DATABASE_URL_MIGRATIONS")
-
-    if not url and os.path.exists(".env"):
-        with open(".env", "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if line.startswith("DATABASE_URL_MIGRATIONS="):
-                    url = line.split("=", 1)[1].strip().strip('"').strip("'")
-                    break
-                elif line.startswith("DATABASE_URL=") and not url:
-                    url = line.split("=", 1)[1].strip().strip('"').strip("'")
-
-    if not url:
-        url = "postgresql://postgres:password@localhost:5433/argus"
-
-    if url.startswith("postgresql+asyncpg://"):
-        url = url.replace("postgresql+asyncpg://", "postgresql://", 1)
-
-    return url
-
+    """Resolve a configured database URL without falling back to credentials."""
+    try:
+        from db.cli.db_url import resolve_db_url as resolve
+    except ImportError:
+        from db_url import resolve_db_url as resolve
+    return resolve(db_url)
 
 def get_connection(db_url: str | None = None) -> Any:
     """Create a psycopg2 connection from a URL.
@@ -163,6 +140,7 @@ def _print_verification_report(
     mode: str = "sequential",
     num_segments: int = 1,
     workers_used: int = 1,
+    witness_report: dict | None = None,
 ) -> None:
     """Prints the standard chain verification report to stdout."""
     print(f"\n{'='*60}")
@@ -176,6 +154,9 @@ def _print_verification_report(
     print(f"Hash mismatches        : {len(result.mismatches)}")
     print(f"Sequence gaps          : {len(result.gaps)}")
     print(f"Orphaned entries       : {len(result.orphans)}")
+    if witness_report:
+        q_status = "VALID" if witness_report.get("quorum_satisfied") else "FAILED"
+        print(f"Witness Quorum         : {witness_report.get('cosigned_witnesses', 0)}/{witness_report.get('total_witnesses', 0)} {q_status} (Threshold: {witness_report.get('required_threshold', 2)})")
     print(f"Chain status           : {'✅ VALID' if result.is_valid else '❌ TAMPERED'}")
     print(f"{'='*60}\n")
 
@@ -193,6 +174,38 @@ def _print_verification_report(
         print("ORPHANED ENTRIES:")
         for o in result.orphans:
             print(f"  seq={o['sequence_id']}: expected_prev={o['expected_prev'][:16]}… actual_prev={o['actual_prev'][:16]}…")
+
+
+def _check_witness_quorum(conn: Any) -> dict | None:
+    """Verify witness notes using the API's configured store and trusted keys."""
+    try:
+        from db.cli.anchor_store import MultiWitnessAnchorStore
+        from db.cli.witness_config import (
+            load_origin_public_key,
+            load_public_keys,
+            resolve_witness_store_path,
+        )
+        witness_path = resolve_witness_store_path()
+        with conn.cursor() as cur:
+            cur.execute("SELECT checkpoint_id, key_id FROM chain_checkpoints ORDER BY checkpoint_id DESC LIMIT 1")
+            row = cur.fetchone()
+        if row:
+            cid = row[0]
+            note_path = witness_path / f"{cid}.note"
+            if note_path.is_file():
+                keys = load_public_keys(os.environ.get("WITNESS_PUBLIC_KEYS_DIR"))
+                origin_key = load_origin_public_key(
+                    row[1], os.environ.get("CHECKPOINT_PUBLIC_KEYS_DIR", "./keys")
+                )
+                mw = MultiWitnessAnchorStore(
+                    base_path=str(witness_path),
+                    witness_public_keys=keys,
+                    origin_public_key_pem=origin_key,
+                )
+                return mw.get_witness_report(cid)
+    except Exception as exc:
+        logger.debug("Multi-witness verification check skipped: %s", exc)
+    return None
 
 
 def _cmd_verify_chain(args: argparse.Namespace) -> int:
@@ -276,7 +289,11 @@ def _cmd_verify_chain(args: argparse.Namespace) -> int:
                 start_seq=args.start_seq,
                 page_size=args.page_size,
             )
-            _print_verification_report(result, mode="sequential")
+            from db.cli.witness_config import resolve_witness_store_path
+            witness_report = _check_witness_quorum(conn) if (getattr(args, 'multi_witness', False) or resolve_witness_store_path().exists()) else None
+            if getattr(args, 'multi_witness', False) and (not witness_report or not witness_report.get('quorum_satisfied')):
+                result.is_valid = False
+            _print_verification_report(result, mode="sequential", witness_report=witness_report)
             return 0 if result.is_valid else 1
 
         # ------------------------------------------------------------------
@@ -387,11 +404,17 @@ def _cmd_verify_chain(args: argparse.Namespace) -> int:
             result.orphans.sort(key=lambda x: x.get('sequence_id', 0))
             result.is_valid = False
 
+        from db.cli.witness_config import resolve_witness_store_path
+        witness_report = _check_witness_quorum(conn) if (getattr(args, 'multi_witness', False) or resolve_witness_store_path().exists()) else None
+        if getattr(args, 'multi_witness', False) and (not witness_report or not witness_report.get('quorum_satisfied')):
+            result.is_valid = False
+
         _print_verification_report(
             result,
             mode="parallel",
             num_segments=num_segments,
             workers_used=actual_workers,
+            witness_report=witness_report,
         )
         return 0 if result.is_valid else 1
 
@@ -427,24 +450,37 @@ def _cmd_create_checkpoint(args: argparse.Namespace) -> int:
         )
 
         entry_hashes: list[str] = []
+        batch_rows: list[dict] = []
         checkpoint_count = 0
         last_seq_id = 0
 
         for batch in walk_chain(conn, start_seq=0, page_size=args.page_size):
             for row in batch:
                 entry_hashes.append(row["entry_hash"])
+                batch_rows.append(row)
                 last_seq_id = row["sequence_id"]
 
                 if len(entry_hashes) >= interval:
-                    # Compute checkpoint
+                    # Compute checkpoint hash
                     cp_hash = compute_checkpoint_hash(entry_hashes)
+
+                    merkle_root = None
+                    merkle_leaf_count = None
+                    try:
+                        from db.cli.merkle_tree import ArgusMerkleTree
+                        tree = ArgusMerkleTree.build(batch_rows)
+                        merkle_root = tree.root
+                        merkle_leaf_count = tree.leaf_count
+                    except Exception as m_err:
+                        logger.debug("Merkle tree creation: %s", m_err)
 
                     # Placeholder signature (unsigned) — sign-checkpoint
                     # must be run separately to sign stored checkpoints.
                     placeholder_sig = b"\x00" * 64
 
                     stored = store_checkpoint(
-                        conn, last_seq_id, cp_hash, placeholder_sig
+                        conn, last_seq_id, cp_hash, placeholder_sig,
+                        merkle_root=merkle_root, merkle_leaf_count=merkle_leaf_count,
                     )
                     checkpoint_count += 1
 
@@ -453,25 +489,43 @@ def _cmd_create_checkpoint(args: argparse.Namespace) -> int:
                         "event": "checkpoint_created",
                         "checkpoint_sequence_id": last_seq_id,
                         "checkpoint_hash": cp_hash,
+                        "merkle_root": merkle_root,
+                        "merkle_leaf_count": merkle_leaf_count,
                         "entries_in_range": len(entry_hashes),
                         "newly_stored": stored,
                     }
                     print(json.dumps(event))
-                    logger.debug("Checkpoint at seq=%d: %s", last_seq_id, cp_hash)
+                    logger.debug("Checkpoint at seq=%d: %s (Merkle: %s)", last_seq_id, cp_hash, merkle_root)
 
                     entry_hashes = []
+                    batch_rows = []
 
         # Handle remaining entries (partial interval)
         if entry_hashes:
             cp_hash = compute_checkpoint_hash(entry_hashes)
+            merkle_root = None
+            merkle_leaf_count = None
+            try:
+                from db.cli.merkle_tree import ArgusMerkleTree
+                tree = ArgusMerkleTree.build(batch_rows)
+                merkle_root = tree.root
+                merkle_leaf_count = tree.leaf_count
+            except Exception as m_err:
+                logger.debug("Merkle tree creation for partial: %s", m_err)
+
             placeholder_sig = b"\x00" * 64
-            stored = store_checkpoint(conn, last_seq_id, cp_hash, placeholder_sig)
+            stored = store_checkpoint(
+                conn, last_seq_id, cp_hash, placeholder_sig,
+                merkle_root=merkle_root, merkle_leaf_count=merkle_leaf_count,
+            )
             checkpoint_count += 1
 
             event = {
                 "event": "checkpoint_created",
                 "checkpoint_sequence_id": last_seq_id,
                 "checkpoint_hash": cp_hash,
+                "merkle_root": merkle_root,
+                "merkle_leaf_count": merkle_leaf_count,
                 "entries_in_range": len(entry_hashes),
                 "newly_stored": stored,
                 "partial": True,
@@ -676,45 +730,96 @@ def _cmd_sign_checkpoint(args: argparse.Namespace) -> int:
         logger.info("Loading signing key from %s", key_path)
         private_key = load_private_key(key_path)
 
-        # Fetch checkpoint
-        checkpoint = get_checkpoint(conn, args.checkpoint_id)
+        # Fetch checkpoint (including merkle columns)
+        checkpoint = get_checkpoint(conn, args.checkpoint_id, include_key_id=True, include_merkle=True)
         if checkpoint is None:
             logger.error(
                 "Checkpoint %d not found.", args.checkpoint_id
             )
             return 1
 
-        # Sign
-        signature = sign_checkpoint(private_key, checkpoint["checkpoint_hash"])
+        merkle_root = checkpoint.get("merkle_root")
+        merkle_leaf_count = checkpoint.get("merkle_leaf_count")
+
+        # If merkle_root is missing, compute it from audit_log for the checkpoint interval
+        if not merkle_root:
+            try:
+                from db.cli.merkle_tree import ArgusMerkleTree
+                prev_seq = 0
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT sequence_id FROM chain_checkpoints WHERE sequence_id < %s ORDER BY sequence_id DESC LIMIT 1",
+                        (checkpoint["sequence_id"],)
+                    )
+                    prev_r = cur.fetchone()
+                    if prev_r:
+                        prev_seq = prev_r[0]
+                    cur.execute(
+                        """
+                        SELECT sequence_id, actor_user_id, employee_id, action, table_name, row_id,
+                               old_value, new_value, severity, entry_hash, previous_hash, created_at
+                        FROM audit_log
+                        WHERE sequence_id > %s AND sequence_id <= %s
+                        ORDER BY sequence_id ASC;
+                        """,
+                        (prev_seq, checkpoint["sequence_id"])
+                    )
+                    raw_rows = cur.fetchall()
+                    rows = [dict(r) if isinstance(r, dict) else {
+                        "sequence_id": r[0], "actor_user_id": r[1], "employee_id": r[2], "action": r[3],
+                        "table_name": r[4], "row_id": r[5], "old_value": r[6], "new_value": r[7],
+                        "severity": r[8], "entry_hash": r[9], "previous_hash": r[10], "created_at": r[11]
+                    } for r in raw_rows]
+                    if rows:
+                        tree = ArgusMerkleTree.build(rows)
+                        merkle_root = tree.root
+                        merkle_leaf_count = tree.leaf_count
+            except Exception as m_err:
+                logger.debug("Could not derive Merkle root for checkpoint: %s", m_err)
+
+        # Sign: binds merkle_root into Ed25519 signature payload if present
+        sign_target = f"{checkpoint['checkpoint_hash']}:{merkle_root}" if merkle_root else checkpoint["checkpoint_hash"]
+        signature = sign_checkpoint(private_key, sign_target)
         key_id = getattr(args, "key_id", "local:ed25519:v1")
         logger.info(
-            "Signed checkpoint %d with key_id='%s' (sig=%s…)",
+            "Signed checkpoint %d with key_id='%s' (sig=%s…, merkle_root=%s)",
             args.checkpoint_id,
             key_id,
             signature.hex()[:16],
+            merkle_root,
         )
 
-        # Update the signature and key_id in the database
+        # Update the signature, key_id, merkle_root, and merkle_leaf_count in the database
         with conn.cursor() as cur:
             try:
                 cur.execute(
-                    "UPDATE chain_checkpoints SET signature = %s, key_id = %s "
+                    "UPDATE chain_checkpoints SET signature = %s, key_id = %s, merkle_root = %s, merkle_leaf_count = %s "
                     "WHERE checkpoint_id = %s",
-                    (psycopg2.Binary(signature), key_id, args.checkpoint_id),
+                    (psycopg2.Binary(signature), key_id, merkle_root, merkle_leaf_count, args.checkpoint_id),
                 )
             except Exception:
                 conn.rollback()
-                cur.execute(
-                    "UPDATE chain_checkpoints SET signature = %s "
-                    "WHERE checkpoint_id = %s",
-                    (psycopg2.Binary(signature), args.checkpoint_id),
-                )
+                try:
+                    cur.execute(
+                        "UPDATE chain_checkpoints SET signature = %s, key_id = %s "
+                        "WHERE checkpoint_id = %s",
+                        (psycopg2.Binary(signature), key_id, args.checkpoint_id),
+                    )
+                except Exception:
+                    conn.rollback()
+                    cur.execute(
+                        "UPDATE chain_checkpoints SET signature = %s "
+                        "WHERE checkpoint_id = %s",
+                        (psycopg2.Binary(signature), args.checkpoint_id),
+                    )
         conn.commit()
 
         print(json.dumps({
             "event": "checkpoint_signed",
             "checkpoint_id": args.checkpoint_id,
             "checkpoint_hash": checkpoint["checkpoint_hash"],
+            "merkle_root": merkle_root,
+            "merkle_leaf_count": merkle_leaf_count,
             "key_id": key_id,
             "signature_hex": signature.hex(),
         }))
@@ -759,7 +864,9 @@ def _cmd_anchor(args: argparse.Namespace) -> int:
 
     try:
         # Fetch checkpoint
-        checkpoint = get_checkpoint(conn, args.checkpoint_id)
+        checkpoint = get_checkpoint(
+            conn, args.checkpoint_id, include_key_id=True, include_merkle=True
+        )
         if checkpoint is None:
             logger.error(
                 "Checkpoint %d not found.", args.checkpoint_id
@@ -809,7 +916,10 @@ def _cmd_anchor(args: argparse.Namespace) -> int:
             "sequence_id": checkpoint["sequence_id"],
             "checkpoint_hash": checkpoint["checkpoint_hash"],
             "signature_hex": sig.hex(),
+            "key_id": checkpoint.get("key_id"),
+            "merkle_root": checkpoint.get("merkle_root"),
             "created_at": str(checkpoint["created_at"]),
+            "anchored_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         })
 
         ref = store.push(checkpoint["checkpoint_id"], payload)
@@ -1069,6 +1179,12 @@ def build_parser() -> argparse.ArgumentParser:
             "0 (default) uses os.cpu_count()."
         ),
     )
+    p_verify.add_argument(
+        "--multi-witness",
+        action="store_true",
+        default=False,
+        help="Verify multi-witness RFC 9162 cosignatures and 2-of-3 threshold quorum.",
+    )
 
     # ---- create-checkpoint ----
     p_checkpoint = subparsers.add_parser(
@@ -1141,7 +1257,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_auto.add_argument(
         "--anchor-type",
-        choices=["local", "github"],
+        choices=["local", "github", "multi_witness"],
         default="local",
         help="External anchor store type (default: local)",
     )
@@ -1191,7 +1307,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_anchor.add_argument(
         "--type",
-        choices=["local", "github"],
+        choices=["local", "github", "multi_witness", "rfc3161", "s3_worm"],
         default="local",
         help="Anchor store type (default: local)",
     )
@@ -1337,7 +1453,11 @@ def main() -> int:
         parser.print_help()
         return 1
 
-    return handler(args)
+    try:
+        return handler(args)
+    except ValueError as exc:
+        logger.error("Command could not run: %s", exc)
+        return 2
 
 
 if __name__ == "__main__":

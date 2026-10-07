@@ -19,6 +19,46 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    # Supabase grants its Data API roles access to newly created public objects
+    # by default. Argus uses Clerk and private PostgreSQL roles, so remove those
+    # defaults before creating any objects. Stock PostgreSQL without these
+    # Supabase roles remains supported.
+    if op.get_bind().dialect.name == "postgresql":
+        op.execute("""
+        DO $$
+        DECLARE
+            v_owner NAME := current_user;
+            v_role NAME;
+        BEGIN
+            REVOKE USAGE, CREATE ON SCHEMA public FROM PUBLIC;
+            FOR v_role IN
+                SELECT rolname FROM pg_roles
+                WHERE rolname IN ('anon', 'authenticated', 'service_role')
+            LOOP
+                EXECUTE format('REVOKE USAGE, CREATE ON SCHEMA public FROM %I', v_role);
+                EXECUTE format(
+                    'ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA public REVOKE ALL ON TABLES FROM %I',
+                    v_owner, v_role
+                );
+                EXECUTE format(
+                    'ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA public REVOKE ALL ON SEQUENCES FROM %I',
+                    v_owner, v_role
+                );
+                EXECUTE format(
+                    'ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA public REVOKE EXECUTE ON ROUTINES FROM %I',
+                    v_owner, v_role
+                );
+            END LOOP;
+            -- PostgreSQL grants routine execution to PUBLIC by default. This
+            -- global revoke is required because schema-level revokes cannot
+            -- subtract privileges granted by the global default ACL.
+            EXECUTE format(
+                'ALTER DEFAULT PRIVILEGES FOR ROLE %I REVOKE EXECUTE ON ROUTINES FROM PUBLIC',
+                v_owner
+            );
+        END $$;
+        """)
+
     # 1. Departments Table
     op.create_table(
         'departments',

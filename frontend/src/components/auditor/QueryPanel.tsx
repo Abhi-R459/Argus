@@ -10,7 +10,6 @@ export default function QueryPanel() {
   const { data, isLoading, isError, refetch } = useQuery<SystemMetrics>({
     queryKey: ['systemMetrics'],
     queryFn: () => fetchSystemMetrics(() => getToken()),
-    refetchInterval: 4000,
   });
 
   return (
@@ -32,7 +31,7 @@ export default function QueryPanel() {
             title="Refresh metrics"
           />
           <span className="inline-flex items-center space-x-1.5 px-2.5 py-1 bg-linear-success/10 text-linear-success text-xs font-medium rounded-md border border-linear-success/20">
-            <div className="w-1.5 h-1.5 bg-linear-success rounded-full animate-pulse" />
+            <div className="w-1.5 h-1.5 bg-linear-success rounded-full" />
             <span>PostgreSQL Active</span>
           </span>
         </div>

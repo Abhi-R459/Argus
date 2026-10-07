@@ -18,9 +18,9 @@ async def sync_user(
     """Synchronize the authenticated Clerk user with the local users table.
     
     Looks up the user by clerk_user_id. If found, returns the existing record.
-    If the user does not exist in the local users table, returns 401 — 
-    new users must be provisioned by an admin (the users table has a 
-    role column that must be set explicitly).
+    A first-time account is created only when its verified email is listed in
+    the server-side role allowlist. Email contents and user-controlled metadata
+    are never used to grant a role.
     """
     clerk_user_id = token_payload.get("sub")
     email = token_payload.get("email", "")
@@ -42,14 +42,34 @@ async def sync_user(
         user = result.scalar_one_or_none()
         
         if user is None:
-            # Auto-provision: create user with data from Clerk token
-            # Determine role: check email keyword or Clerk metadata
-            assigned_role = "hr_admin"
-            if "audit" in (email or "").lower() or "compliance" in (email or "").lower():
+            settings = get_settings()
+            normalized_email = email.strip().lower()
+            verified_email = token_payload.get("email_verified") is True
+            hr_admin_emails = {
+                item.strip().lower()
+                for item in settings.HR_ADMIN_EMAILS.split(",")
+                if item.strip()
+            }
+            auditor_emails = {
+                item.strip().lower()
+                for item in settings.COMPLIANCE_AUDITOR_EMAILS.split(",")
+                if item.strip()
+            }
+
+            if not verified_email or not normalized_email:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="A verified, administrator-provisioned account is required.",
+                )
+            if normalized_email in hr_admin_emails:
+                assigned_role = "hr_admin"
+            elif normalized_email in auditor_emails:
                 assigned_role = "compliance_auditor"
-            metadata = token_payload.get("public_metadata") or token_payload.get("unsafe_metadata") or {}
-            if metadata.get("role") in ("hr_admin", "compliance_auditor"):
-                assigned_role = metadata.get("role")
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="This account has not been provisioned for Argus. Contact an administrator.",
+                )
 
             user = User(
                 clerk_user_id=clerk_user_id,

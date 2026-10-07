@@ -485,3 +485,71 @@ def test_cli_auto_checkpoint_run_once_trigger_and_skip(monkeypatch, capsys):
             out = capsys.readouterr().out
             assert "checkpoint_skipped" in out
 
+
+def test_create_checkpoint_with_merkle_tree():
+    """Verify that create_dual_trigger_checkpoint computes and stores RFC 6962 Merkle tree."""
+    mock_conn = MagicMock()
+    mock_cur = MagicMock()
+    mock_conn.cursor.return_value.__enter__.return_value = mock_cur
+
+    # Mock should_create_checkpoint to return True
+    mock_cur.fetchone.return_value = {
+        "checkpoint_id": 42,
+        "sequence_id": 125,
+        "checkpoint_hash": "c" * 64,
+        "signature": b"s" * 64,
+        "created_at": datetime.datetime.now(datetime.timezone.utc),
+    }
+
+    raw_audit_rows = [
+        {
+            "sequence_id": i,
+            "actor_user_id": 1,
+            "employee_id": 42,
+            "action": "UPDATE",
+            "table_name": "employees",
+            "row_id": 42,
+            "old_value": {"salary": 80000},
+            "new_value": {"salary": 85000},
+            "severity": "INFO",
+            "entry_hash": f"hash_{i:04d}" + "0" * 55,
+            "previous_hash": "0" * 64,
+            "created_at": datetime.datetime.now(datetime.timezone.utc),
+        }
+        for i in range(101, 126)
+    ]
+
+    with patch(
+        "db.cli.checkpoint_store.should_create_checkpoint",
+        return_value=(True, "entry_count_threshold", {"last_checkpoint_seq": 100}),
+    ), patch(
+        "db.cli.checkpoint_store.get_uncheckpointed_entries",
+        return_value=raw_audit_rows,
+    ), patch(
+        "db.cli.checkpoint_store.get_uncheckpointed_rows",
+        return_value=raw_audit_rows,
+    ), patch(
+        "db.cli.checkpoint_store.store_checkpoint",
+        return_value=True,
+    ) as mock_store:
+        mock_signer = MagicMock()
+        mock_signer.sign.return_value = b"signed_merkle_checkpoint"
+        mock_signer.key_id = "test:key:v1"
+
+        res = create_dual_trigger_checkpoint(
+            mock_conn,
+            signer=mock_signer,
+        )
+
+        assert res is not None
+        assert res["merkle_root"] is not None
+        assert len(res["merkle_root"]) == 64
+        assert res["merkle_leaf_count"] == 25
+
+        # Assert store_checkpoint was called with merkle_root and merkle_leaf_count
+        mock_store.assert_called_once()
+        args, kwargs = mock_store.call_args
+        assert kwargs.get("merkle_root") == res["merkle_root"]
+        assert kwargs.get("merkle_leaf_count") == 25
+
+

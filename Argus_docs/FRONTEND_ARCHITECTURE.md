@@ -43,10 +43,13 @@ Argus utilizes two distinct dashboards based on the logged-in user's role, enfor
     - `AuditChainPage.tsx` & `ChainVisualization.tsx`: Dedicated full-page audit chain block visualizer with keyset pagination and sequence deep-linking.
     - `DetailSheet.tsx`: Origin-aware sliding block inspector drawer with field-level syntax-highlighted diffs (`DiffViewer.tsx`).
     - `VerificationControl.tsx` & `SecurityPosture.tsx`: On-demand cryptographic verifier trigger with live 0-100 SVG posture dial.
+    - `AnchorStatus.tsx`: Shows the configured anchor state, checkpoint-to-tail delta, and witness verification status. Individual witness rows are rendered only when witness evidence is present; an absent persisted witness note remains visibly **Unverified** without an empty list panel.
     - `AuditLogTable.tsx`: Forensic log explorer with keyset pagination, multi-filtering, and HMAC blind index search.
     - `TimeTravelView.tsx`: Zero-latency typeahead combobox with sub-second datetime precision (`HH:mm:ss`), quick presets, and chronological mutation timeline replay.
     - `ExportControl.tsx`: Secure exporter streaming signed evidence JSON and air-gapped `.arguspack` bundles.
     - `RiskPanel.tsx` & `ConcurrencyLab.tsx`: Real-time risk alert reviews and live 2PL multi-worker race testing.
+
+- **HR Settings (`src/pages/hr/HRSettings.tsx`):** Includes an on-demand checkpoint action for authorized HR admins. The UI reports the signed sequence range; it does not imply that a separate external anchor was created.
 
 ## Motion Physics & Transition Engineering
 

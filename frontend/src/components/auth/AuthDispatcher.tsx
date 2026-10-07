@@ -2,11 +2,12 @@ import { Navigate } from 'react-router-dom';
 import { useAuth } from '@clerk/clerk-react';
 import { useQuery } from '@tanstack/react-query';
 import { fetchMyProfile, UserProfile } from '../../services/auditService';
+import ProfileLoadError from './ProfileLoadError';
 
 export default function AuthDispatcher() {
   const { getToken, isLoaded } = useAuth();
 
-  const { data: profile, isLoading, isError } = useQuery<UserProfile>({
+  const { data: profile, isLoading, isError, refetch } = useQuery<UserProfile>({
     queryKey: ['myProfile'],
     queryFn: () => fetchMyProfile(() => getToken()),
     enabled: isLoaded,
@@ -24,8 +25,7 @@ export default function AuthDispatcher() {
   }
 
   if (isError || !profile) {
-    // Default fallback to HR dashboard if error
-    return <Navigate to="/hr/dashboard" replace />;
+    return <ProfileLoadError onRetry={() => void refetch()} />;
   }
 
   if (profile.role === 'compliance_auditor') {

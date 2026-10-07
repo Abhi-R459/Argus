@@ -70,10 +70,12 @@ function getMutationSemanticNote(log: AuditLogItem) {
     if (log.action === 'DELETE') return 'Employee Record Deactivated / Archived';
   }
   if (log.table_name === 'salary_history') {
-    const amt = (log.new_value as any)?.amount;
-    const eff = (log.new_value as any)?.effective_date;
-    const formatted = amt ? formatINR(Number(amt)) : 'Rate Adjustment';
-    return `Compensation Updated to ${formatted}${eff ? ` (Effective: ${eff})` : ''}`;
+    const amt = log.new_value?.amount;
+    const eff = log.new_value?.effective_date;
+    const formatted = typeof amt === 'number' || typeof amt === 'string'
+      ? formatINR(Number(amt))
+      : 'Rate Adjustment';
+    return `Compensation Updated to ${formatted}${typeof eff === 'string' ? ` (Effective: ${eff})` : ''}`;
   }
   return `${log.action} on ${log.table_name}`;
 }
@@ -85,6 +87,7 @@ export default function TimeTravelView() {
   const [employeeIdInput, setEmployeeIdInput] = useState('');
   const [dateInput, setDateInput] = useState('');
   const [timeInput, setTimeInput] = useState('');
+  const [revealPii, setRevealPii] = useState(false);
   const [activeTimestamp, setActiveTimestamp] = useState<string | null>(null);
   const [queryParams, setQueryParams] = useState<{ id: number; timestamp: string; sequenceId?: number | null } | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
@@ -131,8 +134,8 @@ export default function TimeTravelView() {
     data: directoryData,
     isLoading: isDirectoryLoading,
   } = useQuery({
-    queryKey: ['timeTravelDirectory'],
-    queryFn: () => fetchEmployees(getToken, 100),
+    queryKey: ['timeTravelDirectory', revealPii],
+    queryFn: () => fetchEmployees(getToken, 100, undefined, 1, undefined, undefined, revealPii),
     staleTime: 60000,
   });
 
@@ -142,8 +145,8 @@ export default function TimeTravelView() {
   const {
     data: searchResultsData,
   } = useQuery({
-    queryKey: ['employeesSearch', debouncedSearchQuery],
-    queryFn: () => fetchEmployees(getToken, 20, debouncedSearchQuery || undefined),
+    queryKey: ['employeesSearch', debouncedSearchQuery, revealPii],
+    queryFn: () => fetchEmployees(getToken, 20, debouncedSearchQuery || undefined, 1, undefined, undefined, revealPii),
     enabled: isDropdownOpen && debouncedSearchQuery.trim().length > 0,
     staleTime: 30000,
   });
@@ -185,8 +188,8 @@ export default function TimeTravelView() {
 
   // ── Fetch Targeted Details for Currently Selected Employee ───────────────────
   const { data: selectedEmpData } = useQuery({
-    queryKey: ['employeeDetail', parsedEmpId],
-    queryFn: () => fetchEmployees(getToken, 1, String(parsedEmpId)),
+    queryKey: ['employeeDetail', parsedEmpId, revealPii],
+    queryFn: () => fetchEmployees(getToken, 1, String(parsedEmpId), 1, undefined, undefined, revealPii),
     enabled: isValidEmpId,
     staleTime: 60000,
   });
@@ -206,20 +209,21 @@ export default function TimeTravelView() {
 
   const employeeLogs: AuditLogItem[] = employeeLogsData?.items || [];
 
+  const { data: employeeOriginData } = useQuery({
+    queryKey: ['employeeAuditOrigin', parsedEmpId],
+    queryFn: () => fetchAuditLogs(
+      { employee_id: parsedEmpId, table_name: 'employees', action: 'INSERT', limit: 1 },
+      getToken,
+    ),
+    enabled: isValidEmpId,
+    staleTime: 60000,
+  });
+
   const latestMutation = useMemo(() => {
     return employeeLogs.length > 0 ? employeeLogs[0] : null;
   }, [employeeLogs]);
 
-  const initialMutation = useMemo(() => {
-    if (employeeLogs.length === 0) return null;
-    // Walk backwards from oldest to newest in the descending list
-    for (let i = employeeLogs.length - 1; i >= 0; i--) {
-      if (employeeLogs[i].table_name === 'employees' && employeeLogs[i].action.toUpperCase() === 'INSERT') {
-        return employeeLogs[i];
-      }
-    }
-    return employeeLogs[employeeLogs.length - 1];
-  }, [employeeLogs]);
+  const initialMutation = employeeOriginData?.items?.[0] ?? null;
 
   // Find active log index corresponding to current queryParams
   const activeLogIndex = useMemo(() => {
@@ -280,10 +284,10 @@ export default function TimeTravelView() {
 
   // ── Time-Travel Query Execution ─────────────────────────────────────────────
   const { data: record, isLoading, isError, error } = useQuery({
-    queryKey: ['timeTravel', queryParams?.id, queryParams?.timestamp, queryParams?.sequenceId],
+    queryKey: ['timeTravel', queryParams?.id, queryParams?.timestamp, queryParams?.sequenceId, revealPii],
     queryFn: async () => {
       if (!queryParams) return null;
-      return fetchTimeTravelState(queryParams.id, queryParams.timestamp, getToken, queryParams.sequenceId);
+      return fetchTimeTravelState(queryParams.id, queryParams.timestamp, getToken, queryParams.sequenceId, revealPii);
     },
     enabled: !!queryParams,
     retry: false,
@@ -308,7 +312,7 @@ export default function TimeTravelView() {
   const isHistoricalDelta = useMemo(() => {
     if (!record || !selectedEmployee) return false;
     return (
-      Math.abs(record.salary - (selectedEmployee.salary || 0)) > 0.01 ||
+      (record.salary !== null && Math.abs(record.salary - (selectedEmployee.salary || 0)) > 0.01) ||
       record.role_title !== selectedEmployee.role_title ||
       record.is_active !== selectedEmployee.is_active ||
       record.department_name !== selectedEmployee.department_name
@@ -463,12 +467,9 @@ export default function TimeTravelView() {
 
   const handleStepLog = (direction: 'newer' | 'older') => {
     if (employeeLogs.length === 0) return;
-    let targetIdx = 0;
-    if (activeLogIndex === -1) {
-      targetIdx = direction === 'older' ? 0 : employeeLogs.length - 1;
-    } else {
-      targetIdx = direction === 'newer' ? activeLogIndex - 1 : activeLogIndex + 1;
-    }
+    const targetIdx = activeLogIndex === -1
+      ? direction === 'older' ? 0 : employeeLogs.length - 1
+      : direction === 'newer' ? activeLogIndex - 1 : activeLogIndex + 1;
 
     if (targetIdx >= 0 && targetIdx < employeeLogs.length) {
       const targetLog = employeeLogs[targetIdx];
@@ -486,6 +487,7 @@ export default function TimeTravelView() {
           <div className="absolute top-0 right-0 p-8 opacity-5">
             <History className="w-32 h-32" />
           </div>
+
         </div>
 
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-2">
@@ -499,10 +501,21 @@ export default function TimeTravelView() {
         </div>
 
         <p className="text-sm text-linear-ink-muted mb-6 max-w-3xl">
-          Deterministically reconstruct the exact state of any employee record at any past microsecond
-          using PostgreSQL stored routine <code className="text-linear-primary font-mono text-xs">reconstruct_employee_state(:emp_id, :as_of)</code>.
+          Reconstruct the employee state as recorded at a past timestamp. Salary changes follow their audit-event time;
+          Compensation effective dates remain event metadata. This uses PostgreSQL stored routine
+          <code className="text-linear-primary font-mono text-xs"> reconstruct_employee_state(:emp_id, :as_of)</code>.
           Select an employee below or choose a historical event directly from the mutation timeline.
         </p>
+
+        <label className="mb-4 flex items-start gap-2 rounded-lg border border-linear-hairline bg-linear-surface-2/40 px-3 py-2 text-xs text-linear-ink-muted">
+          <input
+            type="checkbox"
+            checked={revealPii}
+            onChange={(event) => setRevealPii(event.target.checked)}
+            className="mt-0.5 accent-linear-primary"
+          />
+          <span>Reveal employee name, email, and salary in this investigation. Directory and time-travel access is recorded in security events.</span>
+        </label>
 
         <form onSubmit={handleSearch} autoComplete="off" className="space-y-4 max-w-5xl relative z-10">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-4 items-end">
@@ -641,11 +654,11 @@ export default function TimeTravelView() {
                   id="employee-search-listbox"
                   role="listbox"
                   aria-label="Matching Personnel"
-                  className="absolute left-0 right-0 top-full mt-1.5 z-50 bg-[#16181d] border border-linear-hairline-strong rounded-xl shadow-2xl backdrop-blur-xl ring-1 ring-black/60 overflow-hidden max-h-72 overflow-y-auto animate-in fade-in slide-in-from-top-1 duration-150"
+                  className="absolute left-0 right-0 top-full mt-1.5 z-50 bg-linear-surface-1 border border-linear-hairline-strong rounded-xl shadow-2xl backdrop-blur-xl ring-1 ring-black/60 overflow-hidden max-h-72 overflow-y-auto animate-in fade-in slide-in-from-top-1 duration-150 origin-top"
                 >
                   {isDirectoryLoading && directoryEmployees.length === 0 ? (
                     <div className="p-4 text-center text-xs text-linear-ink-muted flex items-center justify-center gap-2">
-                      <div className="w-3.5 h-3.5 border-2 border-linear-primary border-t-transparent rounded-full animate-spin" />
+                      <div className="w-3.5 h-3.5 border-2 border-linear-primary border-t-transparent rounded-full animate-fast-spin" />
                       Loading workforce directory...
                     </div>
                   ) : matchingEmployees.length === 0 ? (
@@ -995,7 +1008,10 @@ export default function TimeTravelView() {
                         {semanticNote}
                       </p>
                       <div className="text-[11px] text-linear-ink-muted flex items-center justify-between font-mono">
-                        <span>Actor: {log.actor_name}</span>
+                        <span>
+                          Actor profile: {log.actor_name}
+                          {log.actor_user_id === null ? ' (no user ID recorded)' : ` · immutable user ID ${log.actor_user_id}`}
+                        </span>
                         <span className="text-[10px] text-linear-ink-subtle">
                           {new Date(log.created_at).toLocaleTimeString()}
                         </span>
@@ -1168,7 +1184,7 @@ export default function TimeTravelView() {
                           Active
                         </span>
                       ) : (
-                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-grafana-orange/15 text-grafana-orange border border-grafana-orange/30">
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-status-warning/15 text-status-warning border border-status-warning/30">
                           Inactive
                         </span>
                       )}
@@ -1182,11 +1198,11 @@ export default function TimeTravelView() {
 
                   <div>
                     <div className="text-xs font-medium text-linear-ink-muted mb-1 uppercase tracking-wider">Full Name</div>
-                    <div className="text-base text-linear-ink font-medium">{record.full_name}</div>
+                    <div className="text-base text-linear-ink font-medium">{record.full_name ?? `Employee #${record.employee_id}`}</div>
                   </div>
                   <div>
                     <div className="text-xs font-medium text-linear-ink-muted mb-1 uppercase tracking-wider">Email</div>
-                    <div className="text-base text-linear-ink-muted font-mono text-xs">{record.email}</div>
+                    <div className="text-base text-linear-ink-muted font-mono text-xs">{record.email ?? 'Restricted'}</div>
                   </div>
 
                   <div>
@@ -1202,9 +1218,9 @@ export default function TimeTravelView() {
                   <div>
                     <div className="text-xs font-medium text-linear-ink-muted mb-1 uppercase tracking-wider">Historical Compensation</div>
                     <div className="text-lg font-mono text-linear-ink font-semibold">
-                      {formatINR(record.salary)}
+                      {record.salary === null ? 'Restricted' : formatINR(record.salary)}
                     </div>
-                    {selectedEmployee && selectedEmployee.salary && Math.abs(record.salary - selectedEmployee.salary) > 0.01 && (
+                    {record.salary !== null && selectedEmployee && selectedEmployee.salary && Math.abs(record.salary - selectedEmployee.salary) > 0.01 && (
                       <div className="text-[11px] text-linear-ink-muted font-mono mt-1">
                         Current Live: <span className="text-linear-primary font-semibold">{formatINR(selectedEmployee.salary)}</span>
                         {' '}({record.salary < selectedEmployee.salary ? '-' : '+'}{formatINR(Math.abs(record.salary - selectedEmployee.salary))})

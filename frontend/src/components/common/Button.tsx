@@ -45,26 +45,26 @@ const VARIANT_MAP: Record<PortalTheme, Record<ButtonVariant, string>> = {
     success:
       'bg-linear-success/15 hover:bg-linear-success/25 active:bg-linear-success/35 border border-linear-success/30 text-linear-success',
     accent:
-      'bg-emerald-700 hover:bg-emerald-800 active:bg-emerald-900 text-white border border-transparent shadow-xs font-medium',
+      'bg-linear-success hover:bg-linear-success/90 active:bg-linear-success/80 text-white border border-transparent shadow-xs font-medium',
     outline:
       'bg-transparent hover:bg-linear-surface-1 active:bg-linear-surface-2 border border-linear-hairline text-linear-ink',
     link: 'bg-transparent text-linear-primary hover:text-linear-primary-hover underline-offset-2 hover:underline p-0 h-auto border-0 shadow-none',
   },
   hr: {
     primary:
-      'bg-slate-900 hover:bg-slate-800 active:bg-black text-white border border-transparent shadow-xs font-medium',
+      'bg-portal-primary hover:bg-portal-primary-hover active:bg-portal-primary-focus text-white border border-transparent shadow-xs font-medium',
     secondary:
-      'bg-white hover:bg-slate-50 active:bg-slate-100 border border-slate-200 text-slate-800 shadow-2xs font-medium',
+      'bg-portal-surface-1 hover:bg-portal-surface-2 active:bg-portal-hairline border border-portal-hairline text-portal-ink font-medium',
     ghost:
       'bg-transparent hover:bg-slate-100/80 active:bg-slate-200/60 text-slate-600 hover:text-slate-900 border border-transparent',
     danger:
-      'bg-rose-50 hover:bg-rose-100 active:bg-rose-200 border border-rose-200 text-rose-700',
+      'bg-portal-danger/10 hover:bg-portal-danger/15 active:bg-portal-danger/20 border border-portal-danger/20 text-rose-800',
     success:
-      'bg-emerald-50 hover:bg-emerald-100 active:bg-emerald-200 border border-emerald-200 text-emerald-700',
+      'bg-portal-success/10 hover:bg-portal-success/15 active:bg-portal-success/20 border border-portal-success/20 text-green-800',
     accent:
-      'bg-emerald-700 hover:bg-emerald-800 active:bg-emerald-900 text-white border border-transparent shadow-xs font-medium',
+      'bg-portal-success hover:bg-green-800 active:bg-green-900 text-white border border-transparent shadow-xs font-medium',
     outline:
-      'bg-transparent hover:bg-slate-50 active:bg-slate-100 border border-slate-200 text-slate-800',
+      'bg-transparent hover:bg-portal-surface-2 active:bg-portal-hairline border border-portal-hairline text-portal-ink',
     link: 'bg-transparent text-slate-900 hover:text-slate-700 underline-offset-2 hover:underline p-0 h-auto border-0 shadow-none font-medium',
   },
 };
@@ -111,14 +111,14 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
     const focusClass =
       portalTheme === 'auditor'
         ? 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-linear-primary focus-visible:ring-offset-1 focus-visible:ring-offset-linear-canvas'
-        : 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/20 focus-visible:ring-offset-1 focus-visible:ring-offset-white';
+        : 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-portal-primary/40 focus-visible:ring-offset-1 focus-visible:ring-offset-white';
 
     const disabledClass =
       'disabled:opacity-40 disabled:pointer-events-none disabled:cursor-not-allowed select-none';
 
     const baseClass = isLink
       ? 'inline-flex items-center cursor-pointer transition-colors'
-      : `inline-flex items-center justify-center font-sans tracking-tight transition-all duration-150 cursor-pointer ${pressClass}`;
+      : `inline-flex items-center justify-center font-sans tracking-tight transition-[transform,background-color,border-color,color,box-shadow] duration-120 cursor-pointer ${pressClass}`;
 
     const variantClass = VARIANT_MAP[portalTheme][variant] || VARIANT_MAP.auditor.secondary;
     const sizeClass = isLink ? '' : SIZE_MAP[size] || SIZE_MAP.md;

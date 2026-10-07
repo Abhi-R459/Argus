@@ -1,5 +1,9 @@
 # Argus: A Native Tamper-Evident Audit Trail and Cryptographic Verification Engine for PostgreSQL
 
+> **Pre-submission draft — not ready to submit or present as a validated paper.** Performance numbers, standards/compliance language, and novelty claims elsewhere in this file have not been reconciled with the current implementation and reproducible measurements. Use [Conference Positioning and Professor Walkthrough](CONFERENCE_AND_DEMO_GUIDE.md) for the current, narrower contribution and honest demo script.
+
+> **Current witness/checkpoint caveat (2026-10-07):** Multi-witness sections in this draft describe the prototype/target protocol. The local demo has no persisted witness note and shows witness quorum as **Unverified**. HR on-demand signing loads a local development key into FastAPI and is disabled in production pending a managed signer. Do not present the multi-witness quorum or independent signer boundary as deployed results.
+
 **Track:** Database Core, Security & Cryptographic Verification Engine  
 **Course:** BCSE302L — Database Management Systems  
 **Authors:** Abhinav (Database Core, Security & Verification Engine) & Nidhurshek (Application, API & Client Dashboard)  
@@ -18,7 +22,7 @@ We present **Argus**, a lightweight, high-throughput, and tamper-evident audit l
 4. **Privacy-Preserving Forensic Search via HMAC Blind Indexing:** Keyed HMAC-SHA256 digests over sensitive identifiers (e.g., National IDs) combined with functional B-tree indexing enable sub-millisecond forensic queries without exposing plaintext PII or compromising redaction.
 5. **Portable Air-Gapped Evidence Bundles (`.arguspack`):** Turnkey evidence packages containing canonical JSONL event streams, detached Ed25519 signatures, checkpoint histories, and an embedded pure-Python RFC 8032 verifier executable without external pip dependencies.
 
-Extensive empirical evaluations confirm that Argus introduces amortized $O(1)$ write latency overhead ($\approx 0.15\text{ ms}$ marginal cost) and maintains deterministic linear $O(N)$ verification scaling. We formally specify the threat model, algorithms, complexity bounds, failure recovery protocols, and comparative positioning against systems including SQL Server Ledger, immudb, and Hyperledger Fabric.
+Extensive empirical evaluations confirm that Argus introduces amortized $O(1)$ write latency overhead ($\approx 0.15\text{ ms}$ marginal cost) and maintains deterministic linear $O(N)$ verification scaling. We formally specify the threat model, algorithms, complexity bounds, failure recovery protocols, and comparative positioning against systems including SQL Server Ledger, immudb, and Hyperledger Fabric. Phase 13 expands this architecture with a counterfactual provenance replay engine, selective-disclosure Merkle capsules, and multi-witness threshold cosigning.
 
 ---
 
@@ -37,18 +41,20 @@ Extensive empirical evaluations confirm that Argus introduces amortized $O(1)$ w
 - [16.12 Enterprise UI Architecture & Design Engineering](#1612-enterprise-ui-architecture--design-engineering)
 - [16.13 Known Limitations & Residual Security Risks](#1613-known-limitations--residual-security-risks)
   - [16.13.1 Formal Quantification of the Maximum Undetectable Tampering Window ($W_{\max}$)](#16131-formal-quantification-of-the-maximum-undetectable-tampering-window-w_max)
+- [16.14 Phase 13: Cryptographic Frontiers Implementation](#section-1614-phase-13--cryptographic-frontiers-implementation)
 
 ---
 
 ## 16.1 Research Contribution Statement
 
-Argus introduces six key contributions:
+Argus introduces seven key contributions:
 1. **In-Engine Cryptographic Hash Chaining with 2PL Concurrency Safety:** Native PL/pgSQL triggers compute SHA-256 digests over JSONB deltas with masked PII, serialized via exclusive row locking on `chain_state` (Decision #2).
 2. **Asymmetric Signed Checkpoints & External Anchoring:** Out-of-band Ed25519 signing defeats the "recompute-and-hide" attack, anchoring state to external repositories (Decision #3, #8).
 3. **Partitioned Parallel Verification:** Keyset-paginated workers execute concurrent internal segment checks combined with sequential boundary continuity validation (Decision #9, #15).
 4. **Empirical Rigor & Attack Validation:** Validated across 100K synthetic transactions and 6 live attack scenarios with zero false negatives.
 5. **In-Engine HMAC Blind Indexing for Masked Records:** Allows targeted forensic discovery by compliance auditors without decrypting PII or leaking plaintext data (Decision #23).
 6. **Portable Air-Gapped Evidence Bundles (`.arguspack`):** Self-verifying evidence archives with embedded zero-dependency pure-Python verifiers (Decision #24).
+7. **Phase 13 Cryptographic Frontiers (Implemented & Verified):** Counterfactual Provenance Replay, Selective-Disclosure Merkle Capsules (`.arguscap`), and Multi-Witness Threshold Cosigning (RFC 9162).
 
 ---
 
@@ -306,6 +312,32 @@ where $t_N$ is the arrival duration for $N$ records.
 | **Argus Core** | **Dual-trigger hybrid ($N=25 \lor T=60\text{s}$)** | **$\le 60\text{ seconds}$** | **Strictly bounded to $\le 60\text{s}$** |
 
 This guarantees that even in quiet enterprise environments, an insider threat ($A_{\text{DBA}}$) has at most a 60-second window before cryptographic Ed25519 signatures and external witness anchors freeze the historical timeline into non-repudiable state.
+
+## Section 16.14: Phase 13 — Cryptographic Frontiers Implementation
+
+### 16.14.1 Novelty 11: Counterfactual Provenance Replay
+
+Building on the implemented `reconstruct_employee_state(p_employee_id, p_as_of)` stored function (DB-018), the counterfactual replay engine (Phase 13, NOVEL-011) extends descriptive time-travel into **prescriptive incident simulation**:
+
+$$\text{CounterfactualState}_{\text{emp}} = \bigoplus_{i \notin \text{skip\_set}} \Delta_i$$
+
+where $\Delta_i$ is the JSONB delta from audit event $i$ and $\oplus$ denotes ordered merge application. The blast radius metric quantifies financial impact:
+
+$$\text{BlastRadius}_{\text{annual}} = \text{Salary}_{\text{actual}} - \text{Salary}_{\text{counterfactual}}$$
+
+This produces the first forensic simulation capability in the relational audit literature.
+
+### 16.14.2 Novelty 9: Selective-Disclosure Merkle Capsules
+
+The linear hash chain is augmented with **Merkle-Tree-Per-Checkpoint** (HARDEN-011 specification, implemented Phase 13). For checkpoint interval $[S_{\text{start}}, S_{\text{end}}]$ of size $K$:
+
+$$L_j = \text{SHA-256}(0x00 \parallel R_j), \quad N_{\text{parent}} = \text{SHA-256}(0x01 \parallel N_{\text{left}} \parallel N_{\text{right}})$$
+
+A Merkle audit path of $\lceil \log_2 K \rceil$ hashes proves transaction $R_k$'s inclusion without revealing any adjacent record. The standalone `verify_capsule.py` enables off-host, air-gapped proof verification.
+
+### 16.14.3 Novelty 10: Multi-Witness Threshold Cosigning
+
+Checkpoints are published as RFC 9162 Notes to three independent witnesses (S3 WORM, RFC 3161 TSA, GitHub). A **2-of-3 threshold quorum** is required before sealing. Fork detection: if two conflicting `CheckpointNote` objects share the same `sequence_id` but different `merkle_root` values, a `ProofOfMisbehavior` is generated — mathematically eliminating split-view attacks.
 
 ---
 

@@ -1,5 +1,7 @@
 /*
  * DB-008: Hash-Chaining AFTER Trigger on salary_history
+ * DB-019: Runtime HR actor attribution is enforced by the signed-context
+ *         BEFORE trigger installed by migration 019_signed_actor_context.
  *
  * Mirrors the pattern established in audit_employees.sql but fires on
  * the salary_history table.  Salary operations are always classified as
@@ -26,6 +28,7 @@ CREATE OR REPLACE FUNCTION trg_salary_history_hash_chain_fn()
 RETURNS TRIGGER
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = pg_catalog, public, pg_temp
 AS $$
 DECLARE
     v_prev_hash        CHAR(64);

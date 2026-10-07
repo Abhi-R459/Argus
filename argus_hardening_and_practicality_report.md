@@ -248,7 +248,7 @@ Two concrete, low-effort improvements:
 
 | System | Core structure | External anchor | Anchor cadence | Key custody | Selective disclosure |
 |---|---|---|---|---|---|
-| **Argus (as documented)** | Linear SHA-256 chain per row | Local file / GitHub | Every 25 entries | Not specified (assume local) | Aspirational (Feature 51) |
+| **Argus (Phase 13 Implemented)** | Linear SHA-256 chain + Merkle Tree per Checkpoint | Multi-Witness (S3 WORM + RFC 3161 + Git) | Dual ($N \ge 25 \lor T \ge 60\text{s}$) | Segregated (`KEY_CUSTODY_AND_SECRETS_INVENTORY.md`) | Yes (Feature 51/55: `.arguscap` $O(\log K)$ proofs) |
 | **AWS CloudTrail** | Chain of hourly digest files | Amazon S3 (+ optional Object Lock/MFA-delete) | 1 hour, fixed | AWS-managed, per-region, never exposed to customer | No |
 | **SQL Server / Azure SQL Ledger** | Per-transaction Merkle tree, chained block digests | Immutable Azure Blob storage or Azure Confidential Ledger | ~30 sec / 100k tx / on-demand | Managed by the platform / confidential-computing enclave | Yes (Merkle inclusion proofs) |
 | **immudb** | Merkle Hash Tree over the whole append log | Client-verified consistency/inclusion proofs; optional external signature | Continuous (per-write) | User-supplied signing key | Yes (inclusion + consistency proofs) |

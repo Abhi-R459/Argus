@@ -18,15 +18,19 @@ import asyncio
 import hashlib
 import hmac
 import json
+import logging
 import math
 from pathlib import Path
+from urllib.parse import quote, unquote
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from sqlalchemy import select, func, text, or_
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
+from sqlalchemy import select, func, text, or_, desc, case
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import get_settings
 from ..dependencies import get_current_user, require_role, get_db_session
+from ..database import get_session_factory
+from db.crypto.pii import validate_audit_salt
 from ..services.blind_index import (
     compute_blind_index,
     rate_limiter,
@@ -36,17 +40,25 @@ from ..models.audit_log import AuditLog
 from ..models.department import Department
 from ..models.employee import Employee
 from ..models.role import Role
-from ..models.salary_history import SalaryHistory
 from ..models.suspicious_activity_flag import SuspiciousActivityFlag
 from ..models.user import User
+from ..models.security_audit_event import SecurityAuditEvent
+from ..models.suspicious_activity_review import SuspiciousActivityReview
 from ..schemas.audit import (
     AuditLogItem,
     VerificationResult,
     SuspiciousFlagItem,
     SuspiciousReviewResponse,
+    SuspiciousReviewRequest,
+    SuspiciousReviewHistoryItem,
     TimeTravelResponse,
     ChainEntry,
     AnchorInfo,
+    CounterfactualRequest,
+    CounterfactualResponse,
+    MerkleProofResponse,
+    WitnessItem,
+    WitnessReport,
 )
 from ..schemas.common import PaginatedResponse
 from ..schemas.analytics import (
@@ -58,6 +70,42 @@ from ..schemas.analytics import (
 )
 
 router = APIRouter(tags=["Audits"])
+logger = logging.getLogger(__name__)
+
+
+def _checkpoint_public_key_path(key_id: Optional[str], directory: Path) -> Path:
+    """Resolve a trusted checkpoint public key without consulting signer secrets."""
+    filename = (
+        "public_key.pem"
+        if not key_id or key_id == "local:ed25519:v1"
+        else f"{quote(str(key_id), safe='')}.pem"
+    )
+    return directory / filename
+
+
+def _compliance_sync_db_url() -> str:
+    """Return the explicitly configured read-only verifier connection URL."""
+    db_url = get_settings().DATABASE_URL_COMPLIANCE_AUDITOR
+    if not db_url:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Compliance database connection is not configured.",
+        )
+    if db_url.startswith("postgresql+asyncpg://"):
+        db_url = db_url.replace("postgresql+asyncpg://", "postgresql://", 1)
+    return db_url
+SUSPICIOUS_ACTIVITY_REFRESH_LOCK_KEY = 280375465843
+
+
+def _verification_status_from_checks(checks: dict[str, str]) -> str:
+    """Return a conservative aggregate status for checks actually performed."""
+    required = ("hash_chain", "external_anchor", "checkpoint_signatures")
+    values = [checks.get(name, "unknown") for name in required]
+    if "fail" in values:
+        return "tampered"
+    if all(value == "pass" for value in values):
+        return "intact"
+    return "unknown"
 
 # ─── Dependency: compliance_auditor only ──────────────────────────────────────
 
@@ -82,6 +130,7 @@ async def list_audit_logs(
     employee_id: Optional[int] = Query(None, description="Filter by employee_id"),
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
+    before_sequence_id: Optional[int] = Query(None, ge=1, description="Return entries older than this sequence; use next_cursor from the previous response"),
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session),
 ):
@@ -92,12 +141,20 @@ async def list_audit_logs(
     require_role dependency and by the compliance_auditor Postgres pool
     which has SELECT-only access to audit_log.
     """
-    # Build base query joining to users for actor_name
-    actor_alias = User
+    # Join the current profile for display, while always returning the immutable
+    # actor_user_id from the event itself.
     query = (
         select(
             AuditLog.sequence_id,
-            func.coalesce(User.full_name, "System").label("actor_name"),
+            AuditLog.actor_user_id,
+            func.coalesce(
+                func.nullif(func.nullif(func.trim(User.full_name), ""), "Unknown"),
+                func.nullif(func.trim(User.email), ""),
+                case(
+                    (AuditLog.actor_user_id.is_(None), "System"),
+                    else_=func.concat("unresolved_user#", AuditLog.actor_user_id),
+                ),
+            ).label("actor_name"),
             AuditLog.employee_id,
             AuditLog.action,
             AuditLog.table_name,
@@ -138,6 +195,14 @@ async def list_audit_logs(
         settings = get_settings()
         clean_nid = national_id_search.strip()
         if clean_nid:
+            try:
+                audit_salt = validate_audit_salt(settings.AUDIT_SALT)
+            except ValueError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Blind-index search is not configured correctly.",
+                ) from exc
+
             rate_limit_key = (
                 f"user:{current_user.user_id}"
                 if (current_user and getattr(current_user, "user_id", None))
@@ -156,7 +221,7 @@ async def list_audit_logs(
 
             blind_index = compute_blind_index(
                 clean_nid,
-                salt=settings.AUDIT_SALT,
+                salt=audit_salt,
                 iterations=settings.BLIND_INDEX_ITERATIONS,
                 mode=settings.BLIND_INDEX_MODE,
             )
@@ -171,30 +236,43 @@ async def list_audit_logs(
     count_q = select(func.count()).select_from(query.subquery())
     total = await session.scalar(count_q) or 0
     pages = math.ceil(total / limit) if total > 0 else 0
+    if before_sequence_id is not None:
+        query = query.where(AuditLog.sequence_id < before_sequence_id)
 
     # Record Audit-the-Auditor forensic security event (Step 11.B.6)
     if national_id_search and clean_nid and blind_index:
-        audit_logger.log_search(
+        event = audit_logger.log_search(
             actor_user_id=getattr(current_user, "user_id", 0),
             actor_email=getattr(current_user, "email", "unknown"),
             blind_index=blind_index,
             matches_found=total,
             client_ip=client_ip,
         )
+        session.add(
+            SecurityAuditEvent(
+                event_type=event["event"],
+                actor_user_id=event["actor_user_id"],
+                actor_email=event["actor_email"],
+                blind_index=event["blind_index"],
+                created_at=datetime.fromisoformat(event["timestamp"]),
+                matches_found=event["matches_found"],
+                client_ip=event["client_ip"],
+            )
+        )
 
     # Paginate — newest entries first
-    query = (
-        query
-        .order_by(AuditLog.sequence_id.desc())
-        .offset((page - 1) * limit)
-        .limit(limit)
-    )
+    if before_sequence_id is None:
+        query = query.offset((page - 1) * limit)
+    query = query.order_by(AuditLog.sequence_id.desc()).limit(limit + 1)
     result = await session.execute(query)
-    rows = result.all()
+    fetched_rows = result.all()
+    has_more = len(fetched_rows) > limit
+    rows = fetched_rows[:limit]
 
     items = [
         AuditLogItem(
             sequence_id=row.sequence_id,
+            actor_user_id=row.actor_user_id,
             actor_name=row.actor_name,
             employee_id=row.employee_id,
             action=row.action,
@@ -210,7 +288,15 @@ async def list_audit_logs(
         for row in rows
     ]
 
-    return PaginatedResponse(items=items, total=total, page=page, pages=pages)
+    next_cursor = items[-1].sequence_id if has_more and items else None
+    return PaginatedResponse(
+        items=items,
+        total=total,
+        page=page,
+        pages=pages,
+        next_cursor=next_cursor,
+        has_more=has_more,
+    )
 
 
 # ─── GET /api/audit-logs/security-events ──────────────────────────────────────
@@ -222,16 +308,49 @@ async def list_audit_logs(
 )
 async def list_security_events(
     current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session),
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
 ):
     """Retrieve security telemetry audit events recording blind index queries.
 
     Demonstrates compliance with 'Audit-the-Auditor' regulatory controls by logging
     every search performed on structured identity indices without exposing PII.
     """
-    events = audit_logger.get_audit_events()
+    total = await session.scalar(select(func.count()).select_from(SecurityAuditEvent)) or 0
+    result = await session.execute(
+        select(SecurityAuditEvent)
+        .order_by(desc(SecurityAuditEvent.created_at), desc(SecurityAuditEvent.event_id))
+        .offset(offset)
+        .limit(limit)
+    )
+    stored_events = [
+        {
+            "event": row.event_type,
+            "timestamp": row.created_at.isoformat(),
+            "actor_user_id": row.actor_user_id,
+            "actor_email": row.actor_email,
+            "blind_index": row.blind_index,
+            "matches_found": row.matches_found,
+            "client_ip": row.client_ip,
+        }
+        for row in result.scalars().all()
+    ]
+    # Keep the legacy in-process snapshot as a compatibility overlay for older
+    # test/development stores while the durable database remains authoritative.
+    seen = {(e["actor_user_id"], e["blind_index"], e["timestamp"]) for e in stored_events}
+    if not total and offset == 0:
+        for event in audit_logger.get_audit_events():
+            key = (event["actor_user_id"], event["blind_index"], event["timestamp"])
+            if key not in seen:
+                stored_events.append(event)
+                seen.add(key)
+    stored_events = stored_events[:limit]
     return {
-        "total": len(events),
-        "events": events,
+        "total": max(int(total), len(stored_events)),
+        "events": stored_events,
+        "limit": limit,
+        "offset": offset,
     }
 
 
@@ -264,8 +383,13 @@ async def run_verification(
             conn = psycopg2.connect(db_url, connect_timeout=2)
             try:
                 res = verify_chain(conn)
-                anchor_mismatch = None
                 tampered_seq = None
+                checks = {
+                    "hash_chain": "pass" if res.is_valid and res.total_entries > 0 else "fail" if not res.is_valid else "unknown",
+                    "external_anchor": "unknown",
+                    "checkpoint_signatures": "unknown",
+                }
+                evidence_errors = []
 
                 # Check active adversary attack snapshot if present
                 snapshot_file = Path(".argus_snapshot.json")
@@ -282,46 +406,94 @@ async def run_verification(
                     except Exception:
                         pass
 
-                anchor_dir = Path("anchor")
-                if anchor_dir.exists():
-                    for p in anchor_dir.glob("*.json"):
+                # The API can currently read the local file adapter only. Do
+                # not label local storage as an independently queried remote
+                # anchor, and require a record for the latest checkpoint.
+                settings = get_settings()
+                configured_path = Path(settings.ANCHOR_FILE_PATH)
+                anchor_directory = (
+                    configured_path.parent if configured_path.suffix else configured_path
+                )
+                if settings.ANCHOR_STORE == "local_file":
+                    with conn.cursor() as cur:
+                        cur.execute(
+                            "SELECT checkpoint_id, sequence_id, checkpoint_hash "
+                            "FROM chain_checkpoints ORDER BY sequence_id DESC LIMIT 1"
+                        )
+                        latest_anchor_target = cur.fetchone()
+                    if latest_anchor_target:
+                        checkpoint_id, checkpoint_sequence, checkpoint_hash = latest_anchor_target
+                        anchor_path = anchor_directory / f"{checkpoint_id}.json"
                         try:
-                            with open(p, "r", encoding="utf-8") as f:
-                                data = json.load(f)
-                                chk_id = data.get("checkpoint_id")
-                                stored_hash = data.get("checkpoint_hash")
-                                with conn.cursor() as cur:
-                                    cur.execute("SELECT checkpoint_hash, sequence_id FROM chain_checkpoints WHERE checkpoint_id = %s", (chk_id,))
-                                    row = cur.fetchone()
-                                    if row and row[0] != stored_hash:
-                                        anchor_mismatch = f"External anchor mismatch: Checkpoint {chk_id} altered in DB ({row[0][:16]}...) vs external anchor ({stored_hash[:16]}...)."
-                                        if not tampered_seq and row[1]:
-                                            tampered_seq = int(row[1])
-                                        break
-                        except Exception:
-                            pass
+                            anchor = json.loads(anchor_path.read_text(encoding="utf-8"))
+                            if (
+                                anchor.get("checkpoint_id") != checkpoint_id
+                                or anchor.get("sequence_id") != checkpoint_sequence
+                                or anchor.get("checkpoint_hash") != checkpoint_hash
+                            ):
+                                checks["external_anchor"] = "fail"
+                                tampered_seq = int(checkpoint_sequence)
+                                evidence_errors.append(
+                                    f"Local anchor record does not match checkpoint {checkpoint_id}."
+                                )
+                            else:
+                                checks["external_anchor"] = "pass"
+                        except FileNotFoundError:
+                            evidence_errors.append(
+                                f"No local anchor record exists for latest checkpoint {checkpoint_id}."
+                            )
+                        except (OSError, json.JSONDecodeError, TypeError):
+                            evidence_errors.append(
+                                f"Local anchor record for checkpoint {checkpoint_id} could not be verified."
+                            )
+                    else:
+                        evidence_errors.append("No checkpoint is available for local anchor comparison.")
+                else:
+                    evidence_errors.append(
+                        "The configured anchor provider has no independent read-back verifier."
+                    )
 
-                if not anchor_mismatch:
-                    try:
-                        from db.cli.keygen import load_public_key, get_default_key_dir
-                        from db.cli.signer import verify_signature
-                        key_path = Path("keys/public_key.pem")
-                        if not key_path.exists():
-                            key_path = Path(get_default_key_dir()) / "public_key.pem"
-                        if key_path.exists():
+                # Signatures are verified only when a public key and a complete
+                # set of signed checkpoint rows are available.
+                try:
+                    from db.cli.keygen import load_public_key
+                    from db.cli.signer import verify_signature
+                    with conn.cursor() as cur:
+                        cur.execute(
+                            "SELECT checkpoint_id, checkpoint_hash, signature, sequence_id, "
+                            "merkle_root, key_id FROM chain_checkpoints"
+                        )
+                        checkpoints = cur.fetchall()
+                    if checkpoints and all(checkpoint[2] for checkpoint in checkpoints):
+                        checks["checkpoint_signatures"] = "pass"
+                        key_directory = Path(settings.CHECKPOINT_PUBLIC_KEYS_DIR)
+                        for checkpoint_id, checkpoint_hash, signature, sequence_id, merkle_root, key_id in checkpoints:
+                            # Older rows without key_id use the documented legacy
+                            # public_key.pem. New key IDs map to URL-escaped PEM
+                            # filenames in CHECKPOINT_PUBLIC_KEYS_DIR.
+                            key_path = _checkpoint_public_key_path(key_id, key_directory)
+                            if not key_path.is_file():
+                                checks["checkpoint_signatures"] = "unknown"
+                                evidence_errors.append(
+                                    f"Trusted public key for checkpoint key ID {key_id or 'legacy'} is unavailable."
+                                )
+                                continue
                             pub = load_public_key(str(key_path))
-                            with conn.cursor() as cur:
-                                cur.execute("SELECT checkpoint_id, checkpoint_hash, signature, sequence_id FROM chain_checkpoints")
-                                for chk_id, chk_hash, chk_sig, chk_seq in cur.fetchall():
-                                    if chk_sig and not verify_signature(pub, chk_hash, bytes(chk_sig)):
-                                        anchor_mismatch = f"Checkpoint signature forgery: Checkpoint {chk_id} has invalid cryptographic signature."
-                                        if not tampered_seq and chk_seq:
-                                            tampered_seq = int(chk_seq)
-                                        break
-                    except Exception:
-                        pass
+                            if not verify_signature(
+                                pub, checkpoint_hash, bytes(signature), merkle_root=merkle_root
+                            ):
+                                checks["checkpoint_signatures"] = "fail"
+                                if sequence_id:
+                                    tampered_seq = int(sequence_id)
+                                evidence_errors.append(f"Checkpoint signature verification failed for checkpoint {checkpoint_id}.")
+                                break
+                    else:
+                        evidence_errors.append("Checkpoint signatures are missing or no checkpoints exist.")
+                except Exception:
+                    checks["checkpoint_signatures"] = "unknown"
+                    evidence_errors.append("Checkpoint signature verification could not be completed.")
 
-                return (res, anchor_mismatch, tampered_seq)
+                return (res, checks, tampered_seq, evidence_errors)
             finally:
                 conn.close()
         except BaseException as exc:
@@ -330,16 +502,22 @@ async def run_verification(
     verify_output = await asyncio.to_thread(_execute_verification)
 
     if isinstance(verify_output, BaseException):
+        logger.error("Audit verification failed (%s)", type(verify_output).__name__)
         return VerificationResult(
             status="error",
             entries_scanned=0,
             anchor_match=False,
             last_verified_sequence_id=0,
             tampered_sequence_id=None,
-            details=f"Verification engine failure: unable to connect or verify database ({str(verify_output)}).",
+            details="Verification engine failure: unable to connect to or verify the database.",
+            verification_checks={
+                "hash_chain": "unknown",
+                "external_anchor": "unknown",
+                "checkpoint_signatures": "unknown",
+            },
         )
 
-    res, anchor_mismatch, tampered_seq = verify_output
+    res, checks, tampered_seq, evidence_errors = verify_output
     if not res.is_valid:
         tampered_id = None
         details = "Integrity violation detected."
@@ -358,30 +536,47 @@ async def run_verification(
         return VerificationResult(
             status="tampered",
             entries_scanned=res.total_entries,
-            anchor_match=False,
+            anchor_match=checks["external_anchor"] == "pass",
             last_verified_sequence_id=last_valid,
             tampered_sequence_id=final_tampered,
             details=details,
+            verification_checks=checks,
         )
-    elif anchor_mismatch:
+    overall_status = _verification_status_from_checks(checks)
+    if overall_status == "tampered":
+        last_verified = res.last_sequence_id if res.last_sequence_id >= 0 else 0
         return VerificationResult(
             status="tampered",
             entries_scanned=res.total_entries,
-            anchor_match=False,
-            last_verified_sequence_id=0,
-            tampered_sequence_id=tampered_seq,
-            details=anchor_mismatch,
-        )
-    else:
-        last_verified = res.last_sequence_id if res.last_sequence_id >= 0 else 0
-        return VerificationResult(
-            status="intact",
-            entries_scanned=res.total_entries,
-            anchor_match=True,
+            anchor_match=checks["external_anchor"] == "pass",
             last_verified_sequence_id=last_verified,
-            tampered_sequence_id=None,
-            details=f"Chain walks successfully across {res.total_entries} entries. Tail hash matches anchor store.",
+            tampered_sequence_id=tampered_seq,
+            details=" ".join(evidence_errors) or "A cryptographic checkpoint check failed.",
+            verification_checks=checks,
         )
+
+    last_verified = res.last_sequence_id if res.last_sequence_id >= 0 else 0
+    if overall_status == "intact":
+        details = f"Hash-chain continuity, configured local anchor record, and checkpoint signatures verified across {res.total_entries} entries."
+    else:
+        check_labels = {
+            "hash_chain": "audit hash chain",
+            "external_anchor": "configured anchor record comparison",
+            "checkpoint_signatures": "checkpoint signatures",
+        }
+        unverified = [check_labels.get(name, name.replace("_", " ")) for name, value in checks.items() if value == "unknown"]
+        details = "Hash-chain walk completed, but verification remains incomplete. Unverified: " + ", ".join(unverified) + "."
+        if evidence_errors:
+            details += " " + " ".join(dict.fromkeys(evidence_errors))
+    return VerificationResult(
+        status=overall_status,
+        entries_scanned=res.total_entries,
+        anchor_match=checks["external_anchor"] == "pass",
+        last_verified_sequence_id=last_verified,
+        tampered_sequence_id=None,
+        details=details,
+        verification_checks=checks,
+    )
 
 
 # ─── GET /api/suspicious-activity ────────────────────────────────────────────
@@ -400,12 +595,6 @@ async def list_suspicious_flags(
     Populated by Abhinav's Week 8 refresh_suspicious_activity_flags()
     procedure.
     """
-    try:
-        await session.execute(text("CALL refresh_suspicious_activity_flags()"))
-        await session.commit()
-    except Exception:
-        pass
-
     result = await session.execute(
         select(SuspiciousActivityFlag).order_by(
             SuspiciousActivityFlag.created_at.desc()
@@ -426,6 +615,36 @@ async def list_suspicious_flags(
     ]
 
 
+@router.post(
+    "/suspicious-activity/refresh",
+    dependencies=_auditor_only,
+    summary="Refresh suspicious-activity detections",
+)
+async def refresh_suspicious_flags(
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Run the idempotent database detector explicitly and report failures."""
+    try:
+        lock_result = await session.execute(
+            text("SELECT pg_try_advisory_xact_lock(:lock_key)"),
+            {"lock_key": SUSPICIOUS_ACTIVITY_REFRESH_LOCK_KEY},
+        )
+        if not lock_result.scalar():
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Suspicious-activity detection is already running.",
+            )
+        await session.execute(text("CALL refresh_suspicious_activity_flags()"))
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Suspicious-activity detection could not be refreshed.",
+        ) from exc
+    return {"status": "refreshed"}
+
+
 # ─── POST /api/suspicious-activity/{id}/review ───────────────────────────────
 
 @router.post(
@@ -435,6 +654,7 @@ async def list_suspicious_flags(
 )
 async def review_suspicious_flag(
     flag_id: int,
+    payload: Optional[SuspiciousReviewRequest] = Body(None),
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session),
 ):
@@ -455,6 +675,14 @@ async def review_suspicious_flag(
     now = datetime.now(timezone.utc)
     flag.reviewed_by_user_id = current_user.user_id
     flag.reviewed_at = now
+    session.add(
+        SuspiciousActivityReview(
+            flag_id=flag.flag_id,
+            reviewer_user_id=current_user.user_id,
+            action="reviewed",
+            note=payload.note if payload else None,
+        )
+    )
     await session.flush()
 
     return SuspiciousReviewResponse(
@@ -475,6 +703,8 @@ async def reconstruct_employee_state(
     employee_id: int,
     timestamp: str = Query(..., description="Target ISO timestamp"),
     sequence_id: Optional[int] = Query(None, description="Optional target sequence ID for exact event reconstruction"),
+    include_pii: bool = Query(False, description="Explicitly reveal sensitive fields; access is recorded"),
+    request: Request = None,
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session),
 ):
@@ -495,7 +725,7 @@ async def reconstruct_employee_state(
         parsed_dt = datetime.fromisoformat(clean_ts)
     except Exception:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Invalid ISO timestamp format: '{timestamp}'. Expected ISO-8601 format.",
         )
 
@@ -621,13 +851,16 @@ async def reconstruct_employee_state(
             salary = 0.0
     else:
         sal_res = await session.execute(
-            select(SalaryHistory.amount)
-            .where(
-                SalaryHistory.employee_id == employee_id,
-                SalaryHistory.created_at <= parsed_dt,
-            )
-            .order_by(SalaryHistory.created_at.desc())
-            .limit(1)
+            text("""
+                SELECT (new_value->>'amount')::NUMERIC
+                FROM audit_log
+                WHERE table_name = 'salary_history'
+                  AND (employee_id = :emp_id OR (new_value->>'employee_id')::INT = :emp_id)
+                  AND created_at <= :as_of
+                ORDER BY sequence_id DESC
+                LIMIT 1
+            """),
+            {"emp_id": employee_id, "as_of": parsed_dt},
         )
         sal_row = sal_res.scalar()
         try:
@@ -635,17 +868,31 @@ async def reconstruct_employee_state(
         except (TypeError, ValueError):
             salary = 0.0
 
+    session.add(
+        SecurityAuditEvent(
+            event_type="TIME_TRAVEL_PII_REVEAL" if include_pii else "TIME_TRAVEL_VIEW_REDACTED",
+            actor_user_id=current_user.user_id,
+            actor_email=current_user.email,
+            blind_index=None,
+            employee_id=employee_id,
+            sequence_id=sequence_id,
+            matches_found=1,
+            client_ip=(request.client.host if request and request.client else "127.0.0.1"),
+        )
+    )
+
     return TimeTravelResponse(
         employee_id=employee_id,
-        full_name=full_name,
-        email=email,
+        full_name=full_name if include_pii else None,
+        email=email if include_pii else None,
         role_title=role_title,
         department_name=department_name,
-        salary=salary,
+        salary=salary if include_pii else None,
         date_hired=date_hired_dt,
         is_active=is_active,
         as_of=parsed_dt,
         sequence_id=sequence_id,
+        pii_redacted=not include_pii,
     )
 
 
@@ -762,6 +1009,7 @@ async def get_audit_chain(
             AuditLog.action,
             User.email.label("actor_email"),
             User.role.label("actor_role"),
+            AuditLog.actor_user_id,
             AuditLog.created_at,
             AuditLog.severity,
             AuditLog.old_value,
@@ -793,6 +1041,7 @@ async def get_audit_chain(
 
     chain: List[ChainEntry] = []
     for row in rows:
+        actor_user_id = getattr(row, "actor_user_id", None)
         chain.append(
             ChainEntry(
                 entry_id=row.sequence_id,
@@ -800,8 +1049,15 @@ async def get_audit_chain(
                 prev_hash=row.previous_hash,
                 table_name=row.table_name,
                 operation=row.action,
-                actor_email=row.actor_email or "system@argus.internal",
-                actor_role=row.actor_role or "system",
+                actor_email=(
+                    row.actor_email
+                    or (f"unresolved_user#{actor_user_id}" if actor_user_id is not None else "system@argus.internal")
+                ),
+                actor_user_id=actor_user_id,
+                actor_role=(
+                    row.actor_role
+                    or ("unknown" if actor_user_id is not None else "system")
+                ),
                 timestamp=row.created_at,
                 severity=_map_severity_to_frontend(row.severity),
                 old_value=row.old_value,
@@ -829,7 +1085,7 @@ async def get_anchor_status(
     latest_chk = None
     try:
         chk_res = await session.execute(
-            text("SELECT sequence_id, checkpoint_hash, created_at FROM chain_checkpoints ORDER BY sequence_id DESC LIMIT 1")
+            text("SELECT checkpoint_id, sequence_id, checkpoint_hash, created_at, key_id FROM chain_checkpoints ORDER BY sequence_id DESC LIMIT 1")
         )
         latest_chk = chk_res.first()
     except Exception:
@@ -870,9 +1126,11 @@ async def get_anchor_status(
 
 
     try:
-        chk_seq = int(latest_chk[0]) if latest_chk[0] is not None else 0
-        chk_hash = str(latest_chk[1]) if latest_chk[1] is not None else ""
-        raw_time = latest_chk[2]
+        chk_id = int(latest_chk[0]) if latest_chk[0] is not None else 0
+        chk_seq = int(latest_chk[1]) if latest_chk[1] is not None else 0
+        chk_hash = str(latest_chk[2]) if latest_chk[2] is not None else ""
+        raw_time = latest_chk[3]
+        chk_key_id = latest_chk[4] if len(latest_chk) > 4 else None
         if isinstance(raw_time, str):
             try:
                 chk_time = datetime.fromisoformat(raw_time)
@@ -883,46 +1141,132 @@ async def get_anchor_status(
         else:
             chk_time = datetime.now(timezone.utc)
     except Exception:
+        chk_id = 0
         chk_seq = 0
         chk_hash = "0000000000000000000000000000000000000000000000000000000000000000"
         chk_time = datetime.now(timezone.utc)
+        chk_key_id = None
 
     delta = max(0, tail_seq - chk_seq)
-    status_str = "STALE" if delta > settings.CHECKPOINT_INTERVAL * 2 else "ANCHORED"
+    status_str = "MISSING"
+    anchor_record_time: datetime | None = None
 
     # Check external anchor store if available
-    anchor_dir = Path("anchor")
-    if anchor_dir.exists():
-        for p in anchor_dir.glob("*.json"):
-            try:
-                with open(p, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                    f_chk_id = data.get("checkpoint_id")
-                    f_chk_seq = data.get("sequence_id")
-                    f_chk_hash = data.get("checkpoint_hash")
-                    if f_chk_seq == chk_seq and f_chk_hash and chk_hash:
-                        if f_chk_hash != chk_hash:
-                            status_str = "MISMATCH"
-                            break
-                    elif f_chk_id is not None and f_chk_hash:
-                        cp_match = await session.execute(
-                            text("SELECT checkpoint_hash FROM chain_checkpoints WHERE checkpoint_id = :cid"),
-                            {"cid": f_chk_id},
+    # ANCHOR_FILE_PATH is the configured store base path. LocalFileAnchorStore
+    # treats it as a directory; deployments historically configured a filename
+    # (for example chain_anchor.log), so use its parent in that case.
+    configured_anchor_path = Path(settings.ANCHOR_FILE_PATH)
+    anchor_dir = (
+        configured_anchor_path.parent
+        if configured_anchor_path.suffix
+        else configured_anchor_path
+    )
+    if store_type == "local_file" and anchor_dir.exists():
+        anchor_path = anchor_dir / f"{chk_id}.json"
+        try:
+            anchor_data = json.loads(anchor_path.read_text(encoding="utf-8"))
+            if (
+                anchor_data.get("checkpoint_id") != chk_id
+                or anchor_data.get("sequence_id") != chk_seq
+                or anchor_data.get("checkpoint_hash") != chk_hash
+            ):
+                status_str = "MISMATCH"
+            else:
+                status_str = (
+                    "STALE"
+                    if delta > settings.CHECKPOINT_INTERVAL * 2
+                    else "ANCHORED"
+                )
+                raw_anchor_time = anchor_data.get("anchored_at")
+                if isinstance(raw_anchor_time, str):
+                    try:
+                        anchor_record_time = datetime.fromisoformat(
+                            raw_anchor_time.replace("Z", "+00:00")
                         )
-                        cp_row = cp_match.first()
-                        if cp_row and cp_row[0] != f_chk_hash:
-                            status_str = "MISMATCH"
-                            break
-            except Exception:
-                pass
+                    except ValueError:
+                        anchor_record_time = None
+        except (OSError, json.JSONDecodeError, TypeError):
+            status_str = "MISSING"
+    elif store_type != "local_file":
+        status_str = "UNVERIFIED"
+    # Multi-witness quorum telemetry (NOVEL-010)
+    witness_report = None
+    try:
+        from db.cli.anchor_store import MultiWitnessAnchorStore
+        from db.cli.witness_config import load_public_keys, resolve_witness_store_path
+        witness_path = resolve_witness_store_path(
+            settings.ANCHOR_FILE_PATH, settings.WITNESS_STORE_PATH
+        )
+        note_file = witness_path / f"{chk_id}.note"
+        if latest_chk and note_file.is_file():
+            cid = chk_id
+            trusted_witness_keys = load_public_keys(settings.WITNESS_PUBLIC_KEYS_DIR)
+            origin_key_path = _checkpoint_public_key_path(
+                chk_key_id, Path(settings.CHECKPOINT_PUBLIC_KEYS_DIR)
+            )
+            origin_key = (
+                origin_key_path.read_text(encoding="utf-8")
+                if origin_key_path.is_file()
+                else None
+            )
+            mw = MultiWitnessAnchorStore(
+                base_path=str(witness_path),
+                witness_public_keys=trusted_witness_keys,
+                origin_public_key_pem=origin_key,
+            )
+            rep_data = mw.get_witness_report(cid)
+            missing_trust_keys = (
+                "Missing public key" in str(rep_data.get("message", ""))
+                or any(
+                    item.get("reason") == "Missing public key"
+                    for item in rep_data.get("per_witness", [])
+                )
+            )
+            report_status = (
+                "unknown" if rep_data.get("error") or missing_trust_keys else
+                "pass" if rep_data.get("quorum_satisfied") is True else "fail"
+            )
+            witness_report = WitnessReport(
+                quorum_satisfied=rep_data.get("quorum_satisfied") is True,
+                required_threshold=rep_data.get("required_threshold", 2),
+                total_witnesses=rep_data.get("total_witnesses", 0),
+                cosigned_witnesses=rep_data.get("cosigned_witnesses", 0),
+                per_witness=[WitnessItem(**w) for w in rep_data.get("per_witness", [])],
+                verification_status=report_status,
+                message=rep_data.get("message") or rep_data.get("error"),
+                deployment_mode="in_process_reference",
+                independent_trust_domains=False,
+            )
+        else:
+            witness_report = WitnessReport(
+                quorum_satisfied=False,
+                required_threshold=2,
+                total_witnesses=0,
+                cosigned_witnesses=0,
+                message="No persisted witness note is available for this checkpoint.",
+                verification_status="unknown",
+                deployment_mode="in_process_reference",
+                independent_trust_domains=False,
+            )
+    except Exception:
+        witness_report = WitnessReport(
+            quorum_satisfied=False,
+            message="Witness status could not be verified.",
+            verification_status="unknown",
+        )
 
     return AnchorInfo(
         status=status_str,
         anchor_store=store_type,
         anchor_location=location,
-        last_anchored=chk_time,
+        last_anchored=(
+            anchor_record_time
+            if status_str in ("ANCHORED", "STALE")
+            else chk_time
+        ),
         anchor_hash=f"sha256:{chk_hash}" if not chk_hash.startswith("sha256:") else chk_hash,
         entries_since_anchor=delta,
+        witness_report=witness_report,
     )
 
 
@@ -932,6 +1276,7 @@ async def get_anchor_status(
     dependencies=_auditor_only,
 )
 async def get_system_metrics(
+    current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session),
 ):
     """Retrieve live PostgreSQL performance statistics and security posture metrics."""
@@ -994,51 +1339,80 @@ async def get_system_metrics(
     except Exception:
         table_stats = []
 
-    # 5. Security Posture Checks
-    # a. pgcrypto extension installed
-    try:
-        pgcrypto_res = await session.execute(text("SELECT count(*) FROM pg_extension WHERE extname = 'pgcrypto'"))
-        pgcrypto_active = bool((pgcrypto_res.scalar() or 0) > 0)
-    except Exception:
-        pgcrypto_active = True
+    # 5. Security posture checks: exceptions and NULL results remain UNKNOWN.
+    check_results: dict[str, Optional[bool]] = {}
 
-    # b. Role isolation: hr_admin cannot update audit_log
-    try:
-        priv_res = await session.execute(text("SELECT has_table_privilege('hr_admin', 'audit_log', 'UPDATE')"))
-        role_isolation = not bool(priv_res.scalar())
-    except Exception:
-        role_isolation = True
+    async def evaluate_check(name: str, statement: str) -> None:
+        try:
+            async with session.begin_nested():
+                result = await session.execute(text(statement))
+                value = result.scalar()
+            check_results[name] = None if value is None else bool(value)
+        except Exception:
+            check_results[name] = None
 
-    # c. Chain continuity: chain_state tail equals latest audit_log hash
-    try:
-        match_res = await session.execute(
-            text("SELECT (SELECT tail_hash FROM chain_state WHERE id = 1) = (SELECT entry_hash FROM audit_log ORDER BY sequence_id DESC LIMIT 1)")
+    await evaluate_check(
+        "pgcrypto_active",
+        "SELECT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pgcrypto')",
+    )
+    await evaluate_check(
+        "role_isolation",
+        """SELECT NOT (
+               has_table_privilege('hr_admin', 'audit_log', 'INSERT') OR
+               has_table_privilege('hr_admin', 'audit_log', 'UPDATE') OR
+               has_table_privilege('hr_admin', 'audit_log', 'DELETE') OR
+               has_table_privilege('hr_admin', 'audit_log', 'TRUNCATE')
+           )""",
+    )
+    await evaluate_check(
+        "chain_continuous",
+        """SELECT CASE
+             WHEN latest.entry_hash IS NULL THEN state.tail_hash = repeat('0', 64)
+             ELSE state.tail_hash = latest.entry_hash
+           END
+           FROM chain_state AS state
+           LEFT JOIN LATERAL (
+               SELECT entry_hash FROM audit_log ORDER BY sequence_id DESC LIMIT 1
+           ) AS latest ON TRUE
+           WHERE state.id = 1""",
+    )
+
+    # Include the same end-to-end verifier result shown on the integrity page.
+    # A matching tail alone is not sufficient evidence that checkpoints verify.
+    verification = await run_verification(current_user, session)
+    for check_name in ("hash_chain", "external_anchor", "checkpoint_signatures"):
+        state = verification.verification_checks.get(check_name, "unknown")
+        check_results[f"verified_{check_name}"] = (
+            True if state == "pass" else False if state == "fail" else None
         )
-        chain_continuous = bool(match_res.scalar())
-    except Exception:
-        chain_continuous = True
 
-    auth_enforced = True
+    # The security grade must include independent witness status. A quorum
+    # produced by the in-process reference implementation is not an independent
+    # trust domain and cannot count as a production security pass.
+    anchor_info = await get_anchor_status(current_user, session)
+    witness_report = anchor_info.witness_report
+    if witness_report is None or witness_report.verification_status == "unknown":
+        check_results["independent_witness_quorum"] = None
+    elif witness_report.verification_status == "fail":
+        check_results["independent_witness_quorum"] = False
+    else:
+        check_results["independent_witness_quorum"] = (
+            True if witness_report.independent_trust_domains else None
+        )
 
-    # Calculate composite security score (0-100)
-    score = 100
-    if not pgcrypto_active:
-        score -= 25
-    if not role_isolation:
-        score -= 25
-    if not chain_continuous:
-        score -= 25
-    if not auth_enforced:
-        score -= 25
+    settings = get_settings()
+    check_results["auth_enforced"] = bool(settings.CLERK_JWT_KEY.strip())
+    security_checks = {name: result is True for name, result in check_results.items()}
+    security_check_details = {
+        name: ("pass" if result is True else "fail" if result is False else "unknown")
+        for name, result in check_results.items()
+    }
+    score = round(100 * sum(security_checks.values()) / len(security_checks))
 
     return SystemMetricsResponse(
         security_score=score,
-        security_checks={
-            "role_isolation": role_isolation,
-            "pgcrypto_active": pgcrypto_active,
-            "chain_continuous": chain_continuous,
-            "auth_enforced": auth_enforced,
-        },
+        security_checks=security_checks,
+        security_check_details=security_check_details,
         cache_hit_rate=cache_hit_rate,
         db_size=db_size,
         audit_log_size=audit_log_size,
@@ -1049,6 +1423,58 @@ async def get_system_metrics(
 
 
 @router.post(
+    "/suspicious-activity/{flag_id}/reopen",
+    dependencies=_auditor_only,
+)
+async def reopen_suspicious_flag(
+    flag_id: int,
+    payload: Optional[SuspiciousReviewRequest] = Body(None),
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Reopen a previously reviewed flag and retain the earlier decision."""
+    result = await session.execute(
+        select(SuspiciousActivityFlag).where(SuspiciousActivityFlag.flag_id == flag_id)
+    )
+    flag = result.scalar_one_or_none()
+    if flag is None:
+        raise HTTPException(status_code=404, detail=f"Suspicious activity flag {flag_id} not found.")
+    if flag.reviewed_at is None:
+        raise HTTPException(status_code=409, detail="This suspicious activity flag is already open.")
+
+    flag.reviewed_by_user_id = None
+    flag.reviewed_at = None
+    session.add(
+        SuspiciousActivityReview(
+            flag_id=flag.flag_id,
+            reviewer_user_id=current_user.user_id,
+            action="reopened",
+            note=payload.note if payload else None,
+        )
+    )
+    await session.flush()
+    return {"flag_id": flag_id, "status": "open"}
+
+
+@router.get(
+    "/suspicious-activity/{flag_id}/reviews",
+    response_model=List[SuspiciousReviewHistoryItem],
+    dependencies=_auditor_only,
+)
+async def list_suspicious_flag_reviews(
+    flag_id: int,
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Return immutable review and reopen history for a risk flag."""
+    result = await session.execute(
+        select(SuspiciousActivityReview)
+        .where(SuspiciousActivityReview.flag_id == flag_id)
+        .order_by(SuspiciousActivityReview.created_at, SuspiciousActivityReview.review_id)
+    )
+    return result.scalars().all()
+
+
+@router.post(
     "/analytics/diagnostics/concurrency-benchmark",
     response_model=ConcurrencyRunResponse,
     dependencies=_auditor_only,
@@ -1056,13 +1482,8 @@ async def get_system_metrics(
 async def run_concurrency_test(
     body: Optional[ConcurrencyRunRequest] = None,
     workers: Optional[int] = Query(None, ge=1, le=50),
-    session: AsyncSession = Depends(get_db_session),
 ):
-    """Execute a real concurrent verification & lock burst against PostgreSQL.
-    
-    Demonstrates real transaction serializability and records genuine 
-    PostgreSQL sequence IDs and execution latencies across simultaneous worker tasks.
-    """
+    """Run parallel, isolated read-only chain-window checks against PostgreSQL."""
     import asyncio
     import time
     import uuid
@@ -1076,35 +1497,56 @@ async def run_concurrency_test(
     start_time = time.perf_counter()
     logs: list[ConcurrencyLogItem] = []
 
-    tail_res = await session.execute(text("SELECT COALESCE(MAX(sequence_id), 0) FROM audit_log"))
-    current_tail = int(tail_res.scalar() or 0)
+    session_factory = get_session_factory("compliance_auditor")
 
     async def _worker_task(worker_id: int):
         w_start = time.perf_counter()
         tx_id = f"tx-{uuid.uuid4().hex[:6]}"
         try:
-            res = await session.execute(
-                text("SELECT sequence_id, entry_hash FROM audit_log WHERE sequence_id <= :tail ORDER BY sequence_id DESC LIMIT 1"),
-                {"tail": current_tail},
-            )
-            row = res.first()
-            seq_id = row[0] if row else current_tail
+            async with session_factory() as worker_session:
+                res = await worker_session.execute(text("""
+                    WITH recent AS (
+                        SELECT sequence_id, entry_hash, previous_hash
+                        FROM audit_log
+                        ORDER BY sequence_id DESC
+                        LIMIT 1000
+                    ), ordered AS (
+                        SELECT sequence_id, entry_hash, previous_hash,
+                               lag(entry_hash) OVER (ORDER BY sequence_id) AS prior_hash
+                        FROM recent
+                    )
+                    SELECT COALESCE(MAX(sequence_id), 0), COUNT(*),
+                           COALESCE(bool_and(previous_hash = prior_hash)
+                               FILTER (WHERE prior_hash IS NOT NULL), TRUE)
+                    FROM ordered
+                """))
+                row = res.one()
+            seq_id = int(row[0] or 0)
+            inspected = int(row[1] or 0)
+            intact = bool(row[2]) and inspected >= 2
             w_latency = (time.perf_counter() - w_start) * 1000.0
             return ConcurrencyLogItem(
                 tx_id=tx_id,
                 worker_id=worker_id,
-                action="Acquired lock & verified chain block continuity",
-                status="success",
+                action=(
+                    f"Verified {inspected - 1} adjacent hash links"
+                    if intact
+                    else "Insufficient rows to verify continuity"
+                    if inspected < 2
+                    else "Detected a broken adjacent hash link"
+                ),
+                status="success" if intact else "error",
                 sequence_id=seq_id,
                 latency_ms=round(w_latency, 2),
                 timestamp=datetime.now(timezone.utc).isoformat(),
             )
         except Exception as exc:
             w_latency = (time.perf_counter() - w_start) * 1000.0
+            logger.warning("Concurrent verification worker failed (%s)", type(exc).__name__)
             return ConcurrencyLogItem(
                 tx_id=tx_id,
                 worker_id=worker_id,
-                action=f"Lock contention / error: {str(exc)}",
+                action=f"Lock contention or verification error ({type(exc).__name__})",
                 status="error",
                 sequence_id=None,
                 latency_ms=round(w_latency, 2),
@@ -1126,4 +1568,287 @@ async def run_concurrency_test(
         failed_count=failures,
         logs=logs,
     )
+
+
+# ─── POST /api/audit-logs/counterfactual ──────────────────────────────────────
+
+@router.post(
+    "/audit-logs/counterfactual",
+    response_model=CounterfactualResponse,
+    dependencies=_auditor_only,
+)
+async def run_counterfactual_simulation(
+    payload: CounterfactualRequest,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Run in-memory counterfactual 'What-If' replay simulation (NOVEL-011).
+
+    Accessible to compliance_auditor only.
+    Replays the employee's mutation history skipping designated sequence IDs,
+    quantifies the blast radius (salary overpaid annual and cumulative), and returns
+    side-by-side state comparison without modifying the database.
+    """
+    if not payload.skip_sequence_ids:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="skip_sequence_ids must contain at least one sequence ID.",
+        )
+
+    # Parse optional as_of timestamp
+    as_of_dt = None
+    if payload.as_of:
+        clean_ts = payload.as_of.strip()
+        if " " in clean_ts and "+" not in clean_ts:
+            clean_ts = clean_ts.replace(" ", "+")
+        if clean_ts.endswith("Z") or clean_ts.endswith("z"):
+            clean_ts = clean_ts[:-1] + "+00:00"
+        try:
+            as_of_dt = datetime.fromisoformat(clean_ts)
+        except Exception:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=f"Invalid ISO timestamp format for as_of: '{payload.as_of}'.",
+            )
+        if as_of_dt.tzinfo is None:
+            as_of_dt = as_of_dt.replace(tzinfo=timezone.utc)
+
+    # Validate that employee exists
+    try:
+        emp_res = await session.execute(
+            select(Employee.employee_id).where(Employee.employee_id == payload.employee_id)
+        )
+        if emp_res.scalar() is None:
+            # Check if historical employee records exist in audit_log
+            audit_res = await session.execute(
+                text("SELECT 1 FROM audit_log WHERE employee_id = :emp_id OR (table_name = 'employees' AND row_id = :emp_id) LIMIT 1"),
+                {"emp_id": payload.employee_id}
+            )
+            if audit_res.scalar() is None:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Employee #{payload.employee_id} not found in database or audit trail.",
+                )
+    except HTTPException:
+        raise
+    except Exception:
+        # If DB query fails or mock session doesn't support complex models, proceed to verifier execution
+        pass
+
+    db_url = _compliance_sync_db_url()
+
+    def _execute():
+        import psycopg2
+        from db.cli.counterfactual import counterfactual_replay
+        conn = psycopg2.connect(db_url, connect_timeout=5)
+        try:
+            return counterfactual_replay(
+                conn,
+                employee_id=payload.employee_id,
+                skip_sequence_ids=payload.skip_sequence_ids,
+                as_of=as_of_dt,
+            )
+        finally:
+            conn.close()
+
+    try:
+        sim_result = await asyncio.to_thread(_execute)
+        return sim_result.to_dict()
+    except ValueError as ve:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(ve),
+        )
+    except Exception as exc:
+        logger.exception("Counterfactual simulation failed (%s)", type(exc).__name__)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Counterfactual simulation could not be completed.",
+        )
+
+
+# ─── GET /api/audit-logs/{seq_id}/capsule ─────────────────────────────────────
+
+@router.get(
+    "/audit-logs/{seq_id}/capsule",
+    dependencies=_auditor_only,
+)
+async def export_audit_log_capsule(
+    seq_id: int,
+    current_user: User = Depends(get_current_user),
+):
+    """Generate and stream a self-contained .arguscap Merkle evidence bundle (NOVEL-009-F).
+
+    Contains evidence_row.json, merkle_proof.json, checkpoint.json, public_key.pem,
+    and verify_capsule.py standalone CLI verifier.
+    Accessible to compliance_auditor only.
+    """
+    from db.cli.capsule import (
+        SequenceNotFoundError,
+        PreMerkleCheckpointError,
+        UncheckpointedTailError,
+    )
+
+    db_url = _compliance_sync_db_url()
+
+    def _execute():
+        import psycopg2
+        from db.cli.capsule import generate_capsule
+        conn = psycopg2.connect(db_url, connect_timeout=5)
+        try:
+            return generate_capsule(conn, seq_id)
+        finally:
+            conn.close()
+
+    try:
+        bundle_bytes = await asyncio.to_thread(_execute)
+        return Response(
+            content=bundle_bytes,
+            media_type="application/zip",
+            headers={
+                "Content-Disposition": f'attachment; filename="proof_seq{seq_id}.arguscap"',
+                "X-Argus-Capsule-Version": "1.0",
+            },
+        )
+    except SequenceNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except PreMerkleCheckpointError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except UncheckpointedTailError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(e),
+        )
+    except Exception as exc:
+        logger.exception("Audit capsule generation failed (%s)", type(exc).__name__)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Audit capsule generation could not be completed.",
+        )
+
+
+# ─── GET /api/audit-logs/{seq_id}/proof ───────────────────────────────────────
+
+@router.get(
+    "/audit-logs/{seq_id}/proof",
+    response_model=MerkleProofResponse,
+    dependencies=_auditor_only,
+)
+async def get_merkle_proof(
+    seq_id: int,
+    current_user: User = Depends(get_current_user),
+):
+    """Retrieve Merkle inclusion proof metadata for an audit event (NOVEL-009).
+
+    Returns the cryptographic audit path, leaf hash, and enclosing checkpoint Merkle root.
+    Accessible to compliance_auditor only.
+    """
+    from db.cli.capsule import (
+        SequenceNotFoundError,
+        PreMerkleCheckpointError,
+        UncheckpointedTailError,
+    )
+
+    db_url = _compliance_sync_db_url()
+
+    def _execute():
+        import psycopg2
+        import psycopg2.extras
+        from db.cli.merkle_tree import ArgusMerkleTree
+
+        conn = psycopg2.connect(db_url, connect_timeout=5)
+        try:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute(
+                    "SELECT sequence_id, created_at FROM audit_log WHERE sequence_id = %s",
+                    (seq_id,),
+                )
+                row = cur.fetchone()
+                if not row:
+                    raise SequenceNotFoundError(f"Sequence ID {seq_id} not found in audit log.")
+
+                try:
+                    cur.execute(
+                        "SELECT checkpoint_id, sequence_id, merkle_root, merkle_leaf_count "
+                        "FROM chain_checkpoints WHERE sequence_id >= %s ORDER BY sequence_id ASC LIMIT 1",
+                        (seq_id,),
+                    )
+                    cp = cur.fetchone()
+                except Exception:
+                    conn.rollback()
+                    cur.execute(
+                        "SELECT checkpoint_id, sequence_id "
+                        "FROM chain_checkpoints WHERE sequence_id >= %s ORDER BY sequence_id ASC LIMIT 1",
+                        (seq_id,),
+                    )
+                    cp = cur.fetchone()
+
+                if not cp:
+                    raise UncheckpointedTailError(f"Sequence ID {seq_id} is in uncheckpointed tail.")
+                if not cp.get("merkle_root"):
+                    raise PreMerkleCheckpointError(f"Checkpoint #{cp['checkpoint_id']} is pre-Merkle.")
+
+                cur.execute(
+                    "SELECT sequence_id FROM chain_checkpoints WHERE sequence_id < %s ORDER BY sequence_id DESC LIMIT 1",
+                    (cp["sequence_id"],),
+                )
+                prev_cp = cur.fetchone()
+                prev_seq = prev_cp["sequence_id"] if prev_cp else 0
+
+                cur.execute(
+                    "SELECT sequence_id, actor_user_id, employee_id, action, table_name, row_id, "
+                    "old_value, new_value, severity, entry_hash, previous_hash, created_at "
+                    "FROM audit_log WHERE sequence_id > %s AND sequence_id <= %s ORDER BY sequence_id ASC",
+                    (prev_seq, cp["sequence_id"]),
+                )
+                rows = [dict(r) for r in cur.fetchall()]
+
+            tree = ArgusMerkleTree.build(rows)
+            proof = tree.generate_proof(seq_id)
+
+            return {
+                "sequence_id": seq_id,
+                "checkpoint_id": cp["checkpoint_id"],
+                "leaf_index": proof.leaf_index,
+                "leaf_hash": proof.leaf_hash,
+                "merkle_root": proof.merkle_root,
+                "tree_size": proof.tree_size,
+                "audit_path_depth": len(proof.audit_path),
+                "audit_path": proof.audit_path,
+                "created_at": row["created_at"].isoformat() if hasattr(row.get("created_at"), "isoformat") else str(row.get("created_at")),
+            }
+        finally:
+            conn.close()
+
+    try:
+        return await asyncio.to_thread(_execute)
+    except SequenceNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except PreMerkleCheckpointError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except UncheckpointedTailError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(e),
+        )
+    except Exception as exc:
+        logger.exception("Merkle proof generation failed (%s)", type(exc).__name__)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Merkle proof generation could not be completed.",
+        )
+
+
 

@@ -19,12 +19,15 @@ export function DataTableRoot({
       : 'w-full rounded-2xl border border-slate-200/80 bg-white shadow-xs';
 
   return (
-    <div className={`${baseClasses} ${className}`} {...props}>
+    <div className={`argus-data-table ${baseClasses} ${className}`} {...props}>
       <div
-        className="w-full overflow-x-auto rounded-[inherit]"
+        className={`w-full overflow-x-auto rounded-[inherit] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset ${portalTheme === 'auditor' ? 'focus-visible:ring-linear-primary' : 'focus-visible:ring-portal-primary/40'}`}
+        role="region"
+        aria-label="Scrollable data table"
+        tabIndex={0}
         style={maxHeight ? { maxHeight, overflowY: 'auto' } : undefined}
       >
-        <table className="w-full text-left border-collapse">{children}</table>
+        <table className="argus-data-table-grid w-full text-left border-collapse">{children}</table>
       </div>
     </div>
   );
@@ -103,6 +106,7 @@ export function DataTableBody({
 export interface DataTableRowProps extends React.HTMLAttributes<HTMLTableRowElement> {
   children: React.ReactNode;
   isSelected?: boolean;
+  isHighlighted?: boolean;
   isFocused?: boolean;
   isTampered?: boolean;
   isFresh?: boolean;
@@ -115,6 +119,7 @@ export const DataTableRow = React.forwardRef<HTMLTableRowElement, DataTableRowPr
       children,
       className = '',
       isSelected = false,
+      isHighlighted = false,
       isFocused = false,
       isTampered = false,
       isFresh = false,
@@ -123,38 +128,29 @@ export const DataTableRow = React.forwardRef<HTMLTableRowElement, DataTableRowPr
     },
     ref
   ) => {
-    let stateClasses = '';
-
-    if (portalTheme === 'auditor') {
-      if (isTampered) {
-        stateClasses = 'bg-grafana-orange/15 border-l-2 border-grafana-orange text-grafana-orange';
-      } else if (isSelected) {
-        stateClasses = 'bg-linear-primary/15 border-l-2 border-linear-primary font-medium';
-      } else if (isFresh) {
-        stateClasses = 'bg-linear-primary/15 transition-colors duration-500';
-      } else {
-        stateClasses = 'hover:bg-linear-surface-2/60 border-l-2 border-transparent transition-colors duration-100';
-      }
-
-      if (isFocused && !isSelected) {
-        stateClasses += ' ring-1 ring-inset ring-linear-primary/70 bg-linear-surface-2/50';
-      }
-    } else {
-      // HR portal
-      if (isTampered) {
-        stateClasses = 'bg-rose-50 border-l-2 border-rose-500 text-rose-700';
-      } else if (isSelected) {
-        stateClasses = 'bg-slate-100/90 border-l-2 border-slate-900 font-medium';
-      } else if (isFresh) {
-        stateClasses = 'bg-blue-50/60 transition-colors duration-500';
-      } else {
-        stateClasses = 'hover:bg-slate-50/80 border-l-2 border-transparent transition-colors duration-100';
-      }
-
-      if (isFocused && !isSelected) {
-        stateClasses += ' ring-1 ring-inset ring-slate-400/60 bg-slate-50/60';
-      }
-    }
+    const stateClasses = portalTheme === 'auditor'
+      ? `${isTampered
+        ? 'bg-status-warning/15 border-l-2 border-status-warning text-status-warning'
+        : isSelected
+          ? 'bg-linear-primary/15 border-l-2 border-linear-primary font-medium'
+          : isHighlighted
+            ? 'bg-linear-primary/5 border-l-2 border-linear-primary/50 transition-colors'
+            : isFresh
+              ? 'bg-linear-primary/15 transition-colors duration-500'
+              : 'hover:bg-linear-surface-2/60 border-l-2 border-transparent transition-colors duration-100'}${
+        isFocused && !isSelected && !isHighlighted ? ' ring-1 ring-inset ring-linear-primary/70 bg-linear-surface-2/50' : ''
+      }`
+      : `${isTampered
+        ? 'bg-rose-50 border-l-2 border-rose-500 text-rose-700'
+        : isSelected
+          ? 'bg-slate-100/90 border-l-2 border-slate-900 font-medium'
+          : isHighlighted
+            ? 'bg-portal-info/5 border-l-2 border-portal-info/60 transition-colors'
+            : isFresh
+              ? 'bg-blue-50/60 transition-colors duration-500'
+              : 'hover:bg-slate-50/80 border-l-2 border-transparent transition-colors duration-100'}${
+        isFocused && !isSelected && !isHighlighted ? ' ring-1 ring-inset ring-slate-400/60 bg-slate-50/60' : ''
+      }`;
 
     return (
       <tr

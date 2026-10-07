@@ -23,15 +23,18 @@ export interface IncidentState {
   isCompromised: boolean;
   tamperedSeqId: number | null;
   anchorMismatch: boolean;
+  verificationStatus: VerificationResult['status'] | 'checking';
+  verificationChecks: Record<string, 'pass' | 'fail' | 'unknown'>;
   unreviewedFlagsCount: number;
   lastVerifiedAt: string | null;
   details: string | null;
   isLoading: boolean;
+  isUnavailable: boolean;
   refetch: () => void;
 }
 
 export type VerificationStatus = 'VERIFIED' | 'TAMPERED' | 'PENDING';
-export type AnchorStoreType = 'local_file' | 'github_repo';
+export type AnchorStoreType = 'local_file' | 'github_repo' | 'multi_witness' | string;
 export type AuditOperation = 'INSERT' | 'UPDATE' | 'DELETE';
 export type Severity = 'low' | 'medium' | 'high' | 'critical';
 export type AuditLogSeverity = 'INFO' | 'WARNING' | 'CRITICAL';
@@ -43,20 +46,42 @@ export interface ChainEntry {
   table_name: string;
   operation: AuditOperation;
   actor_email: string;
-  actor_role: 'hr_admin' | 'compliance_auditor' | 'system';
+  actor_user_id?: number | null;
+  actor_role: 'hr_admin' | 'compliance_auditor' | 'system' | 'unknown';
   timestamp: string;           // ISO timestamp
   severity: Severity;
   old_value: Record<string, unknown> | null;
   new_value: Record<string, unknown> | null;
 }
 
+export interface WitnessItem {
+  witness_name: string;
+  status: 'VALID' | 'FAILED' | 'UNKNOWN' | string;
+  reason?: string | null;
+  signature_hex?: string | null;
+  timestamp?: string | null;
+}
+
+export interface WitnessReport {
+  quorum_satisfied: boolean;
+  required_threshold: number;
+  total_witnesses: number;
+  cosigned_witnesses: number;
+  message?: string | null;
+  per_witness: WitnessItem[];
+  verification_status?: 'pass' | 'fail' | 'unknown';
+  deployment_mode?: string;
+  independent_trust_domains?: boolean;
+}
+
 export interface AnchorInfo {
-  status: 'ANCHORED' | 'STALE' | 'MISSING' | 'MISMATCH';
+  status: 'ANCHORED' | 'STALE' | 'MISSING' | 'MISMATCH' | 'UNVERIFIED';
   anchor_store: AnchorStoreType;
   anchor_location: string;
-  last_anchored: string;       // ISO timestamp
+  last_anchored: string | null; // ISO timestamp only when recorded by the anchor
   anchor_hash: string;
   entries_since_anchor: number;
+  witness_report?: WitnessReport | null;
 }
 
 export interface SuspiciousFlag {
@@ -111,6 +136,7 @@ export interface SystemMetrics {
     chain_continuous: boolean;
     auth_enforced: boolean;
   };
+  security_check_details?: Record<string, 'pass' | 'fail' | 'unknown'>;
   cache_hit_rate: number;
   db_size: string;
   audit_log_size: string;
@@ -155,6 +181,7 @@ export interface RoleItem {
 
 export interface AuditLogItem {
   sequence_id: number;
+  actor_user_id: number | null;
   actor_name: string;
   employee_id: number | null;
   action: 'INSERT' | 'UPDATE' | 'DELETE';
@@ -173,6 +200,8 @@ export interface AuditLogPage {
   total: number;
   page: number;
   pages: number;
+  next_cursor?: number | null;
+  has_more?: boolean;
 }
 
 export interface AuditLogFilters {
@@ -185,6 +214,7 @@ export interface AuditLogFilters {
   employee_id?: number;
   page?: number;
   limit?: number;
+  before_sequence_id?: number;
 }
 
 export interface EmployeeListItem {
@@ -196,15 +226,17 @@ export interface EmployeeListItem {
   salary: number | null;
   date_hired: string;
   is_active: boolean;
+  pii_redacted?: boolean;
 }
 
 export interface VerificationResult {
-  status: 'intact' | 'tampered';
+  status: 'intact' | 'tampered' | 'unknown' | 'error';
   entries_scanned: number;
   anchor_match: boolean;
   last_verified_sequence_id: number;
   tampered_sequence_id: number | null;
   details: string;
+  verification_checks?: Record<string, 'pass' | 'fail' | 'unknown'>;
 }
 
 export interface SuspiciousFlagItem {
@@ -242,6 +274,9 @@ export async function fetchAuditLogs(
   }
   params.set('page',  String(filters.page  ?? 1));
   params.set('limit', String(filters.limit ?? 20));
+  if (filters.before_sequence_id !== undefined) {
+    params.set('before_sequence_id', String(filters.before_sequence_id));
+  }
 
   return fetchWithAuth(`/audit-logs?${params.toString()}`, {}, getToken);
 }
@@ -256,10 +291,18 @@ export async function runVerification(
 
 // ─── INT-004: Suspicious Activity ─────────────────────────────────────────────
 
+export const SUSPICIOUS_FLAGS_QUERY_KEY = ['suspiciousFlags'] as const;
+
 export async function fetchSuspiciousFlags(
   getToken: () => Promise<string | null>,
 ): Promise<SuspiciousFlagItem[]> {
   return fetchWithAuth('/suspicious-activity', {}, getToken);
+}
+
+export async function refreshSuspiciousFlags(
+  getToken: () => Promise<string | null>,
+): Promise<{ status: 'refreshed' }> {
+  return fetchWithAuth('/suspicious-activity/refresh', { method: 'POST' }, getToken);
 }
 
 export async function reviewSuspiciousFlag(
@@ -273,15 +316,16 @@ export async function reviewSuspiciousFlag(
 
 export interface TimeTravelResult {
   employee_id: number;
-  full_name: string;
-  email: string;
+  full_name: string | null;
+  email: string | null;
   role_title: string;
   department_name: string;
-  salary: number;
+  salary: number | null;
   date_hired: string; // ISO timestamp
   is_active: boolean;
   as_of: string; // ISO timestamp
   sequence_id?: number | null;
+  pii_redacted: boolean;
 }
 
 export async function fetchTimeTravelState(
@@ -289,10 +333,12 @@ export async function fetchTimeTravelState(
   timestamp: string,
   getToken: () => Promise<string | null>,
   sequenceId?: number | null,
+  includePii = false,
 ): Promise<TimeTravelResult> {
   const seqParam = sequenceId !== undefined && sequenceId !== null ? `&sequence_id=${sequenceId}` : '';
+  const piiParam = `&include_pii=${includePii}`;
   return fetchWithAuth(
-    `/employees/${employeeId}/time-travel?timestamp=${encodeURIComponent(timestamp)}${seqParam}`,
+    `/employees/${employeeId}/time-travel?timestamp=${encodeURIComponent(timestamp)}${seqParam}${piiParam}`,
     {},
     getToken,
   );
@@ -335,14 +381,21 @@ export async function downloadSignedEvidence(
     }
   }
 
+  saveBlobDownload(blob, filename);
+}
+
+function saveBlobDownload(blob: Blob, filename: string): void {
   const url = window.URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  window.URL.revokeObjectURL(url);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.style.display = 'none';
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  // Revoke after the browser has had time to consume the blob URL. Immediate
+  // revocation can cancel downloads in some browser implementations.
+  window.setTimeout(() => window.URL.revokeObjectURL(url), 1000);
 }
 
 // ─── BRIDGE-001 / BRIDGE-002: Live Chain & Anchor Synchronization ───────────
@@ -368,20 +421,18 @@ export function useIncidentStatus(): IncidentState {
 
   const verificationQuery = useQuery({
     queryKey: ['chain-verification'],
+    enabled: false,
     queryFn: () => runVerification(getToken),
-    refetchInterval: 3000,
   });
 
   const anchorQuery = useQuery({
     queryKey: ['anchor-status'],
     queryFn: () => fetchAnchorStatus(getToken),
-    refetchInterval: 4000,
   });
 
   const flagsQuery = useQuery({
-    queryKey: ['suspicious-flags'],
+    queryKey: SUSPICIOUS_FLAGS_QUERY_KEY,
     queryFn: () => fetchSuspiciousFlags(getToken),
-    refetchInterval: 3000,
   });
 
   const isVerificationTampered = verificationQuery.data?.status === 'tampered';
@@ -389,15 +440,24 @@ export function useIncidentStatus(): IncidentState {
   const isCompromised = Boolean(isVerificationTampered || anchorMismatch);
   const tamperedSeqId = verificationQuery.data?.tampered_sequence_id ?? null;
   const unreviewedFlagsCount = flagsQuery.data ? flagsQuery.data.filter((f) => !f.reviewed_at).length : 0;
+  const isUnavailable =
+    (verificationQuery.isError && !verificationQuery.data) ||
+    (anchorQuery.isError && !anchorQuery.data) ||
+    (flagsQuery.isError && !flagsQuery.data);
 
   return {
     isCompromised,
     tamperedSeqId,
     anchorMismatch,
+    verificationStatus: verificationQuery.data?.status ?? (verificationQuery.isFetching ? 'checking' : 'unknown'),
+    verificationChecks: verificationQuery.data?.verification_checks ?? {},
     unreviewedFlagsCount,
-    lastVerifiedAt: verificationQuery.data ? new Date().toISOString() : null,
+    lastVerifiedAt: verificationQuery.dataUpdatedAt
+      ? new Date(verificationQuery.dataUpdatedAt).toISOString()
+      : null,
     details: verificationQuery.data?.details ?? null,
-    isLoading: verificationQuery.isLoading || anchorQuery.isLoading,
+    isLoading: verificationQuery.isFetching || anchorQuery.isLoading,
+    isUnavailable,
     refetch: () => {
       verificationQuery.refetch();
       anchorQuery.refetch();
@@ -447,14 +507,7 @@ export async function downloadEvidencePack(
     }
   }
 
-  const url = window.URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  window.URL.revokeObjectURL(url);
+  saveBlobDownload(blob, filename);
 }
 
 // ─── LIVE-001: Live Telemetry, Dashboard Stats & Real Engine Testing ──────────
@@ -491,15 +544,19 @@ export async function fetchDepartments(
 export async function fetchRoles(
   getToken: () => Promise<string | null>,
 ): Promise<RoleItem[]> {
-  const data = (await fetchWithAuth('/roles', {}, getToken)) as any[];
-  return (data || []).map((r: any) => {
-    const minVal = Number(r.salary_band_min ?? r.min_salary ?? 0);
-    const maxVal = Number(r.salary_band_max ?? r.max_salary ?? 0);
+  const data: unknown = await fetchWithAuth('/roles', {}, getToken);
+  if (!Array.isArray(data)) return [];
+
+  return data.filter((item): item is Record<string, unknown> =>
+    typeof item === 'object' && item !== null && !Array.isArray(item),
+  ).map((role) => {
+    const minVal = Number(role.salary_band_min ?? role.min_salary ?? 0);
+    const maxVal = Number(role.salary_band_max ?? role.max_salary ?? 0);
     return {
-      role_id: r.role_id,
-      department_id: r.department_id,
-      department_name: r.department_name || '',
-      title: r.title || '',
+      role_id: Number(role.role_id),
+      department_id: Number(role.department_id),
+      department_name: typeof role.department_name === 'string' ? role.department_name : '',
+      title: typeof role.title === 'string' ? role.title : '',
       salary_band_min: minVal,
       salary_band_max: maxVal,
       min_salary: minVal,
@@ -515,11 +572,13 @@ export async function fetchEmployees(
   page: number = 1,
   department?: string,
   isActive?: boolean,
+  includePii: boolean = false,
 ): Promise<{ items: EmployeeListItem[]; total: number; page: number; pages: number }> {
   const searchParam = search ? `&search=${encodeURIComponent(search)}` : '';
   const deptParam = department && department !== 'all' ? `&department=${encodeURIComponent(department)}` : '';
   const statusParam = isActive !== undefined ? `&is_active=${isActive}` : '';
-  return fetchWithAuth(`/employees?limit=${limit}&page=${page}${searchParam}${deptParam}${statusParam}`, {}, getToken);
+  const piiParam = `&include_pii=${includePii}`;
+  return fetchWithAuth(`/employees?limit=${limit}&page=${page}${searchParam}${deptParam}${statusParam}${piiParam}`, {}, getToken);
 }
 
 export interface UserProfile {
@@ -537,6 +596,161 @@ export async function fetchMyProfile(
 ): Promise<UserProfile> {
   return fetchWithAuth('/auth/me', {}, getToken);
 }
+
+
+// ─── Counterfactual Replay (NOVEL-011) ───────────────────────────────────────
+
+export interface CounterfactualRequest {
+  employee_id: number;
+  skip_sequence_ids: number[];
+  as_of?: string;
+}
+
+export interface SkippedEventInfo {
+  sequence_id: number;
+  actor_user_id: number;
+  action: string;
+  table_name: string;
+  created_at: string;
+  severity: string;
+  delta_summary: string;
+  old_value?: Record<string, unknown> | null;
+  new_value?: Record<string, unknown> | null;
+}
+
+export interface BlastRadius {
+  salary_actual: number;
+  salary_counterfactual: number;
+  salary_overpaid_annual: number;
+  salary_overpaid_cumulative: number;
+  tenure_months: number;
+  skipped_events_count: number;
+  skipped_sequence_ids: number[];
+  first_fraud_event_timestamp?: string | null;
+  as_of_timestamp?: string | null;
+}
+
+export interface CounterfactualResult {
+  employee_id: number;
+  as_of: string;
+  skip_sequence_ids: number[];
+  actual_state: Record<string, unknown> | null;
+  counterfactual_state: Record<string, unknown> | null;
+  blast_radius: BlastRadius;
+  skipped_events: SkippedEventInfo[];
+  applied_events_count: number;
+  simulation_duration_ms: number;
+}
+
+export async function runCounterfactualSimulation(
+  payload: CounterfactualRequest,
+  getToken: () => Promise<string | null>,
+): Promise<CounterfactualResult> {
+  return fetchWithAuth(
+    '/audit-logs/counterfactual',
+    {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    },
+    getToken,
+  );
+}
+
+
+// ─── NOVEL-009: Selective Merkle Proof & .arguscap Capsule ───────────────────
+
+export interface MerkleAuditStep {
+  level: number;
+  direction: 'left' | 'right';
+  sibling_hash: string;
+}
+
+export interface MerkleProof {
+  sequence_id: number;
+  checkpoint_id: number;
+  leaf_index: number;
+  leaf_hash: string;
+  merkle_root: string;
+  tree_size: number;
+  audit_path_depth: number;
+  audit_path: MerkleAuditStep[];
+  created_at?: string | null;
+}
+
+export async function getMerkleProof(
+  seqId: number,
+  getToken: () => Promise<string | null>,
+): Promise<MerkleProof> {
+  return fetchWithAuth(`/audit-logs/${seqId}/proof`, {}, getToken);
+}
+
+export interface CreatedCheckpoint {
+  checkpoint_id: number;
+  sequence_id: number;
+  checkpoint_hash: string;
+  merkle_root: string;
+  merkle_leaf_count: number;
+  entries_sealed: number;
+  signature_status: 'signed';
+  key_id: string;
+  created_at: string;
+  external_anchor_created: false;
+}
+
+export async function createCheckpointNow(
+  getToken: () => Promise<string | null>,
+): Promise<CreatedCheckpoint> {
+  return fetchWithAuth('/checkpoints/create', { method: 'POST' }, getToken);
+}
+
+export async function downloadCapsule(
+  seqId: number,
+  getToken: (options?: { skipCache?: boolean }) => Promise<string | null>,
+): Promise<string> {
+  let token = await getToken();
+  const headers = new Headers();
+  if (token) {
+    headers.set('Authorization', `Bearer ${token}`);
+  }
+
+  let response = await fetch(`${API_BASE_URL}/audit-logs/${seqId}/capsule`, { headers });
+  if (response.status === 401) {
+    const freshToken = await getToken({ skipCache: true });
+    if (freshToken && freshToken !== token) {
+      token = freshToken;
+      headers.set('Authorization', `Bearer ${token}`);
+      response = await fetch(`${API_BASE_URL}/audit-logs/${seqId}/capsule`, { headers });
+    }
+  }
+  
+  if (!response.ok) {
+    let errorDetail = 'Failed to export forensic capsule';
+    try {
+      const errorData = await response.json();
+      errorDetail = errorData.detail || errorDetail;
+    } catch {
+      // Ignore
+    }
+    throw new Error(errorDetail);
+  }
+
+  const blob = await response.blob();
+  
+  let filename = `proof_seq${seqId}.arguscap`;
+  const disposition = response.headers.get('Content-Disposition');
+  if (disposition && disposition.indexOf('filename=') !== -1) {
+    const matches = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/.exec(disposition);
+    if (matches != null && matches[1]) {
+      filename = matches[1].replace(/['"]/g, '');
+    }
+  }
+
+  saveBlobDownload(blob, filename);
+  return filename;
+}
+
+
+
 
 
 

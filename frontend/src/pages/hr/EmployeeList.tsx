@@ -3,24 +3,18 @@ import { UserPlus } from 'lucide-react';
 import EmployeeTable from '../../components/EmployeeTable';
 import EmployeeForm from '../../components/forms/EmployeeForm';
 import { Button } from '../../components/common/Button';
+import PageHeader from '../../components/common/PageHeader';
 
 export default function EmployeeList() {
   const [isFormOpen, setIsFormOpen] = useState(false);
 
   return (
     <div className="space-y-6 animate-fade-cascade">
-      {/* Header Bar */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-1">
-        <div>
-          <h1 className="text-xl font-bold text-slate-900 tracking-tight">
-            Workforce Directory
-          </h1>
-          <p className="text-slate-500 text-xs mt-1">
-            Institutional personnel records, role assignments, encrypted credentials, and compensation history.
-          </p>
-        </div>
-
-        <div className="flex items-center gap-3">
+      <PageHeader
+        title="Workforce Directory"
+        description="Personnel records, role assignments, and compensation history."
+        portalTheme="hr"
+        action={
           <Button
             variant="primary"
             size="md"
@@ -30,8 +24,8 @@ export default function EmployeeList() {
           >
             Add Personnel
           </Button>
-        </div>
-      </div>
+        }
+      />
 
       {/* Workforce Table with Compound Primitives & Slide-Over Sheet */}
       <EmployeeTable />

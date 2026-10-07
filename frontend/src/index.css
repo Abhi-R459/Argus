@@ -1,16 +1,20 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+@config "../tailwind.config.js";
+@source "../index.html";
+@source "./";
 
 :root {
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
   --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
   --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+  --argus-font-sans: 'Segoe UI Variable', 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
+  --argus-font-mono: 'Cascadia Code', 'Cascadia Mono', Consolas, 'SFMono-Regular', Menlo, monospace;
 }
 
 @layer base {
   body {
     @apply antialiased text-linear-ink bg-linear-canvas;
+    font-family: var(--argus-font-sans);
     overflow-x: clip;
   }
 
@@ -20,7 +24,7 @@
   input:-webkit-autofill:focus,
   textarea:-webkit-autofill,
   select:-webkit-autofill {
-    -webkit-box-shadow: 0 0 0px 1000px white inset !important;
+    -webkit-box-shadow: 0 0 0px 1000px var(--argus-surface, #ffffff) inset !important;
     -webkit-text-fill-color: inherit !important;
     transition: background-color 5000s ease-in-out 0s;
   }
@@ -30,8 +34,8 @@
   .portal-auditor input:-webkit-autofill:focus,
   .portal-auditor textarea:-webkit-autofill,
   .portal-auditor select:-webkit-autofill {
-    -webkit-box-shadow: 0 0 0px 1000px #16181d inset !important;
-    -webkit-text-fill-color: #f7f8f8 !important;
+    -webkit-box-shadow: 0 0 0px 1000px var(--argus-surface) inset !important;
+    -webkit-text-fill-color: var(--argus-ink) !important;
   }
 
   /* Universal thin scrollbar per W3C CSS Scrollbars specification */
@@ -39,10 +43,10 @@
   body,
   * {
     scrollbar-width: thin;
-    scrollbar-color: #23252a transparent;
+    scrollbar-color: var(--argus-scrollbar-thumb, #8d8d8d) transparent;
   }
 
-  /* Default / Linear Dark WebKit scrollbar styling */
+  /* Default WebKit scrollbar styling */
   ::-webkit-scrollbar {
     width: 6px;
     height: 6px;
@@ -53,12 +57,12 @@
   }
 
   ::-webkit-scrollbar-thumb {
-    background-color: #23252a;
+    background-color: var(--argus-scrollbar-thumb, #8d8d8d);
     border-radius: 9999px;
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    background-color: #32353b;
+    background-color: var(--argus-scrollbar-hover, #6f6f6f);
   }
 
   ::-webkit-scrollbar-corner {
@@ -66,11 +70,11 @@
   }
 }
 
-/* Compliance Auditor Portal (Linear Dark System) */
+/* Compliance Auditor Portal (graphite operations theme) */
 .portal-auditor,
 .portal-auditor * {
   scrollbar-width: thin;
-  scrollbar-color: #23252a transparent;
+  scrollbar-color: var(--argus-scrollbar-thumb) transparent;
 }
 
 .portal-auditor ::-webkit-scrollbar {
@@ -83,20 +87,20 @@
 }
 
 .portal-auditor ::-webkit-scrollbar-thumb {
-  background-color: #23252a;
+  background-color: var(--argus-scrollbar-thumb);
   border-radius: 9999px;
   transition: background-color 150ms ease;
 }
 
 .portal-auditor ::-webkit-scrollbar-thumb:hover {
-  background-color: #5e6ad2; /* Linear signature lavender */
+  background-color: var(--argus-scrollbar-hover);
 }
 
 /* HR Administration Portal (Modern Enterprise Light System) */
 .portal-hr,
 .portal-hr * {
   scrollbar-width: thin;
-  scrollbar-color: #cbd5e1 transparent;
+  scrollbar-color: var(--argus-scrollbar-thumb) transparent;
 }
 
 .portal-hr ::-webkit-scrollbar {
@@ -109,13 +113,13 @@
 }
 
 .portal-hr ::-webkit-scrollbar-thumb {
-  background-color: #cbd5e1;
+  background-color: var(--argus-scrollbar-thumb);
   border-radius: 9999px;
   transition: background-color 150ms ease;
 }
 
 .portal-hr ::-webkit-scrollbar-thumb:hover {
-  background-color: #94a3b8;
+  background-color: var(--argus-scrollbar-hover);
 }
 
 /* Utility to completely hide scrollbars while retaining scrollability */
@@ -129,12 +133,13 @@
 }
 
 @layer utilities {
-  /* Disciplined tactile feedback per modern design systems */
+  /* Disciplined tactile feedback per modern design systems (asymmetric press/release) */
   .btn-press {
-    transition: transform 120ms var(--ease-out), box-shadow 120ms var(--ease-out), background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+    transition: transform 70ms ease-out, box-shadow 70ms ease-out, background-color 120ms ease, border-color 120ms ease, color 120ms ease;
   }
   .btn-press:active:not(:disabled) {
     transform: scale(0.985);
+    transition: transform 140ms ease-out;
   }
 
   /* Compact/Small buttons & table row actions: subtle tone shift without transform blur */
@@ -153,12 +158,14 @@
     opacity: 0.8;
   }
 
-  /* Interactive card hover */
+  /* Interactive card hover — gated behind hover and fine pointer */
   .card-hover {
     transition: transform 160ms var(--ease-out), box-shadow 160ms var(--ease-out), border-color 160ms var(--ease-out);
   }
-  .card-hover:hover {
-    transform: translateY(-1.5px);
+  @media (hover: hover) and (pointer: fine) {
+    .card-hover:hover {
+      transform: translateY(-1.5px);
+    }
   }
   .card-hover:active {
     transform: scale(0.99);
@@ -213,7 +220,22 @@
     animation-name: enterFromBottom;
   }
 
-  /* Linear Design System Classes */
+  @keyframes slideInFromTop {
+    from {
+      opacity: 0;
+      transform: translateY(-4px) scale(0.97);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+  .slide-in-from-top-1 {
+    transform-origin: top;
+    animation-name: slideInFromTop;
+  }
+
+  /* Shared Argus surface and action classes */
   .linear-panel {
     @apply bg-linear-surface-1 border border-linear-hairline;
   }
@@ -224,59 +246,56 @@
     @apply bg-linear-primary hover:bg-linear-primary-hover active:bg-linear-primary-focus text-white font-medium transition-colors duration-150;
   }
 
-  /* 300ms subtle row micro-flash for live stream ingestion */
+  /* 240ms subtle row micro-flash for live stream ingestion (sub-300ms budget) */
   @keyframes row-micro-flash {
-    0% { background-color: rgba(94, 106, 210, 0.22); }
+    0% { background-color: rgba(94, 106, 210, 0.18); }
     100% { background-color: transparent; }
   }
   .animate-row-flash {
-    animation: row-micro-flash 450ms ease-out forwards;
+    animation: row-micro-flash 240ms cubic-bezier(0.23, 1, 0.32, 1) forwards;
   }
 
   /* Tactile Click Micro-Interactions & Time-Travel States */
   @keyframes click-feedback-pulse {
     0% { transform: scale(1); }
-    30% { transform: scale(0.93); }
-    65% { transform: scale(1.02); }
+    30% { transform: scale(0.95); }
+    65% { transform: scale(1.01); }
     100% { transform: scale(1); }
   }
   .animate-click-pulse {
-    animation: click-feedback-pulse 240ms cubic-bezier(0.23, 1, 0.32, 1);
+    animation: click-feedback-pulse 200ms cubic-bezier(0.23, 1, 0.32, 1);
   }
 
+  /* Crisp 220ms GPU-accelerated card target activation */
   @keyframes card-target-activation {
     0% {
-      transform: scale(0.98);
-      box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.6);
-    }
-    50% {
-      transform: scale(1.01);
-      box-shadow: 0 0 20px 2px rgba(16, 185, 129, 0.35);
+      transform: scale(0.99);
+      outline: 2px solid rgba(16, 185, 129, 0.4);
     }
     100% {
       transform: scale(1);
-      box-shadow: 0 4px 14px 0 rgba(16, 185, 129, 0.12);
+      outline: 2px solid rgba(16, 185, 129, 0.9);
     }
   }
   .animate-card-target {
-    animation: card-target-activation 350ms cubic-bezier(0.23, 1, 0.32, 1) forwards;
+    animation: card-target-activation 220ms cubic-bezier(0.23, 1, 0.32, 1) forwards;
   }
 
+  /* Disciplined 150ms check icon entrance without cartoonish bounce (Standard 5 & 10) */
   @keyframes check-icon-pop {
-    0% { transform: scale(0.5); opacity: 0; }
-    60% { transform: scale(1.25); opacity: 1; }
+    0% { transform: scale(0.92); opacity: 0; }
     100% { transform: scale(1); opacity: 1; }
   }
   .animate-check-pop {
-    animation: check-icon-pop 250ms cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+    animation: check-icon-pop 150ms cubic-bezier(0.23, 1, 0.32, 1) forwards;
   }
 
   @keyframes badge-slide-down {
-    0% { opacity: 0; transform: translateY(-6px) scale(0.97); }
+    0% { opacity: 0; transform: translateY(-4px) scale(0.98); }
     100% { opacity: 1; transform: translateY(0) scale(1); }
   }
   .animate-badge-slide {
-    animation: badge-slide-down 200ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    animation: badge-slide-down 180ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
   }
 
   /* Accordion smooth expansion & collapse (going down / going up) */
@@ -333,12 +352,413 @@
   }
 }
 
+/* Accessibility: honor reduced motion by removing physical displacement while preserving gentle opacity & color transitions for state comprehension (Standard 8) */
 @media (prefers-reduced-motion: reduce) {
   *, ::before, ::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  /* Retain gentle opacity and color transitions rather than jarring 0s strobe cuts */
+  * {
+    transform: none !important;
+    transition-property: opacity, background-color, border-color, color, fill, stroke !important;
+    transition-duration: 150ms !important;
+  }
+}
+
+/* Number input spinner normalization for sleek enterprise UI */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+}
+
+/* Argus product system: neutral work surfaces, semantic color, and compact chrome. */
+:root {
+  --argus-radius-panel: 10px;
+  --argus-radius-control: 7px;
+  --argus-motion-fast: 140ms;
+}
+
+.portal-auditor {
+  color-scheme: dark;
+  --argus-font-sans: 'IBM Plex Sans', 'Segoe UI', sans-serif;
+  --argus-font-mono: 'IBM Plex Mono', 'Cascadia Code', Consolas, monospace;
+  --argus-canvas: #161616;
+  --argus-sidebar: #1d1d1d;
+  --argus-surface: #262626;
+  --argus-surface-raised: #333333;
+  --argus-border: #393939;
+  --argus-ink: #f4f4f4;
+  --argus-muted: #c6c6c6;
+  --argus-accent: #78a9ff;
+  --argus-scrollbar-thumb: #525252;
+  --argus-scrollbar-hover: #6f6f6f;
+  --argus-success: #6fdc8c;
+  --argus-success-rgb: 111, 220, 140;
+  --argus-warning: #f1c21b;
+  --argus-warning-rgb: 241, 194, 27;
+  --argus-danger: #ff8389;
+  --argus-danger-rgb: 255, 131, 137;
+  --argus-info: #78a9ff;
+  --argus-info-rgb: 120, 169, 255;
+  background: var(--argus-canvas);
+}
+
+.portal-auditor,
+.portal-auditor.font-sans,
+.portal-auditor .font-sans {
+  font-family: var(--argus-font-sans);
+}
+
+.portal-auditor .font-mono {
+  font-family: var(--argus-font-mono);
+}
+
+.portal-hr {
+  color-scheme: light;
+  --argus-canvas: #f4f4f4;
+  --argus-sidebar: #ffffff;
+  --argus-surface: #ffffff;
+  --argus-surface-raised: #f4f4f4;
+  --argus-border: #e0e0e0;
+  --argus-ink: #161616;
+  --argus-muted: #525252;
+  --argus-accent: #0f62fe;
+  --argus-scrollbar-thumb: #c6c6c6;
+  --argus-scrollbar-hover: #8d8d8d;
+  --argus-success: #198038;
+  --argus-success-rgb: 25, 128, 56;
+  --argus-warning: #8e6a00;
+  --argus-warning-rgb: 142, 106, 0;
+  --argus-danger: #da1e28;
+  --argus-danger-rgb: 218, 30, 40;
+  --argus-info: #0043ce;
+  --argus-info-rgb: 0, 67, 206;
+  background: var(--argus-canvas);
+}
+
+.argus-app-shell {
+  background: var(--argus-canvas);
+  color: var(--argus-ink);
+}
+
+.portal-auditor .bg-linear-canvas,
+.portal-hr .bg-linear-canvas {
+  background-color: var(--argus-canvas);
+}
+
+.argus-sidebar {
+  width: 248px;
+  background: var(--argus-sidebar);
+  border-color: var(--argus-border);
+}
+
+.argus-topbar {
+  height: 58px;
+  background: var(--argus-surface);
+  border-color: var(--argus-border);
+  box-shadow: none;
+}
+
+.argus-content-frame {
+  width: 100%;
+  max-width: 1480px;
+}
+
+.argus-sidebar nav a {
+  min-height: 38px;
+  border-radius: var(--argus-radius-control);
+  font-size: 13px;
+}
+
+.portal-auditor .argus-sidebar nav a[aria-current="page"] {
+  color: var(--argus-ink);
+  background: #333333;
+  border-color: transparent;
+  border-left: 2px solid var(--argus-accent);
+}
+
+.portal-hr .argus-sidebar nav a[aria-current="page"] {
+  color: var(--argus-ink);
+  background: #e8e8e8;
+  border-color: transparent;
+  border-left: 2px solid var(--argus-accent);
+}
+
+.argus-nav-group-label {
+  margin: 21px 10px 7px;
+  color: var(--argus-muted);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.argus-panel {
+  border-radius: var(--argus-radius-panel) !important;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.08) !important;
+}
+
+.argus-data-table {
+  border-radius: var(--argus-radius-panel);
+  box-shadow: none !important;
+}
+
+.argus-data-table-grid {
+  min-width: 100%;
+  font-variant-numeric: tabular-nums;
+}
+
+.argus-data-table-grid thead th {
+  padding: 10px 14px;
+  font-size: 0.7rem;
+  font-weight: 650;
+  letter-spacing: 0.055em;
+  white-space: nowrap;
+}
+
+.argus-data-table-grid tbody td {
+  padding: 11px 14px;
+  line-height: 1.45;
+}
+
+.portal-auditor .argus-data-table-grid tbody tr:hover {
+  background-color: rgb(255 255 255 / 0.035);
+}
+
+.portal-hr .argus-data-table-grid tbody tr:hover {
+  background-color: #f4f4f4;
+}
+
+.argus-filterbar {
+  border-radius: var(--argus-radius-panel);
+  box-shadow: none !important;
+}
+
+.portal-auditor .argus-panel {
+  background-color: var(--argus-surface);
+  border-color: var(--argus-border);
+}
+
+.portal-auditor .argus-app-shell {
+  font-size: 14px;
+}
+
+.portal-hr .argus-app-shell {
+  font-size: 14px;
+}
+
+.portal-auditor [class*="bg-gradient-"] {
+  background-image: none !important;
+}
+
+.portal-auditor .bg-black\/60 {
+  background-color: rgb(8 10 14 / 0.72);
+}
+
+.portal-hr .argus-panel {
+  background-color: var(--argus-surface);
+  border-color: var(--argus-border);
+}
+
+.portal-auditor [class~="rounded-2xl"] { border-radius: var(--argus-radius-panel); }
+.portal-auditor [class~="rounded-xl"] { border-radius: 8px; }
+.portal-hr [class~="rounded-2xl"] { border-radius: var(--argus-radius-panel); }
+.portal-hr [class~="rounded-xl"] { border-radius: 8px; }
+
+.portal-auditor [class~="rounded-lg"] { border-radius: var(--argus-radius-control); }
+.portal-hr [class~="rounded-lg"] { border-radius: var(--argus-radius-control); }
+
+.portal-auditor [class~="text-[10px]"] { font-size: 0.68rem; line-height: 1rem; }
+.portal-auditor [class~="text-[11px]"] { font-size: 0.73rem; line-height: 1rem; }
+.portal-hr [class~="text-[10px]"] { font-size: 0.68rem; line-height: 1rem; }
+.portal-hr [class~="text-[11px]"] { font-size: 0.73rem; line-height: 1rem; }
+
+.portal-auditor :is(input, select, textarea) {
+  border-radius: var(--argus-radius-control);
+}
+
+.portal-hr :is(input, select, textarea) {
+  border-radius: var(--argus-radius-control);
+}
+
+.portal-auditor button,
+.portal-hr button,
+.portal-auditor a,
+.portal-hr a {
+  transition-duration: var(--argus-motion-fast);
+}
+
+.portal-auditor :focus-visible,
+.portal-hr :focus-visible {
+  outline-offset: 2px;
+}
+
+.portal-auditor main,
+.portal-hr main {
+  scrollbar-gutter: stable;
+}
+
+@media (max-width: 1023px) {
+  .argus-sidebar { width: 276px; }
+  .argus-content-frame { max-width: 100%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .portal-auditor *,
+  .portal-hr * {
     scroll-behavior: auto !important;
   }
 }
+
+/* Semantic status aliases normalize legacy page utilities to the product palette.
+   Color communicates state; decoration uses the neutral surface and single accent tokens above. */
+.portal-auditor [class*="text-emerald-"],
+.portal-auditor [class*="text-green-"],
+.portal-hr [class*="text-emerald-"],
+.portal-hr [class*="text-green-"] { color: var(--argus-success) !important; }
+
+.portal-auditor [class*="text-amber-"],
+.portal-auditor [class*="text-orange-"],
+.portal-auditor [class*="text-yellow-"],
+.portal-hr [class*="text-amber-"],
+.portal-hr [class*="text-orange-"],
+.portal-hr [class*="text-yellow-"] { color: var(--argus-warning) !important; }
+
+.portal-auditor [class*="text-red-"],
+.portal-auditor [class*="text-rose-"],
+.portal-auditor [class*="text-pink-"],
+.portal-hr [class*="text-red-"],
+.portal-hr [class*="text-rose-"],
+.portal-hr [class*="text-pink-"] { color: var(--argus-danger) !important; }
+
+.portal-auditor [class*="text-blue-"],
+.portal-auditor [class*="text-sky-"],
+.portal-auditor [class*="text-cyan-"],
+.portal-auditor [class*="text-indigo-"],
+.portal-auditor [class*="text-violet-"],
+.portal-auditor [class*="text-purple-"],
+.portal-hr [class*="text-blue-"],
+.portal-hr [class*="text-sky-"],
+.portal-hr [class*="text-cyan-"],
+.portal-hr [class*="text-indigo-"],
+.portal-hr [class*="text-violet-"],
+.portal-hr [class*="text-purple-"] { color: var(--argus-accent) !important; }
+
+.portal-auditor [class*="bg-emerald-"],
+.portal-auditor [class*="bg-green-"],
+.portal-hr [class*="bg-emerald-"],
+.portal-hr [class*="bg-green-"] { background-color: rgba(var(--argus-success-rgb), 0.12) !important; }
+
+.portal-auditor [class~="bg-emerald-500"],
+.portal-auditor [class~="bg-emerald-400"],
+.portal-auditor [class~="bg-green-500"],
+.portal-hr [class~="bg-emerald-500"],
+.portal-hr [class~="bg-emerald-400"],
+.portal-hr [class~="bg-green-500"] { background-color: var(--argus-success) !important; }
+
+.portal-auditor [class*="bg-amber-"],
+.portal-auditor [class*="bg-orange-"],
+.portal-auditor [class*="bg-yellow-"],
+.portal-hr [class*="bg-amber-"],
+.portal-hr [class*="bg-orange-"],
+.portal-hr [class*="bg-yellow-"] { background-color: rgba(var(--argus-warning-rgb), 0.12) !important; }
+
+.portal-auditor [class*="bg-red-"],
+.portal-auditor [class*="bg-rose-"],
+.portal-auditor [class*="bg-pink-"],
+.portal-hr [class*="bg-red-"],
+.portal-hr [class*="bg-rose-"],
+.portal-hr [class*="bg-pink-"] { background-color: rgba(var(--argus-danger-rgb), 0.12) !important; }
+
+.portal-auditor [class*="bg-blue-"],
+.portal-auditor [class*="bg-sky-"],
+.portal-auditor [class*="bg-cyan-"],
+.portal-auditor [class*="bg-indigo-"],
+.portal-auditor [class*="bg-violet-"],
+.portal-auditor [class*="bg-purple-"],
+.portal-hr [class*="bg-blue-"],
+.portal-hr [class*="bg-sky-"],
+.portal-hr [class*="bg-cyan-"],
+.portal-hr [class*="bg-indigo-"],
+.portal-hr [class*="bg-violet-"],
+.portal-hr [class*="bg-purple-"] { background-color: rgba(var(--argus-info-rgb), 0.10) !important; }
+
+.portal-auditor [class*="bg-status-warning"],
+.portal-hr [class*="bg-status-warning"] { background-color: rgba(var(--argus-warning-rgb), 0.12) !important; }
+.portal-auditor [class~="bg-status-warning"],
+.portal-hr [class~="bg-status-warning"] { background-color: var(--argus-warning) !important; }
+.portal-auditor [class*="text-status-warning"],
+.portal-hr [class*="text-status-warning"] { color: var(--argus-warning) !important; }
+.portal-auditor [class*="border-status-warning"],
+.portal-hr [class*="border-status-warning"] { border-color: rgba(var(--argus-warning-rgb), 0.38) !important; }
+
+.portal-auditor [class*="text-linear-success"],
+.portal-hr [class*="text-linear-success"] { color: var(--argus-success) !important; }
+.portal-auditor [class*="bg-linear-success"],
+.portal-hr [class*="bg-linear-success"] { background-color: rgba(var(--argus-success-rgb), 0.12) !important; }
+.portal-auditor [class~="bg-linear-success"],
+.portal-hr [class~="bg-linear-success"] { background-color: var(--argus-success) !important; }
+.portal-auditor [class*="border-linear-success"],
+.portal-hr [class*="border-linear-success"] { border-color: rgba(var(--argus-success-rgb), 0.38) !important; }
+
+.portal-auditor [class*="bg-linear-primary"][class*="text-white"] {
+  color: #161616 !important;
+}
+
+/* Keep labels legible when paired with the softened but accessible status fills. */
+.portal-auditor [class*="bg-linear-primary"][class*="text-white"],
+.portal-auditor [class*="bg-linear-success"][class*="text-white"],
+.portal-auditor [class*="bg-emerald-500"][class*="text-white"],
+.portal-auditor [class*="bg-green-500"][class*="text-white"],
+.portal-auditor [class*="bg-red-500"][class*="text-white"],
+.portal-auditor [class*="bg-rose-500"][class*="text-white"] { color: #161616 !important; }
+
+.portal-auditor [class*="border-emerald-"],
+.portal-auditor [class*="border-green-"],
+.portal-hr [class*="border-emerald-"],
+.portal-hr [class*="border-green-"] { border-color: rgba(var(--argus-success-rgb), 0.38) !important; }
+
+.portal-auditor [class*="border-amber-"],
+.portal-auditor [class*="border-orange-"],
+.portal-auditor [class*="border-yellow-"],
+.portal-hr [class*="border-amber-"],
+.portal-hr [class*="border-orange-"],
+.portal-hr [class*="border-yellow-"] { border-color: rgba(var(--argus-warning-rgb), 0.38) !important; }
+
+.portal-auditor [class*="border-red-"],
+.portal-auditor [class*="border-rose-"],
+.portal-auditor [class*="border-pink-"],
+.portal-hr [class*="border-red-"],
+.portal-hr [class*="border-rose-"],
+.portal-hr [class*="border-pink-"] { border-color: rgba(var(--argus-danger-rgb), 0.38) !important; }
+
+.portal-auditor [class*="border-blue-"],
+.portal-auditor [class*="border-sky-"],
+.portal-auditor [class*="border-cyan-"],
+.portal-auditor [class*="border-indigo-"],
+.portal-auditor [class*="border-violet-"],
+.portal-auditor [class*="border-purple-"],
+.portal-hr [class*="border-blue-"],
+.portal-hr [class*="border-sky-"],
+.portal-hr [class*="border-cyan-"],
+.portal-hr [class*="border-indigo-"],
+.portal-hr [class*="border-violet-"],
+.portal-hr [class*="border-purple-"] { border-color: rgba(var(--argus-info-rgb), 0.35) !important; }
+
+.portal-auditor [class*="ring-rose-"],
+.portal-auditor [class*="ring-red-"],
+.portal-hr [class*="ring-rose-"],
+.portal-hr [class*="ring-red-"] { --tw-ring-color: rgba(var(--argus-danger-rgb), 0.35) !important; }
+
+.portal-auditor [class*="ring-blue-"],
+.portal-auditor [class*="ring-indigo-"],
+.portal-hr [class*="ring-blue-"],
+.portal-hr [class*="ring-indigo-"] { --tw-ring-color: rgba(var(--argus-info-rgb), 0.35) !important; }
 

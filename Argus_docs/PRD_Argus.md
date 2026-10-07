@@ -173,7 +173,7 @@ This module doesn't add new scope beyond what Section 10 already plans (React + 
 
 ### 5.10 Checkpoint Signing (Authenticity, Not Just Integrity)
 - **The distinction this adds:** a hash proves data hasn't changed; it doesn't prove who produced it. A digital signature adds authenticity and non-repudiation — someone who could forge a plausible hash still cannot forge a valid signature without the private key
-- The verification tool uses the established Python `cryptography` library for Ed25519 signing. Its private key is never exposed to the FastAPI application or the `hr_admin` role. At each checkpoint (Section 9, every 25 entries), the tool signs the checkpoint hash and appends `(hash, signature, timestamp)` to the external anchor (Section 5.5), rather than the hash alone
+- The verifier uses Python `cryptography` for Ed25519 signing. The verifier-owned signing path keeps its private key outside PostgreSQL and the HR database role. **Current implementation note:** the HR-only `POST /api/checkpoints/create` route can load a local signing key into FastAPI in development/demo so an HR admin can seal pending events on demand. The user receives the signed checkpoint result, not private-key bytes, but API compromise can expose this local key. The route fails closed in production until a managed signing adapter is integrated. Automatic checkpoints remain separate from this user-triggered action, and a signature does not itself create an external anchor.
 - On verification, the tool checks the signature against the known public key before trusting an anchor value — so someone who gained write access to the external anchor store still cannot plant a convincing fake entry without the private key
 - Directly strengthens the Section 6 threat model: the anchor was already outside `hr_admin`'s reach; signing makes it forgery-resistant even if that boundary were somehow crossed
 
@@ -280,7 +280,7 @@ The system shall:
 - **Migrations:** Alembic
 - **Version Control:** Git + GitHub
 - **Testing / CI:** pytest, pytest-benchmark, Playwright, and GitHub Actions — free automated tests and CI/CD target the course bonus without altering the security model
-- **Deployment:** Docker Compose locally; images pushed to Docker Hub; React deployed as a free static site; FastAPI deployed as a free web service; PostgreSQL deployed on Neon Free. Local Docker PostgreSQL remains the authoritative environment for the superuser attack demo because managed providers do not expose a true superuser
+- **Deployment plan, not current deployment status:** Docker Compose locally was the intended development environment; free hosted targets were considered for React, FastAPI, and PostgreSQL. The verified walkthrough currently uses isolated local Docker Compose and Clerk Development. Do not describe the free hosted stack as deployed; see `docs/LOCAL_DEMO_SETUP.md`.
 - **External anchor:** local protected file for development and a separate private GitHub repository (or equivalent free external store) for the deployed verifier; the anchor adapter is project-owned, but the storage protocol is not
 - **Framework note:** the professor's examples list Django and Flask for Python but do not prohibit FastAPI. Confirm FastAPI with the instructor before implementation; the database design remains portable to Flask if required
 

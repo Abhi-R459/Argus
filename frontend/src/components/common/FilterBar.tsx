@@ -34,7 +34,7 @@ export function FilterBar({
 
   return (
     <div
-      className={`p-3 rounded-2xl flex flex-col gap-2.5 shadow-xs ${bgClasses} ${className}`}
+      className={`argus-filterbar p-3 rounded-2xl flex flex-col gap-2.5 shadow-xs ${bgClasses} ${className}`}
       {...props}
     >
       {children && (

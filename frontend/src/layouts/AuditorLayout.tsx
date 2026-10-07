@@ -3,7 +3,8 @@ import { Outlet, Link, useLocation } from 'react-router-dom';
 import { UserButton } from '@clerk/clerk-react';
 import {
   ShieldCheck, Activity, FileSearch, LayoutDashboard, GitBranch,
-  AlertTriangle, History, ShieldAlert, ArrowRight, Lock, Menu, X,
+  AlertTriangle, History, ShieldAlert, ArrowRight, Lock, Menu, X, GitCompare,
+  FileCheck,
 } from 'lucide-react';
 import { useIncidentStatus } from '../services/auditService';
 import RealtimeClock from '../components/common/RealtimeClock';
@@ -19,24 +20,41 @@ export default function AuditorLayout() {
     setIsMobileMenuOpen(false);
   }, [location.pathname]);
 
-  const navItems = [
-    { name: 'Overview', path: '/auditor/overview', icon: LayoutDashboard },
-    { name: 'Audit Chain', path: '/auditor/chain', icon: GitBranch },
-    { name: 'Audit Log', path: '/auditor/log', icon: FileSearch },
-    { name: 'Time Travel', path: '/auditor/time-travel', icon: History },
-    { name: 'Activity & Risk', path: '/auditor/activity', icon: AlertTriangle },
-    { name: 'System Analytics', path: '/auditor/analytics', icon: Activity },
+  const navGroups = [
+    { label: 'Monitor', items: [
+      { name: 'Overview', path: '/auditor/overview', icon: LayoutDashboard },
+      { name: 'Activity & Risk', path: '/auditor/activity', icon: AlertTriangle },
+      { name: 'System Analytics', path: '/auditor/analytics', icon: Activity },
+    ] },
+    { label: 'Investigate', items: [
+      { name: 'Audit Chain', path: '/auditor/chain', icon: GitBranch },
+      { name: 'Audit Log', path: '/auditor/log', icon: FileSearch },
+      { name: 'Time Travel', path: '/auditor/time-travel', icon: History },
+      { name: 'Counterfactual', path: '/auditor/counterfactual', icon: GitCompare },
+    ] },
+    { label: 'Evidence', items: [
+      { name: 'Forensic Evidence', path: '/auditor/forensic-evidence', icon: FileCheck },
+    ] },
   ];
 
-  const currentPath = location.pathname.split('/').pop()?.replace('-', ' ') || 'Overview';
-  const pageTitle = currentPath.charAt(0).toUpperCase() + currentPath.slice(1);
+  const pageTitleByPath: Record<string, string> = {
+    '/auditor/overview': 'Overview',
+    '/auditor/chain': 'Audit Chain',
+    '/auditor/log': 'Audit Log',
+    '/auditor/time-travel': 'Time Travel',
+    '/auditor/counterfactual': 'Counterfactual',
+    '/auditor/forensic-evidence': 'Forensic Evidence',
+    '/auditor/activity': 'Activity & Risk',
+    '/auditor/analytics': 'System Analytics',
+  };
+  const pageTitle = pageTitleByPath[location.pathname] ?? 'Auditor Portal';
 
   return (
-    <div className="portal-auditor flex h-dvh bg-linear-canvas text-linear-ink font-sans antialiased overflow-hidden">
+    <div className="argus-app-shell portal-auditor flex h-dvh bg-linear-canvas text-linear-ink font-sans antialiased overflow-hidden">
       {/* Mobile Drawer Backdrop */}
       {isMobileMenuOpen && (
         <div
-          className="fixed inset-0 bg-black/60 backdrop-blur-xs z-40 lg:hidden transition-opacity"
+          className="fixed inset-0 bg-black/60 backdrop-blur-xs z-40 lg:hidden transition-opacity duration-200 ease-out"
           onClick={() => setIsMobileMenuOpen(false)}
           aria-hidden="true"
         />
@@ -44,28 +62,29 @@ export default function AuditorLayout() {
 
       {/* Sidebar - Linear Terminal Style (Responsive Off-Canvas on <lg) */}
       <aside
-        className={`fixed inset-y-0 left-0 z-50 w-64 bg-linear-surface-1 border-r border-linear-hairline shadow-sm flex flex-col transform transition-transform duration-200 ease-in-out lg:translate-x-0 lg:static lg:z-20 shrink-0 ${
+        id="auditor-primary-navigation"
+        className={`argus-sidebar fixed inset-y-0 left-0 z-50 w-64 border-r shadow-none flex flex-col transform transition-transform duration-240 ease-emil-drawer lg:translate-x-0 lg:static lg:z-20 shrink-0 ${
           isMobileMenuOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full'
         }`}
       >
         {/* Logo */}
-        <div className="h-16 flex items-center px-6 border-b border-linear-hairline justify-between shrink-0">
+        <div className="h-[58px] flex items-center px-5 border-b border-linear-hairline justify-between shrink-0">
           <div className="flex items-center space-x-2.5">
-            <div className="w-8 h-8 rounded-lg bg-linear-primary flex items-center justify-center text-white shadow-xs">
-              <ShieldCheck className="w-5 h-5" />
+            <div className="w-8 h-8 rounded-lg bg-linear-surface-3 border border-linear-hairline-strong flex items-center justify-center text-linear-primary">
+              <ShieldCheck className="w-[17px] h-[17px]" />
             </div>
-            <span className="text-lg font-bold text-linear-ink tracking-tight">
+            <span className="text-[15px] font-semibold text-linear-ink tracking-tight">
               Argus
             </span>
           </div>
           <div className="flex items-center space-x-2">
-            <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-md bg-linear-primary/15 text-linear-primary border border-linear-primary/30">
+            <span className="text-[10px] uppercase font-semibold tracking-wide px-2 py-0.5 rounded-md bg-linear-surface-2 text-linear-ink-subtle border border-linear-hairline">
               AUDITOR
             </span>
             <button
               type="button"
               onClick={() => setIsMobileMenuOpen(false)}
-              className="lg:hidden p-1 rounded-md text-linear-ink-subtle hover:text-linear-ink hover:bg-linear-surface-2"
+              className="lg:hidden p-2 -mr-2 rounded-lg text-linear-ink-muted hover:text-linear-ink hover:bg-linear-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-linear-primary"
               aria-label="Close menu"
             >
               <X className="w-4 h-4" />
@@ -74,11 +93,12 @@ export default function AuditorLayout() {
         </div>
 
         {/* Nav */}
-        <nav className="flex-1 py-6 px-3.5 space-y-1 overflow-y-auto">
-          <div className="px-3 pb-2 text-[11px] font-semibold text-linear-ink-subtle uppercase tracking-wider">
-            Forensic Telemetry
-          </div>
-          {navItems.map((item) => {
+        <nav className="flex-1 py-2 px-3 overflow-y-auto">
+          {navGroups.map((group) => (
+            <section key={group.label} aria-label={group.label}>
+              <h2 className="argus-nav-group-label">{group.label}</h2>
+              <div className="space-y-0.5">
+          {group.items.map((item) => {
             const Icon = item.icon;
             const isActive = location.pathname.startsWith(item.path);
             const isRiskItem = item.name === 'Activity & Risk';
@@ -88,9 +108,10 @@ export default function AuditorLayout() {
               <Link
                 key={item.name}
                 to={item.path}
+                aria-current={isActive ? 'page' : undefined}
                 className={`flex items-center px-3 py-2 rounded-lg text-sm font-medium transition-colors duration-150 group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-linear-primary ${
                   isActive
-                    ? 'bg-linear-surface-2 text-linear-ink border border-linear-hairline-strong shadow-xs font-medium'
+                    ? 'bg-linear-surface-2 text-linear-ink border border-transparent border-l-2 border-l-linear-primary font-medium'
                     : 'text-linear-ink-muted hover:bg-linear-surface-2/60 hover:text-linear-ink border border-transparent'
                 }`}
               >
@@ -102,13 +123,13 @@ export default function AuditorLayout() {
                 <span className="truncate">{item.name}</span>
 
                 {isRiskItem && incident.unreviewedFlagsCount > 0 && (
-                  <span className="ml-auto px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-grafana-orange/15 text-grafana-orange border border-grafana-orange/30">
+                  <span className="ml-auto px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-status-warning/15 text-status-warning border border-status-warning/30">
                     {incident.unreviewedFlagsCount}
                   </span>
                 )}
 
                 {isChainItem && incident.isCompromised && (
-                  <span className="ml-auto px-1.5 py-0.5 rounded-md text-[9px] font-extrabold uppercase tracking-wider bg-grafana-orange/20 text-grafana-orange border border-grafana-orange/40 animate-pulse">
+                  <span className="ml-auto px-1.5 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider bg-status-warning/20 text-status-warning border border-status-warning/40">
                     ALERT
                   </span>
                 )}
@@ -119,6 +140,9 @@ export default function AuditorLayout() {
               </Link>
             );
           })}
+              </div>
+            </section>
+          ))}
         </nav>
 
         {/* Footer system status */}
@@ -126,25 +150,30 @@ export default function AuditorLayout() {
           {incident.isCompromised ? (
             <Link
               to={`/auditor/chain${incident.tamperedSeqId ? `?seq=${incident.tamperedSeqId}&inspect=true` : ''}`}
-              className="flex items-center space-x-2.5 px-3 py-2 rounded-lg bg-grafana-orange/10 border border-grafana-orange/35 hover:bg-grafana-orange/20 transition-colors duration-150 group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-grafana-orange"
+              className="flex items-center space-x-2.5 px-3 py-2 rounded-lg bg-status-warning/10 border border-status-warning/35 hover:bg-status-warning/20 transition-colors duration-150 group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-status-warning"
               title="Click to inspect cryptographic breach in Chain Explorer"
             >
-              <span className="w-2 h-2 rounded-full bg-grafana-orange" />
-              <span className="text-xs font-semibold text-grafana-orange group-hover:text-grafana-orange-hover truncate">
+              <span className="w-2 h-2 rounded-full bg-status-warning" />
+              <span className="text-xs font-semibold text-status-warning group-hover:text-status-warning-hover truncate">
                 ⚠ Compromise Detected
               </span>
             </Link>
           ) : incident.unreviewedFlagsCount > 0 ? (
             <Link
               to="/auditor/activity"
-              className="flex items-center space-x-2.5 px-3 py-2 rounded-lg bg-grafana-orange/10 border border-grafana-orange/30 hover:bg-grafana-orange/20 transition-colors duration-150 group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-grafana-orange"
+              className="flex items-center space-x-2.5 px-3 py-2 rounded-lg bg-status-warning/10 border border-status-warning/30 hover:bg-status-warning/20 transition-colors duration-150 group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-status-warning"
               title="Click to review suspicious activity flags"
             >
-              <span className="w-2 h-2 rounded-full bg-grafana-orange" />
-              <span className="text-xs font-medium text-grafana-orange group-hover:text-grafana-orange-hover truncate">
+              <span className="w-2 h-2 rounded-full bg-status-warning" />
+              <span className="text-xs font-medium text-status-warning group-hover:text-status-warning-hover truncate">
                 {incident.unreviewedFlagsCount} Alert{incident.unreviewedFlagsCount > 1 ? 's' : ''} Pending
               </span>
             </Link>
+          ) : incident.isUnavailable ? (
+            <div className="flex items-center space-x-2.5 px-3 py-2 rounded-lg bg-status-warning/10 border border-status-warning/25" role="status">
+              <span className="w-2 h-2 rounded-full bg-status-warning" />
+              <span className="text-xs font-medium text-status-warning truncate">Monitoring status unavailable</span>
+            </div>
           ) : (
             <div className="flex items-center space-x-2.5 px-3 py-2 rounded-lg bg-linear-surface-2 border border-linear-hairline">
               <span className="w-2 h-2 rounded-full bg-linear-success" />
@@ -157,30 +186,32 @@ export default function AuditorLayout() {
       {/* Main Content */}
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
         {/* Header - Aligned to max-w-7xl content container */}
-        <header className="h-16 bg-linear-surface-1/90 backdrop-blur-md border-b border-linear-hairline flex items-center px-4 sm:px-6 lg:px-8 shadow-xs shrink-0">
-          <div className="max-w-7xl mx-auto w-full flex items-center justify-between">
+        <header className="argus-topbar bg-linear-surface-1 border-b border-linear-hairline flex items-center px-4 sm:px-6 lg:px-7 shrink-0">
+          <div className="argus-content-frame mx-auto flex items-center justify-between gap-3">
             <div className="flex items-center space-x-2 sm:space-x-3">
               <button
                 type="button"
                 onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+                aria-controls="auditor-primary-navigation"
+                aria-expanded={isMobileMenuOpen}
                 className="lg:hidden p-1.5 -ml-1 mr-1 rounded-lg text-linear-ink-subtle hover:text-linear-ink hover:bg-linear-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-linear-primary"
                 aria-label="Toggle navigation menu"
               >
                 <Menu className="w-5 h-5" />
               </button>
-              <Activity className="w-4 h-4 text-linear-primary hidden sm:block" />
-              <h1 className="text-base font-semibold text-linear-ink tracking-wide">
+              <span className="hidden sm:inline text-xs text-linear-ink-subtle">Workspace</span>
+              <span className="hidden sm:inline text-linear-hairline-strong">/</span>
+              <span aria-hidden="true" className="text-sm font-semibold text-linear-ink-muted tracking-wide">
                 {pageTitle}
-              </h1>
-              <div className="hidden sm:flex items-center space-x-1.5 px-2.5 py-1 rounded-md bg-linear-surface-2 border border-linear-hairline text-[11px] text-linear-ink-muted font-mono">
+              </span>
+              <div className="hidden sm:flex items-center space-x-1.5 px-2 py-1 rounded-md bg-linear-surface-2 border border-linear-hairline text-[11px] text-linear-ink-muted">
                 <Lock className="w-3 h-3 text-linear-primary" />
                 <span>Pool: compliance_auditor (Read-Only)</span>
               </div>
             </div>
             <div className="flex items-center space-x-3 sm:space-x-4">
-              <div className="hidden md:flex items-center space-x-2 px-3 py-1.5 rounded-lg bg-linear-surface-2 border border-linear-hairline text-xs text-linear-ink-muted font-mono shadow-2xs">
-                <span className="text-[10px] font-bold text-linear-success tracking-wider">LIVE</span>
-                <span className="text-linear-hairline-strong">|</span>
+              <div className="hidden md:flex items-center space-x-2 px-2.5 py-1.5 rounded-lg text-xs text-linear-ink-subtle">
+                <span className="w-1.5 h-1.5 rounded-full bg-linear-success" aria-hidden="true" />
                 <RealtimeClock showLiveDot={false} />
               </div>
               <div className="h-8 w-8 rounded-full ring-2 ring-linear-hairline-strong flex items-center justify-center overflow-hidden">
@@ -192,36 +223,36 @@ export default function AuditorLayout() {
 
         {/* Persistent Incident Alert Banner */}
         {incident.isCompromised && (
-          <div className="bg-gradient-to-r from-grafana-orange/20 via-grafana-orange/15 to-grafana-orange/20 border-b border-grafana-orange/40 px-4 sm:px-6 lg:px-8 py-3 shadow-lg shadow-black/50 z-10 animate-fade-cascade shrink-0">
-            <div className="max-w-7xl mx-auto w-full flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+          <div className="border-b border-rose-500/40 bg-rose-950/35 px-4 sm:px-6 lg:px-7 py-3 z-10 shrink-0">
+            <div className="argus-content-frame mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
               <div className="flex items-center space-x-3.5">
-                <div className="w-8 h-8 rounded-lg bg-grafana-orange/20 border border-grafana-orange/40 flex items-center justify-center text-grafana-orange shrink-0">
-                  <ShieldAlert className="w-5 h-5 animate-pulse" />
+                <div className="w-8 h-8 rounded-lg bg-rose-500/10 border border-rose-400/30 flex items-center justify-center text-rose-300 shrink-0">
+                  <ShieldAlert className="w-5 h-5" />
                 </div>
                 <div>
                   <div className="flex items-center space-x-2">
-                    <span className="text-[11px] font-extrabold uppercase tracking-wider text-grafana-orange font-mono">
+                      <span className="text-xs font-semibold text-rose-200">
                       CRITICAL SECURITY ALERT
                     </span>
                     {incident.tamperedSeqId && (
-                      <span className="text-[10px] font-mono font-semibold bg-grafana-orange/25 text-white px-2 py-0.5 rounded border border-grafana-orange/40">
+                        <span className="text-xs font-mono font-medium bg-rose-500/15 text-rose-100 px-2 py-0.5 rounded border border-rose-400/30">
                         Tampered Block #{incident.tamperedSeqId}
                       </span>
                     )}
                     {incident.anchorMismatch && (
-                      <span className="text-[10px] font-mono font-semibold bg-grafana-orange/25 text-white px-2 py-0.5 rounded border border-grafana-orange/40">
-                        External Anchor Mismatch
+                        <span className="text-xs font-mono font-medium bg-rose-500/15 text-rose-100 px-2 py-0.5 rounded border border-rose-400/30">
+                        Anchor Record Mismatch
                       </span>
                     )}
                   </div>
-                  <p className="text-xs text-linear-ink mt-0.5 font-medium">
+                  <p className="text-sm text-rose-100 mt-1">
                     {incident.details || 'Cryptographic chain verification detected tampering or anchor discrepancy.'}
                   </p>
                 </div>
               </div>
               <Link
                 to={`/auditor/chain${incident.tamperedSeqId ? `?seq=${incident.tamperedSeqId}&inspect=true` : ''}`}
-                className="shrink-0 flex items-center space-x-1.5 px-3.5 py-1.5 rounded-lg bg-grafana-orange hover:bg-grafana-orange-hover border border-grafana-orange text-white text-xs font-semibold transition-colors duration-150 shadow-xs group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+                className="shrink-0 flex items-center space-x-1.5 px-3 py-2 rounded-lg bg-rose-600 hover:bg-rose-500 border border-rose-500 text-white text-sm font-medium transition-colors duration-150 group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
               >
                 <span>Inspect Compromised Block {incident.tamperedSeqId ? `#${incident.tamperedSeqId}` : ''}</span>
                 <ArrowRight className="w-3.5 h-3.5 transition-transform duration-150 group-hover:translate-x-0.5" />
@@ -232,7 +263,7 @@ export default function AuditorLayout() {
 
         {/* Scrollable content */}
         <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 bg-linear-canvas">
-          <div className="max-w-7xl mx-auto min-h-full">
+          <div className="argus-content-frame mx-auto min-h-full">
             <ErrorBoundary portalTheme="auditor" fallbackTitle="Auditor Portal View Error">
               <Outlet />
             </ErrorBoundary>

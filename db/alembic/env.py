@@ -4,6 +4,7 @@ from dotenv import load_dotenv
 
 from sqlalchemy import engine_from_config
 from sqlalchemy import pool
+from sqlalchemy.engine import make_url
 
 from alembic import context
 
@@ -14,10 +15,20 @@ load_dotenv()
 # access to the values within the .ini file in use.
 config = context.config
 
-# Override sqlalchemy.url with DATABASE_URL_MIGRATIONS or DATABASE_URL from environment
-database_url = os.getenv("DATABASE_URL_MIGRATIONS") or os.getenv("DATABASE_URL")
-if database_url:
-    config.set_main_option("sqlalchemy.url", database_url)
+# Migrations are privileged operations and must use their dedicated credential.
+# Never fall back to DATABASE_URL, which may be an application runtime role.
+database_url = os.getenv("DATABASE_URL_MIGRATIONS")
+if not database_url:
+    raise RuntimeError(
+        "DATABASE_URL_MIGRATIONS is required for Alembic; generic DATABASE_URL is not accepted."
+    )
+# Pin the synchronous PostgreSQL driver used by this migration environment;
+# SQLAlchemy's bare postgresql:// dialect may otherwise select psycopg v3.
+migration_url = make_url(database_url).set(drivername="postgresql+psycopg2")
+config.set_main_option(
+    "sqlalchemy.url",
+    migration_url.render_as_string(hide_password=False).replace("%", "%%"),
+)
 
 # Interpret the config file for Python logging.
 if config.config_file_name is not None:

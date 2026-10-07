@@ -65,16 +65,13 @@ export function SegmentedControl<T extends string = string>({
       {options.map((opt, idx) => {
         const isSelected = opt.value === value;
 
-        let itemClasses = '';
-        if (isAuditor) {
-          itemClasses = isSelected
+        const itemClasses = isAuditor
+          ? isSelected
             ? 'bg-linear-surface-1 text-linear-ink border border-linear-hairline shadow-xs font-semibold'
-            : 'text-linear-ink-muted hover:text-linear-ink border border-transparent font-medium';
-        } else {
-          itemClasses = isSelected
+            : 'text-linear-ink-muted hover:text-linear-ink border border-transparent font-medium'
+          : isSelected
             ? 'bg-white text-slate-900 shadow-xs font-semibold border border-slate-200/80'
             : 'text-slate-500 hover:text-slate-900 border border-transparent font-medium';
-        }
 
         return (
           <button
@@ -85,7 +82,7 @@ export function SegmentedControl<T extends string = string>({
             tabIndex={isSelected ? 0 : -1}
             onClick={() => onChange(opt.value)}
             onKeyDown={(e) => handleKeyDown(e, idx)}
-            className={`flex items-center ${fullWidth ? 'flex-1 justify-center' : ''} gap-1.5 rounded-md transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 ${
+            className={`flex items-center ${fullWidth ? 'flex-1 justify-center' : ''} gap-1.5 rounded-md transition-[color,background-color,border-color,box-shadow] duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 ${
               isAuditor ? 'focus-visible:ring-linear-primary' : 'focus-visible:ring-slate-400'
             } ${sizeClasses} ${itemClasses}`}
           >

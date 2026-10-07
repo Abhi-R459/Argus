@@ -1,20 +1,33 @@
-import { useUser, useClerk } from '@clerk/clerk-react';
-import { ShieldCheck, Database, Key, User, Lock, CheckCircle2 } from 'lucide-react';
+import { useUser, useClerk, useAuth } from '@clerk/clerk-react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { ShieldCheck, Database, Key, User, Lock, CheckCircle2, Fingerprint } from 'lucide-react';
 import { Button } from '../../components/common/Button';
+import PageHeader from '../../components/common/PageHeader';
+import { createCheckpointNow } from '../../services/auditService';
 
 export default function HRSettings() {
   const { user } = useUser();
+  const { getToken } = useAuth();
   const { openUserProfile } = useClerk();
+  const queryClient = useQueryClient();
+  const checkpointMutation = useMutation({
+    mutationFn: () => createCheckpointNow(() => getToken()),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['dashboardStats'] }),
+        queryClient.invalidateQueries({ queryKey: ['audit-chain'] }),
+        queryClient.invalidateQueries({ queryKey: ['anchor-status'] }),
+      ]);
+    },
+  });
 
   return (
-    <div className="space-y-8 max-w-4xl animate-fade-cascade">
-      {/* Header */}
-      <div className="border-b border-slate-200 pb-5">
-        <h1 className="text-xl font-bold text-slate-900 tracking-tight">Security & Access Management</h1>
-        <p className="text-xs text-slate-500 mt-1">
-          Cryptographic keys, Clerk authentication tokens, role-based access control, and PostgreSQL session parameters.
-        </p>
-      </div>
+    <div className="space-y-6 max-w-7xl animate-fade-cascade">
+      <PageHeader
+        title="Security & Access Management"
+        description="Authentication, role access, database connections, and encryption posture."
+        portalTheme="hr"
+      />
 
       {/* Clerk Profile & Session Card */}
       <div className="bg-white rounded-2xl border border-slate-200/80 p-6 shadow-xs space-y-6">
@@ -61,14 +74,57 @@ export default function HRSettings() {
           <div className="bg-slate-50 p-4 rounded-xl border border-slate-200/80 flex flex-col justify-between">
             <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Two-Factor Authentication</span>
             <div className="mt-1.5 flex items-center space-x-2 bg-white p-2 rounded-lg border border-slate-200 shadow-2xs">
-              <Lock className="w-4 h-4 text-emerald-600 shrink-0" />
-              <span className="text-xs font-semibold text-slate-800">
-                {user?.twoFactorEnabled ? 'Enabled & Enforced' : 'Active (Clerk MFA Enforced)'}
+              <Lock className={`w-4 h-4 shrink-0 ${user?.twoFactorEnabled ? 'text-portal-success' : 'text-portal-warning'}`} />
+              <span className="text-xs font-semibold text-slate-800" role="status">
+                {user ? (user.twoFactorEnabled ? 'Enabled' : 'Not enabled') : 'Checking status…'}
               </span>
             </div>
           </div>
         </div>
       </div>
+
+      {/* On-demand checkpoint creation */}
+      <section className="bg-white rounded-2xl border border-slate-200/80 p-6 shadow-xs space-y-5" aria-labelledby="checkpoint-title">
+        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+          <div className="flex items-start gap-3">
+            <div className="p-2.5 rounded-xl bg-blue-50 text-blue-600 border border-blue-100/80">
+              <Fingerprint className="w-5 h-5" aria-hidden="true" />
+            </div>
+            <div>
+              <h2 id="checkpoint-title" className="font-bold text-slate-900 text-sm">Audit checkpoint</h2>
+              <p className="mt-1 max-w-2xl text-xs leading-relaxed text-slate-600">
+                Seal all audit events recorded since the previous checkpoint. Argus signs the checkpoint and records this request; it does not create an external anchor.
+              </p>
+            </div>
+          </div>
+          <Button
+            variant="primary"
+            size="md"
+            portalTheme="hr"
+            loading={checkpointMutation.isPending}
+            disabled={checkpointMutation.isPending}
+            onClick={() => checkpointMutation.mutate()}
+            leftIcon={<Fingerprint className="w-4 h-4" aria-hidden="true" />}
+          >
+            Create checkpoint now
+          </Button>
+        </div>
+        {checkpointMutation.data && (
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-xs text-emerald-900" role="status" aria-live="polite">
+            <p className="font-semibold">Checkpoint #{checkpointMutation.data.checkpoint_id} created and signed.</p>
+            <p className="mt-1">
+              Sealed {checkpointMutation.data.entries_sealed} audit {checkpointMutation.data.entries_sealed === 1 ? 'event' : 'events'} through sequence #{checkpointMutation.data.sequence_id}. No external anchor was created.
+            </p>
+          </div>
+        )}
+        {checkpointMutation.isError && (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs text-amber-900" role="alert">
+            {checkpointMutation.error instanceof Error
+              ? checkpointMutation.error.message
+              : 'The checkpoint could not be created. Please try again.'}
+          </div>
+        )}
+      </section>
 
       {/* Engine & Security Architecture */}
       <div className="bg-white rounded-2xl shadow-xs border border-slate-200/80 p-6 space-y-6 overflow-hidden">
@@ -98,10 +154,10 @@ export default function HRSettings() {
           <div className="p-4 rounded-xl border border-slate-200/80 bg-slate-50 space-y-2">
             <div className="flex items-center space-x-2 text-slate-900 font-semibold text-xs">
               <Key className="w-4 h-4 text-emerald-600" />
-              <span>PII Column Encryption</span>
+              <span>PII Column Storage</span>
             </div>
             <p className="text-xs text-slate-600 leading-relaxed">
-              National IDs and sensitive contacts are encrypted using AES-256 via <code className="text-emerald-800 font-mono text-[11px] bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200 font-semibold">pgcrypto</code> and indexed via HMAC-SHA256 blind salts.
+              National IDs and sensitive contacts are currently stored as unencrypted bytes. Do not use real personal data until encryption and key management are implemented.
             </p>
           </div>
         </div>

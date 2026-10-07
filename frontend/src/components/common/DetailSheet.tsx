@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useId, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { ErrorBoundary } from './ErrorBoundary';
@@ -32,6 +32,10 @@ export function DetailSheet({
   className = '',
 }: DetailSheetProps) {
   const { isRendered, isVisible } = useModalTransition(isOpen, 240);
+  const dialogTitleId = useId();
+  const dialogRef = useRef<HTMLElement | null>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   // Cache last non-null content so modal content stays rendered during smooth exit transition
   const cachedContent = useRef({
@@ -58,25 +62,62 @@ export function DetailSheet({
   const activeChildren = isOpen ? children : cachedContent.current.children;
   const activeFooter = isOpen ? footer : cachedContent.current.footer;
 
-  // Handle ESC key listener
+  // Keep overlay sheets keyboard-contained and return focus to the invoking control.
   useEffect(() => {
     if (!isOpen) return;
+    const shouldTrapFocus =
+      mode === 'modal' || mode === 'drawer' ||
+      (mode === 'responsive' && !window.matchMedia('(min-width: 1280px)').matches);
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const previousOverflow = document.body.style.overflow;
+
+    if (shouldTrapFocus) {
+      document.body.style.overflow = 'hidden';
+      requestAnimationFrame(() => {
+        const focusable = dialogRef.current?.querySelector<HTMLElement>(
+          'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        );
+        (focusable ?? dialogRef.current)?.focus();
+      });
+    }
+
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        const active = document.activeElement;
-        const isInput =
-          active &&
-          (active.tagName === 'INPUT' ||
-            active.tagName === 'TEXTAREA' ||
-            active.tagName === 'SELECT');
-        if (!isInput) {
-          onClose();
+        e.preventDefault();
+        onCloseRef.current();
+        return;
+      }
+      if (e.key === 'Tab' && shouldTrapFocus && dialogRef.current) {
+        const focusable = Array.from(
+          dialogRef.current.querySelectorAll<HTMLElement>(
+            'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+          )
+        ).filter((element) => element.getClientRects().length > 0);
+        if (focusable.length === 0) {
+          e.preventDefault();
+          dialogRef.current.focus();
+          return;
+        }
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (e.shiftKey && document.activeElement === first) {
+          e.preventDefault();
+          last.focus();
+        } else if (!e.shiftKey && document.activeElement === last) {
+          e.preventDefault();
+          first.focus();
         }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose]);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      if (shouldTrapFocus) {
+        document.body.style.overflow = previousOverflow;
+        previousFocus?.focus();
+      }
+    };
+  }, [isOpen, mode]);
 
   const isAuditor = portalTheme === 'auditor';
 
@@ -113,8 +154,11 @@ export function DetailSheet({
 
         {/* Centered Modal Card with smooth pop up and going back transitions */}
         <div
+          ref={dialogRef as React.RefObject<HTMLDivElement>}
           role="dialog"
           aria-modal="true"
+          aria-labelledby={dialogTitleId}
+          tabIndex={-1}
           className={`relative z-10 w-full rounded-2xl shadow-2xl border overflow-hidden flex flex-col my-auto modal-dialog-card ${
             isVisible ? 'modal-dialog-card-open' : ''
           } ${
@@ -125,7 +169,7 @@ export function DetailSheet({
           <div className={`px-6 py-4 shrink-0 flex items-center justify-between gap-3 ${headerBg}`}>
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2.5">
-                <h3 className="text-base font-bold truncate tracking-tight">{activeTitle}</h3>
+                <h3 id={dialogTitleId} className="text-base font-bold truncate tracking-tight">{activeTitle}</h3>
                 {activeHeaderBadge}
               </div>
               {activeSubtitle && (
@@ -180,6 +224,11 @@ export function DetailSheet({
           aria-hidden="true"
         />
         <aside
+          ref={dialogRef as React.RefObject<HTMLElement>}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={dialogTitleId}
+          tabIndex={-1}
           className={`relative z-10 flex flex-col h-full shadow-2xl border-l overflow-hidden drawer-slide-right ${
             isVisible ? 'drawer-slide-right-open' : ''
           } ${widthClass} ${containerThemeClasses} ${className}`}
@@ -189,7 +238,7 @@ export function DetailSheet({
           <div className={`px-5 py-3.5 shrink-0 flex items-center justify-between gap-2 ${headerBg}`}>
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
-                <h3 className="text-sm font-semibold truncate tracking-tight">{activeTitle}</h3>
+                <h3 id={dialogTitleId} className="text-sm font-semibold truncate tracking-tight">{activeTitle}</h3>
                 {activeHeaderBadge}
               </div>
               {activeSubtitle && (
@@ -288,6 +337,11 @@ export function DetailSheet({
     >
       <div className="fixed inset-0" onClick={onClose} aria-hidden="true" />
       <aside
+        ref={dialogRef as React.RefObject<HTMLElement>}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={dialogTitleId}
+        tabIndex={-1}
         className={`relative z-10 flex flex-col h-full w-full max-w-md shadow-2xl border-l overflow-hidden drawer-slide-right ${
           isVisible ? 'drawer-slide-right-open' : ''
         } ${containerThemeClasses}`}
@@ -295,7 +349,7 @@ export function DetailSheet({
         <div className={`px-4 py-3 shrink-0 flex items-center justify-between gap-2 ${headerBg}`}>
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
-              <h3 className="text-sm font-semibold truncate tracking-tight">{title}</h3>
+              <h3 id={dialogTitleId} className="text-sm font-semibold truncate tracking-tight">{title}</h3>
               {headerBadge}
             </div>
             {subtitle && (

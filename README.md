@@ -1,15 +1,17 @@
 # Argus
 
-> **A tamper-evident, self-verifying audit trail engine for PostgreSQL**, demonstrated through an enterprise Employee Records management system.  
+> **An academic PostgreSQL audit prototype** with hash-linked row-change records, checkpoint tooling, evidence proofs, and read-only historical/counterfactual investigation.
 > *Course Project for BCSE302L Database Systems — Abhinav & Nidhurshek.*
 
-[![Tests](https://img.shields.io/badge/tests-204%20passed-brightgreen.svg)](#running-automated-tests)
+> **Professor walkthrough and research claim:** See [Conference Positioning and Professor Walkthrough](docs/CONFERENCE_AND_DEMO_GUIDE.md). This is the source of truth for the current demo, contribution boundaries, and evaluation caveats. Older research drafts and demo manuals contain claims and routes that have not been reconciled with the current implementation.
+
+[![Test suites](https://img.shields.io/badge/tests-Pytest%20%2B%20Playwright-blue.svg)](#running-automated-tests)
 [![Red Team Engine](https://img.shields.io/badge/Adversary%20CLI-Active-crimson.svg)](#part-2-testing-out-of-band-adversary-attacks-red-team-cli)
 [![Security](https://img.shields.io/badge/Security-Fail--Closed-009688.svg)](#overview)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15+-blue.svg)](https://www.postgresql.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688.svg)](https://fastapi.tiangolo.com/)
 [![React](https://img.shields.io/badge/React-19-61DAFB.svg)](https://react.dev/)
-[![TailwindCSS](https://img.shields.io/badge/Tailwind-v3-38B2AC.svg)](https://tailwindcss.com/)
+[![TailwindCSS](https://img.shields.io/badge/Tailwind-v4-38B2AC.svg)](https://tailwindcss.com/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 ---
@@ -50,15 +52,15 @@
 
 Traditional relational audit logs are stored in standard database tables. A malicious or compromised administrator (or superuser) can silently alter salaries, delete reprimands, or modify access logs directly via SQL without leaving a trace.
 
-**Argus solves this natively within PostgreSQL:**
-- **Trigger-Enforced Cryptographic Hash Chaining**: Every `INSERT`, `UPDATE`, or `DELETE` on monitored tables fires an `AFTER` trigger. The trigger serializes the change, computes a canonical SHA-256 digest linked to the preceding entry's hash, and appends the immutable log row.
-- **Mathematical Tamper Evidence**: Modifying, deleting, inserting, or reordering any historical audit entry permanently invalidates the cryptographic hash chain for all subsequent entries.
+**Argus explores these controls in a PostgreSQL prototype:**
+- **Trigger-Enforced Cryptographic Hash Chaining**: Monitored `INSERT`, `UPDATE`, or `DELETE` operations fire an `AFTER` trigger. It serializes the change, computes a SHA-256 digest linked to the preceding entry, and appends an audit row in the same transaction.
+- **Tamper Evidence**: Editing or reordering a row breaks chain verification. A privileged administrator can recompute an unanchored chain; independently trusted signed checkpoints are needed to detect that rewrite.
 - **Strict Least-Privilege Separation**:
   - `hr_admin`: Manages employees and compensation; read-only to audit logs; strictly denied direct `INSERT`, `UPDATE`, `DELETE`, or `TRUNCATE` privileges on audit logs (all audit records append exclusively via `SECURITY DEFINER` triggers).
-  - `compliance_auditor`: Read-only access to audit logs, views, and integrity verification; denied write access and raw PII access.
+  - `compliance_auditor`: Read-only audit access and a masked employee directory; explicit PII reveals are routed and logged by the API.
 - **Zero-Gap Concurrency Guarantee**: Row-level locking on `chain_state` serializes concurrent transactions without deadlocks, ensuring zero sequence ID gaps.
-- **Ed25519 Checkpoint Signing & Multi-Target Anchoring**: Snapshots of the chain tail are cryptographically signed with Ed25519 keys and anchored outside the database (local disk or GitHub repository).
-- **HMAC Blind Indexing & Redaction**: Replaces plaintext PII with `[REDACTED]` while generating keyed HMAC digests for sub-millisecond exact-match lookups.
+- **Ed25519 Checkpoint Signing & Anchoring**: The verifier can sign checkpoints and use configured anchor providers. A local anchor is not an independent trust domain; external anchoring applies only when its credentials and stores are configured.
+- **PII Encryption, Redaction & Blind Indexing**: The API uses a versioned AES-256-GCM envelope when `PII_ENCRYPTION_KEY` is configured. Audit payloads redact these columns and retain a blind index for national-ID search. Names and email addresses are not encrypted by this field-level mechanism.
 - **Air-Gapped Turnkey Verifier**: Self-contained `.arguspack` evidence archives embedding zero-dependency pure-Python RFC 8032 verifiers.
 
 ---
@@ -69,14 +71,54 @@ Traditional relational audit logs are stored in standard database tables. A mali
 |---|---|
 | 🔗 **Cryptographic Chaining** | In-engine SHA-256 digest linking every state change to the prior audit block. |
 | 🛡️ **Business Rule Triggers** | Database-level blocks against salary reductions $> 30\%$, self-salary modification, and SSN alterations. |
-| 🕵️ **PII Masking & Encryption** | Automatic database-level masking of sensitive credentials and `pgcrypto` field-level encryption. |
+| 🕵️ **PII Masking & Encryption** | API writes use versioned AES-256-GCM envelopes; audit payloads redact the fields. Configure and protect `PII_ENCRYPTION_KEY` before applying the PII migration or using real identifiers. |
 | 🔍 **HMAC Blind Indexing** | Sub-millisecond forensic search over masked identifiers via keyed HMAC B-tree indexes without revealing plaintext PII. |
 | 📦 **Air-Gapped Evidence Pack** | Export portable `.arguspack` bundles containing pure-Python RFC 8032 zero-dependency offline verifiers. |
 | ⚡ **Parallel Verifier** | Standalone verification engine dividing the chain into checkpoint-bounded segments for concurrent verification. |
 | ⏳ **Time-Travel Querying** | Replays historical `audit_log` deltas to reconstruct any employee's state as of an exact microsecond. |
 | 📜 **Signed Evidence Export** | Generates tamper-evident JSON bundles digitally signed with Ed25519 for external compliance audits. |
+| 🧾 **On-Demand Checkpoints** | HR admins can sign all new audit events from HR Settings; signing does not automatically create an external anchor. |
 | 🧪 **Interactive Concurrency Lab** | Built-in UI to trigger parallel write races, demonstrating lock serialization and tamper detection live. |
 | 🎯 **Red Team Adversary Engine** | Dedicated out-of-band CLI tool (`db.cli.adversary`) simulating real-world rogue DBA attacks with one-command healing. |
+
+---
+
+## Additional capabilities (implementation status is configuration-dependent)
+
+These capabilities are research prototypes, not by themselves claims of algorithmic novelty. Use the [conference positioning guide](docs/CONFERENCE_AND_DEMO_GUIDE.md) for a defensible contribution statement and current verification caveats.
+
+### Counterfactual event-exclusion replay
+An auditor selects employee-scoped audit events to exclude from a read-only replay and compares the resulting state. Sequence IDs vary by database and must be selected from the audit log. The salary-rate exposure is an estimate, not proof of fraud or payroll paid:
+- **Side-by-side reconstruction:** Actual State vs. Counterfactual State across all attributes.
+- **Salary comparison:** Reports the annual salary-rate difference and a cumulative estimate integrated over calendar-day intervals using effective-dated salary records.
+- **API Endpoint:** `POST /api/audit-logs/counterfactual` (guarded by `compliance_auditor` RBAC).
+- **Dedicated UI:** [`/auditor/counterfactual`](frontend/src/pages/auditor/CounterfactualPage.tsx) — Interactive Counterfactual Simulator with employee selector and exposure summary.
+- **Automated Tests:** `db/tests/test_counterfactual.py` (7/7) & `api/tests/test_counterfactual.py` (5/5).
+
+### N9 — Selective-Disclosure Merkle Capsules (`.arguscap`) ✅ Implemented & Tested
+Prove a single transaction's validity with $O(\log K)$ hashes without disclosing any adjacent employee records or confidential organizational mutations:
+- **RFC 6962 Domain Separation:** Leaf nodes use prefix `0x00 || canonical_json(row)`; internal nodes use prefix `0x01 || left || right`. Odd-leaf promotion prevents Bitcoin CVE-2012-2459 duplicate-leaf vulnerabilities.
+- **Dual-Binding Signatures:** Checkpoints commit to `checkpoint_hash:merkle_root` signed with Ed25519.
+- **API Endpoints:** `GET /api/audit-logs/{seq_id}/capsule` (streaming `.arguscap` bundle) and `GET /api/audit-logs/{seq_id}/proof` (inclusion proof metadata).
+- **Air-Gapped Turnkey Verifier:** Every `.arguscap` embeds `verify_capsule.py`, a zero-dependency standalone verifier in pure Python standard library:
+  ```bash
+  python db/cli/verify_capsule.py --bundle proof.arguscap --trusted-public-key trusted-audit-key.pem
+  # [PASS] Ed25519 checkpoint signature valid
+  # [PASS] Leaf hash matches canonical row
+  # [PASS] Merkle proof path verified (depth 5, root match)
+  # VALID: Transaction seq_id=71 proven included in checkpoint
+  ```
+- **Dedicated UI:** [`/auditor/forensic-evidence`](frontend/src/pages/auditor/ForensicEvidencePage.tsx) — Forensic Evidence Generator with proof path visualizer and capsule download.
+- **Automated Tests:** `db/tests/test_merkle_tree.py` (9/9), `db/tests/test_capsule.py` (9/9), `api/tests/test_capsule_api.py` (7/7).
+
+### Multi-witness anchoring prototype
+The repository contains a multi-witness protocol prototype and verifier support. A quorum is independently trustworthy only when separate witness services, keys, and persistence are configured and their evidence verifies. The local demo has no persisted witness note, so the Auditor Overview correctly shows **Unverified**; do not present this local setup as an active independent 2-of-3 deployment.
+- **Protocol and CLI:** RFC 9162-style checkpoint notes and `python -m db.cli.verifier verify-chain --multi-witness` for configured witness evidence.
+- **UI:** [`AnchorStatus.tsx`](frontend/src/components/auditor/AnchorStatus.tsx) reports witness status and lists individual witnesses only when evidence rows are present.
+- **Independent deployment:** Requires separately operated witness services and trusted public keys; the local in-process reference implementation does not provide independent trust domains.
+
+### N8 — GDPR Crypto-Shredding (Formally Specified)
+Full architectural specification in [`docs/CRYPTO_SHREDDING_ANALYSIS.md`](docs/CRYPTO_SHREDDING_ANALYSIS.md). Implements formal per-subject DEK envelope encryption design; implementation deferred pending cloud KMS integration (Decision D-1).
 
 ---
 
@@ -129,10 +171,10 @@ Traditional relational audit logs are stored in standard database tables. A mali
 - **Backend:** Python 3.12, FastAPI, SQLAlchemy 2 (asyncpg + psycopg2), Pydantic v2, Uvicorn.
 - **Frontend:** React 19, TypeScript, Vite, Tailwind CSS, TanStack React Query, Lucide React.
 - **Authentication:** Clerk Auth (JWT authentication and role sync).
-- **Cryptography:** Ed25519 (`cryptography`), SHA-256 (`hashlib`), RFC 8032 pure-Python curve math, RFC 3161 ASN.1 DER parser.
-- **Database Migrations:** Alembic (13 versions, up to `013_tunable_pbkdf2_blind_index`).
+- **Cryptography:** Ed25519 (`cryptography`), SHA-256 (`hashlib`), RFC 8032 pure-Python curve math, RFC 3161 ASN.1 DER parser, RFC 6962 (Merkle trees), RFC 9162 (Multi-witness cosigning).
+- **Database Migrations:** Alembic (18 versioned migrations).
 - **External Anchors:** Local File, GitHub Repository, RFC 3161 Time-Stamping Authority (`.tsr`), and AWS S3 WORM Object Lock (`COMPLIANCE` mode).
-- **Testing:** Pytest (204 passed, 27 skipped across 231 items), pytest-asyncio, pytest-benchmark, HTTPX, Playwright.
+- **Testing:** Pytest, pytest-asyncio, pytest-benchmark, HTTPX, and Playwright. Test counts are revision-dependent; run the commands below against the checkout you intend to present.
 
 ---
 
@@ -140,21 +182,25 @@ Traditional relational audit logs are stored in standard database tables. A mali
 
 The fastest way to spin up the complete end-to-end stack:
 
+For a professor walkthrough that must stay on your laptop and must not touch
+the configured hosted database, use the isolated [Local Demo Setup](docs/LOCAL_DEMO_SETUP.md).
+It generates a separate `.env.demo`, local cryptographic secrets, and a fresh
+`argus-demo` database. Clerk Development sign-in still needs internet access.
+
 ```bash
 # 1. Clone the repository
 git clone https://github.com/Abhi-R459/Argus.git
 cd Argus
 
-# 2. Configure environment (pre-configured template provided)
+# 2. Configure secrets and service URLs from a local secret manager
 cp .env.example .env
 
-# 3. Start all services (Postgres, FastAPI Backend, React Frontend)
-docker compose up --build
+# 3. Follow the staged setup below (database -> migrations/roles -> API/UI)
 ```
 
-- **Frontend Application:** [http://localhost:80](http://localhost:80)
-- **FastAPI API & Docs:** [http://localhost:8000/docs](http://localhost:8000/docs)
-- **Database:** `localhost:5432` (`argus`)
+- **Frontend Application:** [http://localhost](http://localhost)
+- **FastAPI API & Docs:** proxied through the frontend at `/api/docs`
+- **Database:** bound to `127.0.0.1:5433` for local administration only
 
 ---
 
@@ -170,32 +216,40 @@ Ensure you have installed:
 
 ### 2. Environment Configuration (`.env`)
 
-Copy the configuration template to root, `api/`, and `frontend/`:
+Copy the configuration template to the repository root. Compose passes only the API runtime settings to the backend container; the migration administrator URL stays on the host.
 
 ```powershell
 # Windows (PowerShell)
 Copy-Item .env.example .env
-Copy-Item .env.example api/.env
-Copy-Item .env.example frontend/.env
 ```
 
 ```bash
 # macOS / Linux
 cp .env.example .env
-cp .env.example api/.env
-cp .env.example frontend/.env
 ```
 
-Ensure `.env` contains your database and Clerk keys:
+Fill every required value in `.env` before starting services. Use distinct random database passwords and cryptographic keys. The example URLs are placeholders and must match the passwords and ports you selected:
 ```env
-DATABASE_URL_MIGRATIONS=postgresql://postgres:password@localhost:5432/argus
-DATABASE_URL_HR_ADMIN=postgresql+asyncpg://hr_admin:password@localhost:5432/argus
-DATABASE_URL_COMPLIANCE_AUDITOR=postgresql+asyncpg://compliance_auditor:password@localhost:5432/argus
+POSTGRES_PASSWORD=...
+HR_ADMIN_PASSWORD=...
+COMPLIANCE_AUDITOR_PASSWORD=...
+DATABASE_URL_MIGRATIONS=postgresql://postgres:<password>@localhost:5433/argus
+DATABASE_URL_HR_ADMIN=postgresql+asyncpg://hr_admin:<password>@localhost:5433/argus
+DATABASE_URL_COMPLIANCE_AUDITOR=postgresql+asyncpg://compliance_auditor:<password>@localhost:5433/argus
 
 # Clerk Authentication Keys (From https://dashboard.clerk.com/)
 VITE_CLERK_PUBLISHABLE_KEY=pk_test_...
 CLERK_SECRET_KEY=sk_test_...
 CLERK_JWT_KEY="-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----"
+
+# Required before migrations, demo seeding, or real-PII use. Keep these values
+# separate, private, and backed up through an approved key-management process.
+PII_ENCRYPTION_KEY=
+AUDIT_SALT=
+AUDIT_CONTEXT_SECRET=<64+ hex characters from a cryptographic generator>
+AUDIT_CONTEXT_KEY_ID=v1
+SIGNING_PRIVATE_KEY_FILE=<absolute path to the capsule signing key>
+CORS_ORIGINS=http://localhost,http://localhost:5173
 
 SIGNING_PRIVATE_KEY_PATH=./keys/verifier_private_key.pem
 ANCHOR_STORE=local_file
@@ -211,29 +265,77 @@ CHECKPOINT_INTERVAL=25
    ```
 
 2. **Apply Database Migrations (Alembic):**
+   Configure `PII_ENCRYPTION_KEY` as URL-safe Base64 for 32 random bytes,
+   `AUDIT_SALT` as at least 32 distinct random bytes, and
+   `AUDIT_CONTEXT_SECRET` as at least 32 random bytes encoded in hex. Migration
+   019 provisions the actor-context verifier key in a private database schema.
+   Keep all three values private and backed up; losing an encryption key makes
+   existing PII ciphertext unreadable.
    ```bash
-   alembic upgrade head
+   # Docker: an explicit one-shot job, never part of API startup.
+   docker compose --profile ops run --rm migrate
    ```
 
 3. **Initialize Database Roles & Permissions:**
    ```powershell
    # Windows (PowerShell)
-   Get-Content db/scripts/setup_roles.sql | docker exec -i argus-postgres psql -U postgres -d argus
+   Get-Content db/scripts/setup_roles.sql | docker compose exec -T db psql -U postgres -d argus
    ```
    ```bash
    # macOS / Linux
-   docker exec -i argus-postgres psql -U postgres -d argus < db/scripts/setup_roles.sql
+   docker compose exec -T db psql -U postgres -d argus < db/scripts/setup_roles.sql
    ```
 
-4. *(Optional)* **Seed Curated Demo or Benchmark Data:**
+   New runtime roles have no default passwords. Provision distinct values from
+   the environment after creating the roles:
+
    ```bash
-   # Option A: Curated Corporate Demo Dataset (Recommended for UI & Evaluator Demos)
-   # Wipes & seeds 60 curated employees across 6 departments, multi-stage promotion timelines, and hero personas:
+   python -m db.cli.provision_roles
+   ```
+
+   The migration administrator credential is not passed into the API container.
+
+5. **Start the API and frontend after migrations and role provisioning:**
+
+   ```bash
+   docker compose up --build -d api frontend
+   ```
+
+   Compose is a local single-host profile: service ports bind to loopback, the
+   browser reaches the API through the frontend reverse proxy, the capsule key
+   is mounted as a read-only secret, and anchor files use a persistent volume.
+   Compose includes an explicit migration job and manual backup/restore
+   operations under the `ops` profile. Follow
+   [`docs/PRODUCTION_OPERATIONS.md`](docs/PRODUCTION_OPERATIONS.md) before using
+   these against a real environment. A real deployment still needs a
+   TLS-terminating ingress, managed secret/key storage, off-site backup retention,
+   monitoring/alerting, and a rehearsed provider-specific recovery procedure.
+
+#### Actor-context key rotation
+
+Create a new random hex key and a new `AUDIT_CONTEXT_KEY_ID`, provision it in
+the database, deploy all API instances with that key, verify protected writes,
+then disable the old key after the 30-second assertion lifetime and deployment
+rollout window have elapsed:
+
+```bash
+python -m db.cli.actor_context_keys add --key-id <new-key-id>
+# Deploy API instances with the new AUDIT_CONTEXT_SECRET and key ID.
+python -m db.cli.actor_context_keys disable --key-id <old-key-id>
+```
+
+6. *(Optional, disposable databases only)* **Seed Demo or Benchmark Data:**
+   ```bash
+   # Option A: Curated Corporate Demo Dataset (disposable databases only)
+   # Resets demo tables before seeding; never run against a shared or production database.
    python -m db.seed_demo
 
    # Option B: Synthetic Benchmark Scale Dataset
    python -m db.bench.seed --num-employees 25 --num-changes 50
    ```
+
+   For the isolated `argus-demo` stack, see [Local Professor Demo Setup](docs/LOCAL_DEMO_SETUP.md).
+   It documents the append-only `--skip-purge --scale 40` option and the currently verified demo snapshot.
 
 ### 4. Backend Setup (FastAPI)
 
@@ -252,7 +354,7 @@ CHECKPOINT_INTERVAL=25
 
 2. **Install Python dependencies:**
    ```bash
-   pip install -r api/requirements.txt
+   python -m pip install --require-hashes -r api/requirements-dev.lock
    ```
 
 3. **Start the FastAPI backend server:**
@@ -261,7 +363,8 @@ CHECKPOINT_INTERVAL=25
    ```
 
 4. **Verify Backend Health:**
-   - Health check: [http://localhost:8000/api/health](http://localhost:8000/api/health)
+   - Process liveness: [http://localhost:8000/api/health](http://localhost:8000/api/health)
+   - Runtime database readiness: [http://localhost:8000/api/health/ready](http://localhost:8000/api/health/ready)
    - Interactive Swagger docs: [http://localhost:8000/docs](http://localhost:8000/docs)
 
 ---
@@ -277,7 +380,7 @@ Open a **new terminal** window:
 
 2. **Install Node dependencies:**
    ```bash
-   npm install --legacy-peer-deps
+   npm install
    ```
 
 3. **Start the Vite dev server:**
@@ -532,10 +635,10 @@ Argus exports portable evidence packages (`.arguspack`) designed for external re
    ```bash
    python verify_standalone.py --bundle .
    ```
-   **Expected Output:**
+   **Illustrative output** (the record count depends on the exported bundle):
    ```text
    [OK] Checkpoint signatures cryptographically verified.
-   [OK] 49 / 49 audit events verified. Zero mismatches, zero gaps.
+   [OK] <verified-event-count> / <verified-event-count> audit events verified. Zero mismatches, zero gaps.
    Audit chain 100% MATHEMATICALLY CONTINUOUS. Exiting with code 0.
    ```
 4. **Test Standalone Tamper Detection:**
@@ -593,6 +696,9 @@ UPDATE employees SET salary = salary + 10000.00 WHERE id = 1;
 - **Slide-Over Personnel Inspector (`EmployeeSheet`):** Lateral slide-in sheet for reviewing employee profiles, compensation histories, and PII encryption status with zero-latency tab switching.
 - **Create & Edit Employee:** Validated modals capturing employee profile details. Sensitive fields (`national_id`, `contact_info`) are encrypted with `pgcrypto` at the database level.
 - **Salary Adjustments:** Dedicated modal enforcing business constraints (e.g. raises and $< 30\%$ adjustments allowed, self-modifications blocked).
+
+#### On-demand signed checkpoints
+The HR Settings page can create a signed checkpoint for all audit events since the previous checkpoint. The action requires migration `023_hr_checkpoint_creation` and a configured local signing key in development/demo. It records the HR requester and returns the sealed sequence range. It does **not** create an external anchor; signing and anchoring are separate. Production mode currently fails closed until a managed signer is configured.
 
 ### Compliance Auditor Portal
 - **Linear-Inspired Forensic Terminal:** Immersive high-density dark canvas (`#0c0d0e` / Neutral 950) with hairline borders, monospace cryptographic digests, and real-time status pills.
@@ -680,6 +786,12 @@ python -m db.cli.verifier anchor --checkpoint-id 1 --type local --path ./anchors
 # 6. Database backup with SHA-256 integrity digest
 python -m db.cli.verifier backup dump --output ./backups/snapshot.sql
 python -m db.cli.verifier backup verify --backup-id 1
+
+# 7. Multi-witness threshold verification (RFC 9162 quorum checks)
+python -m db.cli.verifier verify-chain --multi-witness
+
+# 8. Air-gapped standalone Merkle capsule verification (zero dependencies)
+python db/cli/verify_capsule.py --bundle proof_seq71.arguscap
 ```
 
 ---
@@ -719,63 +831,11 @@ All reported benchmarks adhere to transparent, reproducible protocols:
 Run the full automated test suite across all database, cryptographic, API, and adversary subsystems:
 
 ```bash
-# Run full suite (Core + Crypto + API + Adversary Engine):
-python -m pytest db/tests/ api/tests/
+# Run the unit and API suites; PostgreSQL security tests are opt-in and must use a disposable database.
+python -m pytest db/tests/ api/tests/ --ignore=db/tests/test_adversary_cli.py
 ```
 
-**Verified Test Output (100% Pass Rate):**
-```text
-============================= test session starts =============================
-platform win32 -- Python 3.12.10, pytest-9.1.1, pluggy-1.6.0
-rootdir: C:\dev\Argus
-configfile: pytest.ini
-collected 231 items
-
-db\tests\test_adversary_cli.py ......                                    [  3%]
-db\tests\test_anchor_store.py ...........................                [ 14%]
-db\tests\test_attack_demos.py ......                                     [ 17%]
-db\tests\test_audit_log_isolation.py ......                              [ 20%]
-db\tests\test_auditor_directory_permissions.py .....                     [ 22%]
-db\tests\test_backup.py ..........................                       [ 33%]
-db\tests\test_benchmarks.py ........                                     [ 37%]
-db\tests\test_blind_indexing.py ......                                   [ 39%]
-db\tests\test_blind_indexing_db.py ......                                [ 42%]
-db\tests\test_business_rules.py sssssss                                  [ 45%]
-db\tests\test_checkpoint_store.py ....................                   [ 54%]
-db\tests\test_e2e_integration.py ...                                     [ 55%]
-db\tests\test_evidence_bundle.py ........                                [ 58%]
-db\tests\test_migration_001.py .                                         [ 59%]
-db\tests\test_migration_002.py .                                         [ 59%]
-db\tests\test_migration_003.py .                                         [ 60%]
-db\tests\test_migration_004.py .                                         [ 60%]
-db\tests\test_reconstruct_null_fields.py sssss                           [ 62%]
-db\tests\test_signer_providers.py ................                       [ 69%]
-db\tests\test_trigger_employees.py ssssss                                [ 72%]
-db\tests\test_trigger_salary.py sss                                      [ 73%]
-db\tests\test_verify_standalone.py ........                              [ 77%]
-api\tests\test_audits.py ............                                    [ 82%]
-api\tests\test_blind_search_api.py ........                              [ 85%]
-api\tests\test_bridge_endpoints.py .........                             [ 89%]
-api\tests\test_chain_explorer_api.py .....                               [ 91%]
-api\tests\test_employees.py .....                                        [ 94%]
-api\tests\test_export_pack.py ....                                       [ 95%]
-api\tests\test_hardened_endpoints.py .....                               [ 97%]
-api\tests\test_health.py .                                               [ 98%]
-api\tests\test_live_telemetry.py ......                                  [100%]
-
-================= 204 passed, 27 skipped in 3.65s =================
-```
-
-### Key Test Suites Breakdown:
-- **`db/tests/test_anchor_store.py` (27/27):** Local File, GitHub, RFC 3161 TSA (pure-Python ASN.1 DER parser), and AWS S3 WORM Object Lock adapters with fail-closed edge cases.
-- **`db/tests/test_signer_providers.py` (16/16):** Polymorphic `Signer` provider abstractions, Cloud KMS / Vault mocking, key custody enforcement.
-- **`db/tests/test_adversary_cli.py` (6/6):** Red Team CLI argument parsing, out-of-band attack vectors, pre-tamper snapshotting, and deterministic restoration.
-- **`api/tests/test_hardened_endpoints.py` (5/5):** Fail-closed verifier behavior on dropped connections, demo role switch gating, and diagnostic concurrency benchmark routing.
-- **`db/tests/test_verify_standalone.py` (8/8):** Pure-Python RFC 8032 Ed25519 verifier tested against 5-scenario tamper matrices (content edit, signature alteration, key replacement).
-- **`db/tests/test_blind_indexing_db.py` & `api/tests/test_blind_search_api.py` (14/14):** HMAC blind index hashing and sub-5ms forensic expression index lookups.
-- **`api/tests/test_live_telemetry.py` (6/6):** Live PostgreSQL catalog queries (`pg_stat_database`, `pg_stat_user_tables`) and dynamic security score generation.
-- **`db/tests/test_attack_demos.py` (6/6):** Database-enforced business rule triggers and role privilege revocations.
-- **`api/tests/test_chain_explorer_api.py` (5/5):** Keyset pagination and boundary traversal for live chain inspection.
+The repository includes API unit tests, database/cryptographic unit tests, and browser-based Playwright flows. Tests that require a configured PostgreSQL instance are skipped when no database is available. Avoid tests that connect to or mutate a shared database; use an isolated disposable database for those checks.
 
 ---
 
@@ -801,12 +861,19 @@ api\tests\test_live_telemetry.py ......                                  [100%]
 
 ## Project Documentation
 
+- **Professor Walkthrough and Current Demo Claims:** [`docs/CONFERENCE_AND_DEMO_GUIDE.md`](docs/CONFERENCE_AND_DEMO_GUIDE.md) (current source of truth for demo flow, contribution boundaries, and verification caveats).
+- **Isolated Local Demo Setup:** [`docs/LOCAL_DEMO_SETUP.md`](docs/LOCAL_DEMO_SETUP.md) (local-only database setup, safe seeding, and verified demo snapshot).
+- **Deployment Operations:** [`docs/PRODUCTION_OPERATIONS.md`](docs/PRODUCTION_OPERATIONS.md) (migration, backup, recovery, and production configuration requirements).
+- **Current API Reference:** [`Argus_docs/API_REFERENCE.md`](Argus_docs/API_REFERENCE.md) (current route and authorization summary).
+- **System Architecture:** [`Argus_docs/Architecture.md`](Argus_docs/Architecture.md) (architecture and deployment context; some sections describe historical plans).
+- **Frontend Architecture:** [`Argus_docs/FRONTEND_ARCHITECTURE.md`](Argus_docs/FRONTEND_ARCHITECTURE.md) (current HR and Auditor component map).
 - **Feature Architecture & Specification Compendium:** [`ARGUS_FEATURES_IN_DETAIL.md`](ARGUS_FEATURES_IN_DETAIL.md) (Exhaustive 53-feature compendium & master crosswalk).
 - **Architectural Novelty & Systems Contributions:** [`NOVELTY.md`](NOVELTY.md) (11 core systems contributions and competitive novelty matrix).
-- **Feature Guide & Demo Manual:** [`docs/ARGUS_FEATURE_GUIDE_AND_DEMO_MANUAL.md`](docs/ARGUS_FEATURE_GUIDE_AND_DEMO_MANUAL.md) (Comprehensive viva walkthrough and operational runbook).
+- **Historical Feature Guide:** [`docs/ARGUS_FEATURE_GUIDE_AND_DEMO_MANUAL.md`](docs/ARGUS_FEATURE_GUIDE_AND_DEMO_MANUAL.md) (superseded; contains routes and claims that do not match the current implementation).
 - **Evaluator Demonstration Manual:** [`docs/Adversary_Simulation_Guide.md`](docs/Adversary_Simulation_Guide.md) (Step-by-step side-by-side terminal rehearsal script).
 - **Academic Research Paper:** [`docs/Final_Paper.md`](docs/Final_Paper.md) (Complete unified Section 16 research paper).
 - **Key Custody & Secrets Inventory:** [`docs/KEY_CUSTODY_AND_SECRETS_INVENTORY.md`](docs/KEY_CUSTODY_AND_SECRETS_INVENTORY.md) (NIST SP 800-57 secrets mapping, process boundaries, and rotation protocol).
+- **Production Operations Runbook:** [`docs/PRODUCTION_OPERATIONS.md`](docs/PRODUCTION_OPERATIONS.md) (explicit migration job, backup, staging restore rehearsal, and deployment configuration checklist).
 - **Merkle Tree Proofs Specification:** [`docs/MERKLE_TREE_SPEC.md`](docs/MERKLE_TREE_SPEC.md) (Hierarchical Merkle capsules & selective disclosure proofs).
 - **Multi-Witness WORM Anchoring Specification:** [`docs/MULTI_WITNESS_SPEC.md`](docs/MULTI_WITNESS_SPEC.md) (Decentralized threshold witness protocol & S3 WORM storage).
 - **GDPR Crypto-Shredding Analysis:** [`docs/CRYPTO_SHREDDING_ANALYSIS.md`](docs/CRYPTO_SHREDDING_ANALYSIS.md) (Per-subject DEK envelope encryption & Article 17 erasure analysis).

@@ -2,6 +2,8 @@
  * DB-007: Hash-Chaining AFTER Trigger on employees
  * DB-009: Severity Assignment Logic (integrated)
  * DB-010: Masked Audit Payload (integrated)
+ * DB-019: Runtime HR actor attribution is enforced by the signed-context
+ *         BEFORE trigger installed by migration 019_signed_actor_context.
  *
  * This trigger fires AFTER every INSERT, UPDATE, or DELETE on the `employees`
  * table.  It is the heart of Argus's tamper-evident audit trail:
@@ -88,12 +90,13 @@ $$;
 CREATE OR REPLACE FUNCTION mask_employee_payload(p_payload JSONB)
 RETURNS JSONB
 LANGUAGE plpgsql
-IMMUTABLE
+STABLE
 AS $$
 DECLARE
     v_salt         TEXT;
     v_raw_nid      TEXT;
     v_blind_index  TEXT := NULL;
+    v_supplied_blind_index TEXT;
     v_iters_str    TEXT;
     v_iters        INT := 1000;
 BEGIN
@@ -103,7 +106,7 @@ BEGIN
         v_salt := NULL;
     END;
     IF v_salt IS NULL OR v_salt = '' THEN
-        v_salt := 'argus_default_blind_index_salt_2026';
+        RAISE EXCEPTION 'AUDIT_SALT must be configured for employee audit writes';
     END IF;
 
     BEGIN
@@ -116,6 +119,15 @@ BEGIN
         v_iters := 1000;
     END IF;
 
+    BEGIN
+        v_supplied_blind_index := current_setting('argus.employee_national_id_blind_index', true);
+    EXCEPTION WHEN OTHERS THEN
+        v_supplied_blind_index := NULL;
+    END;
+    IF v_supplied_blind_index ~ '^[0-9a-f]{64}$' THEN
+        v_blind_index := v_supplied_blind_index;
+    END IF;
+
     IF p_payload ? 'national_id' AND p_payload->>'national_id' IS NOT NULL AND p_payload->>'national_id' != '[REDACTED]' THEN
         v_raw_nid := p_payload->>'national_id';
     ELSIF p_payload ? 'national_id_encrypted' AND p_payload->>'national_id_encrypted' LIKE '\x%' THEN
@@ -126,7 +138,7 @@ BEGIN
         END;
     END IF;
 
-    IF v_raw_nid IS NOT NULL AND v_raw_nid != '' THEN
+    IF v_blind_index IS NULL AND v_raw_nid IS NOT NULL AND v_raw_nid != '' THEN
         v_blind_index := compute_blind_index(v_raw_nid, v_salt, v_iters);
     END IF;
 
@@ -186,6 +198,7 @@ CREATE OR REPLACE FUNCTION trg_employees_hash_chain_fn()
 RETURNS TRIGGER
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = pg_catalog, public, pg_temp
 AS $$
 DECLARE
     v_prev_hash        CHAR(64);
