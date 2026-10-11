@@ -26,6 +26,7 @@ async def readiness_check():
                     SELECT current_user = :role AND NOT rolsuper AND NOT rolbypassrls
                       AND to_regprocedure('argus_private.consume_request_budget(integer,text,integer)') IS NOT NULL
                       AND to_regprocedure('argus_private.lock_checkpoint_boundary()') IS NOT NULL
+                      AND to_regprocedure('argus_private.supabase_session_active(uuid,uuid)') IS NOT NULL
                     FROM pg_roles WHERE rolname = current_user
                 """), {"role": role})
                 if not result.scalar_one():

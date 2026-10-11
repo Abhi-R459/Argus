@@ -8,7 +8,6 @@ services:
       DATABASE_URL_HR_ADMIN: postgresql+asyncpg://hr_admin:${HR_ADMIN_PASSWORD:?Set HR_ADMIN_PASSWORD}@db:5432/argus
       DATABASE_URL_COMPLIANCE_AUDITOR: postgresql+asyncpg://compliance_auditor:${COMPLIANCE_AUDITOR_PASSWORD:?Set COMPLIANCE_AUDITOR_PASSWORD}@db:5432/argus
       CORS_ORIGINS: http://localhost:8088
-      CLERK_AUTHORIZED_PARTIES: http://localhost:8088
   migrate:
     environment:
       DATABASE_URL_MIGRATIONS: postgresql://postgres:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@db:5432/argus

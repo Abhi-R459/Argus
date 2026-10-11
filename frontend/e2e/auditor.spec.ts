@@ -14,11 +14,7 @@ test.describe('Compliance Auditor Portal E2E', () => {
     const browserErrors: string[] = [];
     page.on('pageerror', (error) => browserErrors.push(error.message));
     page.on('console', (message) => {
-      // CI uses an inert Clerk publishable key. Only its expected DNS failures
-      // are ignored; application errors still fail this rendering check.
-      const isOfflineClerk = message.text() === 'Failed to load resource: net::ERR_NAME_NOT_RESOLVED'
-        && message.location().url.startsWith('https://clerk.example.test/');
-      if (message.type() === 'error' && !isOfflineClerk) browserErrors.push(message.text());
+      if (message.type() === 'error') browserErrors.push(message.text());
     });
     await page.goto('http://localhost:5173/auditor/overview');
     await page.waitForLoadState('networkidle');

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Outlet, Link, useLocation } from 'react-router-dom';
-import { UserButton } from '@clerk/clerk-react';
+import SignOutButton from '../components/auth/SignOutButton';
 import { LayoutDashboard, Users, Settings, ShieldCheck, Menu, X } from 'lucide-react';
 import RealtimeClock from '../components/common/RealtimeClock';
 import { ErrorBoundary } from '../components/common/ErrorBoundary';
@@ -138,8 +138,8 @@ export default function HRAdminLayout() {
               <div className="hidden md:flex items-center space-x-2 px-3 py-1 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-600 font-mono">
                 <RealtimeClock showLiveDot={false} />
               </div>
-              <div className="h-8 w-8 rounded-full ring-2 ring-slate-200 hover:ring-slate-300 transition-colors duration-150 flex items-center justify-center overflow-hidden">
-                <UserButton afterSignOutUrl="/" appearance={{ elements: { avatarBox: "w-8 h-8" } }} />
+              <div className="rounded-lg ring-2 ring-slate-200 hover:ring-slate-300 transition-colors duration-150 flex items-center justify-center">
+                <SignOutButton />
               </div>
             </div>
           </div>

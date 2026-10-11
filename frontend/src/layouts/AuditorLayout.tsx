@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Outlet, Link, useLocation } from 'react-router-dom';
-import { UserButton } from '@clerk/clerk-react';
+import SignOutButton from '../components/auth/SignOutButton';
 import {
   ShieldCheck, Activity, FileSearch, LayoutDashboard, GitBranch,
   AlertTriangle, History, ShieldAlert, ArrowRight, Lock, Menu, X, GitCompare,
@@ -214,8 +214,8 @@ export default function AuditorLayout() {
                 <span className="w-1.5 h-1.5 rounded-full bg-linear-success" aria-hidden="true" />
                 <RealtimeClock showLiveDot={false} />
               </div>
-              <div className="h-8 w-8 rounded-full ring-2 ring-linear-hairline-strong flex items-center justify-center overflow-hidden">
-                <UserButton afterSignOutUrl="/" appearance={{ elements: { avatarBox: 'w-8 h-8' } }} />
+              <div className="rounded-lg ring-2 ring-linear-hairline-strong flex items-center justify-center">
+                <SignOutButton />
               </div>
             </div>
           </div>

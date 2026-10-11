@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 from api.main import app
 from api.dependencies import get_db_session, get_current_user
-from api.middleware.clerk import verify_clerk_token
+from api.middleware.supabase_auth import verify_supabase_token
 from api.models.user import User
 from api.config import get_settings
 
@@ -92,7 +92,7 @@ def mock_db_session():
 async def client_hr(mock_hr_user, mock_db_session) -> AsyncGenerator[AsyncClient, None]:
     app.dependency_overrides[get_current_user] = lambda: mock_hr_user
     app.dependency_overrides[get_db_session] = lambda: mock_db_session
-    app.dependency_overrides[verify_clerk_token] = lambda: {"sub": "user_hr_123", "email": "hr@argus.test", "name": "HR Admin"}
+    app.dependency_overrides[verify_supabase_token] = lambda: {"sub": "user_hr_123", "email": "hr@argus.test", "name": "HR Admin", "email_verified": True, "argus_role": "hr_admin"}
     
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
         yield c
@@ -103,7 +103,7 @@ async def client_hr(mock_hr_user, mock_db_session) -> AsyncGenerator[AsyncClient
 async def client_auditor(mock_auditor_user, mock_db_session) -> AsyncGenerator[AsyncClient, None]:
     app.dependency_overrides[get_current_user] = lambda: mock_auditor_user
     app.dependency_overrides[get_db_session] = lambda: mock_db_session
-    app.dependency_overrides[verify_clerk_token] = lambda: {"sub": "user_auditor_123", "email": "auditor@argus.test", "name": "Compliance Auditor"}
+    app.dependency_overrides[verify_supabase_token] = lambda: {"sub": "user_auditor_123", "email": "auditor@argus.test", "name": "Compliance Auditor", "email_verified": True, "argus_role": "compliance_auditor"}
     
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
         yield c

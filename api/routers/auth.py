@@ -4,7 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
 
-from ..middleware.clerk import verify_clerk_token
+from ..middleware.supabase_auth import verify_supabase_token, validate_local_access
 from ..database import get_session_factory
 from ..models.user import User
 from ..schemas.user import UserSyncResponse
@@ -16,9 +16,9 @@ router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 @router.post("/sync", response_model=UserSyncResponse)
 async def sync_user(
-    token_payload: dict = Depends(verify_clerk_token),
+    token_payload: dict = Depends(verify_supabase_token),
 ):
-    """Synchronize the authenticated Clerk user with the local users table.
+    """Synchronize the authenticated Supabase user with the local users table.
     
     Looks up the user by clerk_user_id. If found, returns the existing record.
     A first-time account is created only when its verified email is listed in
@@ -100,7 +100,8 @@ async def sync_user(
                 detail="User account is deactivated."
             )
         else:
-            # Update name/email from Clerk if changed
+            validate_local_access(user, token_payload)
+            # Update name/email from Supabase if changed
             updated = False
             if full_name and user.full_name != full_name:
                 user.full_name = full_name
@@ -116,13 +117,14 @@ async def sync_user(
                     raise HTTPException(status_code=409, detail="This email is already linked to another account. Contact an administrator.") from exc
                 await session.refresh(user)
     
+    validate_local_access(user, token_payload)
     await consume_request_budget(user)
     return user
 
 
 @router.get("/me", response_model=UserSyncResponse)
 async def get_my_profile(
-    token_payload: dict = Depends(verify_clerk_token),
+    token_payload: dict = Depends(verify_supabase_token),
 ):
     """Retrieve the profile and role of the currently authenticated user."""
     clerk_user_id = token_payload.get("sub")
@@ -142,6 +144,7 @@ async def get_my_profile(
         return await sync_user(token_payload)
     if not user.is_active:
         raise HTTPException(status_code=401, detail="User account is deactivated.")
+    validate_local_access(user, token_payload)
     await consume_request_budget(user)
     return user
 
@@ -149,7 +152,7 @@ async def get_my_profile(
 @router.post("/role", response_model=UserSyncResponse)
 async def switch_user_role(
     new_role: str,
-    token_payload: dict = Depends(verify_clerk_token),
+    token_payload: dict = Depends(verify_supabase_token),
 ):
     """Switch user role between 'hr_admin' and 'compliance_auditor' for demonstration and testing."""
     settings = get_settings()

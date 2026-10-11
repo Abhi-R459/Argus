@@ -13,14 +13,14 @@ frontend/src/
 ├── pages/            # Routable page views
 │   ├── auditor/      # Pages for the Auditor dashboard
 │   └── hr/           # Pages for the HR Admin dashboard
-├── lib/              # Core utilities (API client setup, Clerk JWT injection)
+├── lib/              # Core utilities (API client setup, Supabase access-token injection)
 ├── services/         # Data fetching services (React Query queries/mutations)
 └── types/            # TypeScript interfaces and Zod schemas
 ```
 
 ## Key Technologies
 - **React 19 & Vite**: Fast development and building.
-- **Clerk Auth**: Handles user sessions. The `@clerk/clerk-react` hooks are used heavily (e.g. `useAuth()`) to extract JWTs and pass them to our data-fetching services.
+- **Supabase Auth**: Google OAuth uses PKCE through the pinned Supabase client. The application `AuthProvider` supplies access tokens to services, refreshes sessions, and clears account-specific workspace caches on sign-out. Server-side approved-email lists determine roles.
 - **TanStack Query (React Query)**: Handles all server state, caching, pagination, and invalidation for our REST API endpoints.
 - **TailwindCSS**: Utility-first CSS for all styling.
 - **Lucide React**: Icon library.

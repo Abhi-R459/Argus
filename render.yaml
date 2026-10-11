@@ -19,11 +19,9 @@ services:
         sync: false
       - key: DATABASE_URL_COMPLIANCE_AUDITOR
         sync: false
-      - key: CLERK_JWT_KEY
+      - key: SUPABASE_URL
         sync: false
-      - key: CLERK_ISSUER
-        sync: false
-      - key: CLERK_AUTHORIZED_PARTIES
+      - key: SUPABASE_PUBLISHABLE_KEY
         sync: false
       - key: CORS_ORIGINS
         sync: false
@@ -66,7 +64,9 @@ services:
     envVars:
       - key: NODE_VERSION
         value: "22"
-      - key: VITE_CLERK_PUBLISHABLE_KEY
+      - key: VITE_SUPABASE_URL
+        sync: false
+      - key: VITE_SUPABASE_PUBLISHABLE_KEY
         sync: false
       - key: VITE_API_URL
         sync: false

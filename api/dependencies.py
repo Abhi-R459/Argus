@@ -3,7 +3,7 @@ from fastapi import Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, text
 
-from .middleware.clerk import verify_clerk_token
+from .middleware.supabase_auth import verify_supabase_token, validate_local_access
 from .database import get_session_factory
 from .models.user import User
 from db.crypto.actor_context import create_actor_context
@@ -12,9 +12,9 @@ from .services.request_budget import consume_request_budget
 
 
 async def get_current_user(
-    token_payload: dict = Depends(verify_clerk_token),
+    token_payload: dict = Depends(verify_supabase_token),
 ) -> User:
-    """Resolve the Clerk token to a local User record.
+    """Resolve the verified Supabase identity to a local User record.
     
     Uses the hr_admin pool for the lookup since both roles need
     to be able to read from the users table.
@@ -42,6 +42,7 @@ async def get_current_user(
             detail="User not found or inactive. Call POST /api/auth/sync first."
         )
     
+    validate_local_access(user, token_payload)
     await consume_request_budget(user)
     return user
 

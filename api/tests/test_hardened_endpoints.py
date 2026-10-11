@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, patch, MagicMock
 from api.config import get_settings
 from api.models.user import User
 from api.main import app
-from api.middleware.clerk import verify_clerk_token
+from api.middleware.supabase_auth import verify_supabase_token
 
 pytestmark = pytest.mark.asyncio
 
@@ -42,7 +42,7 @@ async def test_untrusted_email_and_metadata_cannot_provision_auditor(client_unau
     session.__aenter__.return_value = session
     session.__aexit__.return_value = None
 
-    app.dependency_overrides[verify_clerk_token] = lambda: {
+    app.dependency_overrides[verify_supabase_token] = lambda: {
         "sub": "new_clerk_user",
         "email": "auditor@unprovisioned.test",
         "email_verified": True,
@@ -99,5 +99,5 @@ async def test_get_my_profile_hr(client_hr: AsyncClient, mock_hr_user: User):
         response = await client_hr.get("/api/auth/me")
         assert response.status_code == 200
         data = response.json()
-        assert data["clerk_user_id"] == mock_hr_user.clerk_user_id
+        assert data["auth_user_id"] == mock_hr_user.clerk_user_id
         assert data["role"] == "hr_admin"

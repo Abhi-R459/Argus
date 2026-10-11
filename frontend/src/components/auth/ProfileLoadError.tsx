@@ -1,5 +1,5 @@
 import { RefreshCw } from 'lucide-react';
-import { SignOutButton } from '@clerk/clerk-react';
+import SignOutButton from './SignOutButton';
 
 interface ProfileLoadErrorProps {
   onRetry: () => void;
@@ -21,14 +21,7 @@ export default function ProfileLoadError({ onRetry }: ProfileLoadErrorProps) {
           >
             <RefreshCw className="h-4 w-4" /> Retry
           </button>
-          <SignOutButton signOutOptions={{ redirectUrl: '/' }}>
-            <button
-              type="button"
-              className="inline-flex items-center rounded-lg border border-linear-border px-4 py-2 text-sm font-medium text-linear-ink hover:bg-linear-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-linear-primary focus-visible:ring-offset-2 focus-visible:ring-offset-linear-canvas"
-            >
-              Sign out and switch account
-            </button>
-          </SignOutButton>
+          <SignOutButton>Sign out and switch account</SignOutButton>
         </div>
       </section>
     </main>

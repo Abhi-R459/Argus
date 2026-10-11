@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { useAuth } from '@clerk/clerk-react';
+import { useAuth } from '../auth/AuthProvider';
 import {
   ChevronLeft, ChevronRight, Search,
   Hash, ChevronDown, ArrowRight, GitBranch, Clock,

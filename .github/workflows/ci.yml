@@ -101,7 +101,8 @@ jobs:
     - name: Lint and build frontend
       working-directory: frontend
       env:
-        VITE_CLERK_PUBLISHABLE_KEY: pk_test_Y2xlcmsuZXhhbXBsZS50ZXN0JA
+        VITE_SUPABASE_URL: https://abcdefghijklmnopqrst.supabase.co
+        VITE_SUPABASE_PUBLISHABLE_KEY: sb_publishable_inert_test_key
       run: |
         npm run lint
         npm run build
@@ -111,7 +112,8 @@ jobs:
         npx playwright install --with-deps
     - name: Run Playwright Tests
       env:
-        VITE_CLERK_PUBLISHABLE_KEY: pk_test_Y2xlcmsuZXhhbXBsZS50ZXN0JA
+        VITE_SUPABASE_URL: https://abcdefghijklmnopqrst.supabase.co
+        VITE_SUPABASE_PUBLISHABLE_KEY: sb_publishable_inert_test_key
       run: |
         cd frontend
         npx playwright test

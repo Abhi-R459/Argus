@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { useAuth } from '@clerk/clerk-react';
+import { useAuth } from '../auth/AuthProvider';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { fetchWithAuth } from '../../lib/api';
 import { Button } from '../common/Button';

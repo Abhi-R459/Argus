@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { useAuth } from '@clerk/clerk-react';
+import { useAuth } from '../../components/auth/AuthProvider';
 import { useNavigate } from 'react-router-dom';
 import {
   Users,

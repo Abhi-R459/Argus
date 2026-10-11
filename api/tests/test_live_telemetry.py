@@ -76,7 +76,7 @@ async def test_system_metrics_auditor(client_auditor: AsyncClient, mock_db_sessi
         'external_anchor': 'pass',
         'checkpoint_signatures': 'pass',
     })
-    test_settings = audits.get_settings().model_copy(update={'CLERK_JWT_KEY': 'test-public-key'})
+    test_settings = audits.get_settings().model_copy(update={'SUPABASE_URL': 'https://abcdefghijklmnopqrst.supabase.co', 'SUPABASE_PUBLISHABLE_KEY': 'sb_publishable_test'})
     with patch('api.routers.audits.get_settings', return_value=test_settings), \
          patch('api.routers.audits.run_verification', return_value=verification):
         response = await client_auditor.get('/api/analytics/system-metrics')
@@ -116,7 +116,7 @@ async def test_system_metrics_reports_unknown_checks_without_false_green(client_
         'external_anchor': 'unknown',
         'checkpoint_signatures': 'unknown',
     })
-    test_settings = audits.get_settings().model_copy(update={'CLERK_JWT_KEY': 'test-public-key'})
+    test_settings = audits.get_settings().model_copy(update={'SUPABASE_URL': 'https://abcdefghijklmnopqrst.supabase.co', 'SUPABASE_PUBLISHABLE_KEY': 'sb_publishable_test'})
     with patch('api.routers.audits.get_settings', return_value=test_settings), \
          patch('api.routers.audits.run_verification', return_value=verification):
         response = await client_auditor.get('/api/analytics/system-metrics')

@@ -26,7 +26,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * A wrapper around fetch that attaches the Clerk JWT token.
+ * A wrapper around fetch that attaches the Supabase access token.
  * Use this inside a React component context where `getToken` from `useAuth()` is available.
  */
 export async function authenticatedFetch(
@@ -55,7 +55,7 @@ export async function authenticatedFetch(
     headers
   });
 
-  // Clerk may return a cached session JWT that expires between UI actions.
+  // A cached session token may expire between UI actions.
   // Refresh once on authorization failure, then surface the server response.
   if (response.status === 401 && !isE2EMock) {
     const freshToken = await getToken({ skipCache: true });

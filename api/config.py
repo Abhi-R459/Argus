@@ -1,4 +1,5 @@
 from functools import lru_cache
+import re
 from pathlib import Path
 from typing import Literal
 from urllib.parse import parse_qs, urlsplit
@@ -6,7 +7,6 @@ from urllib.parse import parse_qs, urlsplit
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from cryptography.hazmat.primitives.serialization import load_pem_public_key, load_pem_private_key
-from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicKey
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
@@ -19,9 +19,8 @@ class Settings(BaseSettings):
     DATABASE_URL_MIGRATIONS: str = ""
     DATABASE_URL_HR_ADMIN: str
     DATABASE_URL_COMPLIANCE_AUDITOR: str
-    CLERK_JWT_KEY: str = ""
-    CLERK_ISSUER: str = ""
-    CLERK_AUTHORIZED_PARTIES: str = ""
+    SUPABASE_URL: str = ""
+    SUPABASE_PUBLISHABLE_KEY: str = ""
     SIGNING_PRIVATE_KEY_PATH: str = "./keys/verifier_private_key.pem"
     CHECKPOINT_PUBLIC_KEYS_DIR: str = "./keys"
     WITNESS_PUBLIC_KEYS_DIR: str = "./trusted-witness-keys"
@@ -60,10 +59,6 @@ class Settings(BaseSettings):
             and parsed.path in ("", "/") and "*" not in value
         )
 
-    @property
-    def authorized_parties(self) -> set[str]:
-        return {value.strip().rstrip("/") for value in self.CLERK_AUTHORIZED_PARTIES.split(",") if value.strip()}
-
     @model_validator(mode="after")
     def validate_production_configuration(self) -> "Settings":
         """Fail closed when deployment declares production but lacks security controls."""
@@ -72,9 +67,8 @@ class Settings(BaseSettings):
 
         missing = []
         for name, value in (
-            ("CLERK_JWT_KEY", self.CLERK_JWT_KEY),
-            ("CLERK_ISSUER", self.CLERK_ISSUER),
-            ("CLERK_AUTHORIZED_PARTIES", self.CLERK_AUTHORIZED_PARTIES),
+            ("SUPABASE_URL", self.SUPABASE_URL),
+            ("SUPABASE_PUBLISHABLE_KEY", self.SUPABASE_PUBLISHABLE_KEY),
             ("HR_ADMIN_EMAILS", self.HR_ADMIN_EMAILS),
             ("COMPLIANCE_AUDITOR_EMAILS", self.COMPLIANCE_AUDITOR_EMAILS),
             ("PII_ENCRYPTION_KEY", self.PII_ENCRYPTION_KEY),
@@ -87,23 +81,10 @@ class Settings(BaseSettings):
         if missing:
             raise ValueError("Production configuration is missing: " + ", ".join(missing))
 
-        issuer = urlsplit(self.CLERK_ISSUER)
-        parties = self.authorized_parties
-        if not self._is_https_origin(self.CLERK_ISSUER):
-            raise ValueError("CLERK_ISSUER must be an HTTPS issuer URL.")
-        if self.APP_ENV == "production" and (issuer.hostname or "").endswith(".clerk.accounts.dev"):
-            raise ValueError("Production requires a Clerk production instance, not a development issuer.")
-        if not parties or any(
-            not self._is_https_origin(party)
-            for party in parties
-        ):
-            raise ValueError("CLERK_AUTHORIZED_PARTIES must contain exact HTTPS application origins.")
-        try:
-            jwt_public_key = load_pem_public_key(self.CLERK_JWT_KEY.encode("utf-8"))
-        except (TypeError, ValueError) as exc:
-            raise ValueError("CLERK_JWT_KEY must contain Clerk's PEM public key.") from exc
-        if not isinstance(jwt_public_key, RSAPublicKey):
-            raise ValueError("CLERK_JWT_KEY must contain Clerk's PEM public key.")
+        if not re.fullmatch(r"https://[a-z0-9]{20}\.supabase\.co", self.SUPABASE_URL):
+            raise ValueError("SUPABASE_URL must be the exact HTTPS Supabase project URL.")
+        if not re.fullmatch(r"sb_publishable_[A-Za-z0-9_-]+", self.SUPABASE_PUBLISHABLE_KEY):
+            raise ValueError("SUPABASE_PUBLISHABLE_KEY must be a public publishable key.")
 
         origins = [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]
         if not origins or any(
@@ -111,8 +92,6 @@ class Settings(BaseSettings):
             for origin in origins
         ):
             raise ValueError("Production CORS_ORIGINS must contain exact HTTPS origins only.")
-        if not parties.issubset({origin.rstrip("/") for origin in origins}):
-            raise ValueError("Every CLERK_AUTHORIZED_PARTIES origin must be allowed by CORS_ORIGINS.")
 
         database_targets = []
         for name, value, expected_role in (

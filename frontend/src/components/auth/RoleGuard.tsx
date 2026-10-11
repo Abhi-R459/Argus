@@ -1,5 +1,5 @@
 import { Navigate, Outlet } from 'react-router-dom';
-import { useAuth } from '@clerk/clerk-react';
+import { useAuth } from './AuthProvider';
 import { useQuery } from '@tanstack/react-query';
 import { fetchMyProfile, UserProfile } from '../../services/auditService';
 import ProfileLoadError from './ProfileLoadError';

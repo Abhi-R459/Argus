@@ -126,12 +126,12 @@ restore/PITR procedure and be approved by the responsible operator.
 
 | Configuration | Required action |
 |---|---|
-| Application environment | Set `APP_ENV=production`. Startup then fails closed unless Clerk issuer/authorized parties, HTTPS origins, TLS database URLs, cryptographic keys, role allowlists, and the mounted signing key are valid. Keep `APP_ENV=development` only for local work. |
+| Application environment | Set `APP_ENV=production`. Startup then fails closed unless Supabase project URL/public key, HTTPS origins, TLS database URLs, cryptographic keys, role allowlists, and the mounted signing key are valid. Keep `APP_ENV=development` only for local work. |
 | PostgreSQL | Select a managed or self-hosted service; configure TLS, private networking, encryption, automated snapshots/PITR where available, and a dedicated migration principal with only required privileges. On Supabase Free, the provided session pooler is IPv4-accessible; use port 5432 for this persistent API and encode special password characters in each URL. Provider-level recovery/backup features depend on the selected plan. |
 | Runtime DB roles | Set unique high-entropy passwords for `hr_admin` and `compliance_auditor`; restrict network access and permissions to the Argus database. For Compose-hosted APIs, supply their full URLs through `COMPOSE_DATABASE_URL_HR_ADMIN` and `COMPOSE_DATABASE_URL_COMPLIANCE_AUDITOR`; leave them blank for local Compose PostgreSQL. |
 | Migration/CLI connection | Configure `MIGRATIONS_DATABASE_URL` for the Compose migration job and `DATABASE_URL_MIGRATIONS` for local provisioning/administrative CLI tools. Administrative CLIs do not fall back to generic `DATABASE_URL`; they fail clearly when no dedicated URL or explicit `--db-url` is supplied. |
 | Backup/restore credentials | Set the backup host, port, database, user, password, and SSL mode (`BACKUP_DATABASE_*`) for the actual database; the backup container uses PostgreSQL 17 client tools for the hosted PostgreSQL 17 project. Set separate `RESTORE_DATABASE_*` credentials and target a staging database. Ensure the backup identity can read all required objects. |
-| Clerk | Create and verify the Production instance for the public application domain. Set its PEM public key in `CLERK_JWT_KEY`, its Frontend API URL as `CLERK_ISSUER`, and comma-separated exact HTTPS frontend origins in `CLERK_AUTHORIZED_PARTIES` and `CORS_ORIGINS`. The API verifies signature, issuer, expiry, subject, and `azp`; configure Clerk session claims to include the verified email fields used by first-time provisioning. Keep the two server-side role allowlists current. The browser only needs `VITE_CLERK_PUBLISHABLE_KEY`; never put Clerk's secret key in frontend build variables. |
+| Supabase Auth | Enable Google OAuth with only openid/email/profile scopes. Set the exact project URL in `SUPABASE_URL`, its public publishable key in `SUPABASE_PUBLISHABLE_KEY`, and exact frontend HTTPS origins in `CORS_ORIGINS`. The API verifies the token with Auth, checks its session row and current verified Google identity, and derives its role from the two server-side approved-email lists. Never put the Google client secret, service-role key or database passwords in frontend variables. |
 | Cryptographic secrets | Generate and separately store `PII_ENCRYPTION_KEY`, `AUDIT_SALT`, `AUDIT_CONTEXT_SECRET`, and the Ed25519 signing key. Document ownership, access, backup, and rotation. Never reuse a key for another purpose. |
 | Web origin and TLS | Set `CORS_ORIGINS` to the exact HTTPS origin(s), configure DNS and a TLS-terminating ingress, enforce HTTPS, and expose only ingress ports publicly. |
 | Evidence anchoring | Choose and configure independently administered external anchor/witness providers, credentials, quorum policy, and retention. Verify checkpoints against a separately trusted public key. |
@@ -144,18 +144,22 @@ Until these values and operational controls are supplied and tested, treat the
 repository as a hardened deployment candidate rather than a fully production-
 operated service.
 
-### Clerk instance setup
+### Supabase sign-in setup
 
-The project must keep its Clerk Development and Production instances separate.
-The current local `.env` is for Development. After the production hostname is
-chosen and its DNS is available, authenticate and link the Clerk CLI, then run
-`clerk deploy` in an interactive human terminal to create/configure the
-Production instance and show the required DNS records. Verify progress with
-`clerk deploy status`. Do not change `APP_ENV` to `production` or deploy the
-Development publishable key/JWT public key as production credentials. Copy the
-Production instance's public publishable key, exact Frontend API issuer, and
-JWT PEM public key into the deployment secret/configuration store; the API does
-not need Clerk's secret key to verify signed session tokens.
+Configure Google in Supabase Authentication > Sign In / Providers. Its redirect URI
+is the project's exact `/auth/v1/callback` endpoint. Keep nonce checks enabled,
+email confirmation enabled, anonymous login disabled and manual identity linking
+disabled. Disable unused Email login once Google is enabled. Put the actual
+frontend origin in the Auth Site URL and its exact `/auth/callback` URL in the
+redirect allowlist; do not add wildcard preview domains.
+
+The API runtime database must be the same Supabase project that issues sessions.
+Migration 027 creates a private boolean session check owned by a non-login role
+with access only to session status and user ban/deletion columns. Business roles
+cannot read Auth passwords or tokens. A standalone PostgreSQL instance without
+Supabase Auth deliberately fails real session checks closed. Local unit and
+isolated database tests mock identity verification instead of weakening production
+authentication. See `LOCAL_DEMO_SETUP.md`.
 
 The database administrator/migration credential remains inside the trusted
 operator boundary. Anyone with that credential can alter database objects and

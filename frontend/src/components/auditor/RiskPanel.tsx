@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth } from '@clerk/clerk-react';
+import { useAuth } from '../auth/AuthProvider';
 import { AlertTriangle, CheckCircle2, ShieldAlert, ArrowUpRight, GitCommit } from 'lucide-react';
 import {
   fetchSuspiciousFlags,

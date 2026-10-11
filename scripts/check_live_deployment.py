@@ -1,7 +1,7 @@
 """Read-only checks for the public Argus frontend and API after deployment.
 
 Uses no credentials and makes no business writes. Passing these checks does
-not replace testing real Clerk sign-in, roles, workflows, or backup recovery.
+not replace testing real Google sign-in, roles, workflows, or backup recovery.
 """
 
 import argparse

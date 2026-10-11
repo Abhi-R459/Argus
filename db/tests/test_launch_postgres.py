@@ -24,7 +24,7 @@ def launch_database():
         pytest.fail("Refusing launch checks against an unconfirmed test database.")
     with psycopg2.connect(dsn) as conn, conn.cursor() as cursor:
         cursor.execute("SELECT version_num FROM alembic_version")
-        assert cursor.fetchone()[0] == "026_checkpoint_boundary_lock"
+        assert cursor.fetchone()[0] == "027_supabase_sessions"
         cursor.execute("INSERT INTO departments(name) VALUES ('Launch Check') RETURNING department_id")
         department = cursor.fetchone()[0]
         cursor.execute("INSERT INTO roles(title,department_id,salary_band_min,salary_band_max) VALUES ('Engineer',%s,1,1000000) RETURNING role_id", (department,))
@@ -42,6 +42,88 @@ def launch_database():
 def _runtime(role):
     name = "DATABASE_URL_HR_ADMIN" if role == "hr_admin" else "DATABASE_URL_COMPLIANCE_AUDITOR"
     return make_url(os.environ[name]).set(drivername="postgresql").render_as_string(hide_password=False)
+
+
+def test_supabase_session_helper_revokes_logout_and_banned_users(launch_database):
+    """Simulate Auth tables only in the explicitly disposable database."""
+    user_id = '1ac1a96e-09fb-4dc8-a34a-cc2ac0dbe699'
+    session_id = 'ab8c1e92-e2c0-44ea-8f31-6fb78bddba4f'
+    admin = os.environ['ARGUS_TEST_DATABASE_URL']
+    with psycopg2.connect(admin) as conn, conn.cursor() as cursor:
+        cursor.execute("CREATE SCHEMA auth")
+        cursor.execute("CREATE TABLE auth.users(id uuid PRIMARY KEY, banned_until timestamptz, deleted_at timestamptz, encrypted_password text)")
+        cursor.execute("CREATE TABLE auth.sessions(id uuid PRIMARY KEY, user_id uuid, not_after timestamptz, refresh_token_hmac_key text)")
+        cursor.execute("GRANT USAGE ON SCHEMA auth TO argus_auth_reader")
+        cursor.execute("GRANT SELECT(id,user_id,not_after) ON auth.sessions TO argus_auth_reader")
+        cursor.execute("GRANT SELECT(id,banned_until,deleted_at) ON auth.users TO argus_auth_reader")
+        cursor.execute("INSERT INTO auth.users(id) VALUES (%s)", (user_id,))
+        cursor.execute("INSERT INTO auth.sessions(id,user_id) VALUES (%s,%s)", (session_id,user_id))
+        cursor.execute("SELECT rolcanlogin,rolsuper,rolbypassrls FROM pg_roles WHERE rolname='argus_auth_reader'")
+        assert cursor.fetchone() == (False,False,False)
+        cursor.execute("SELECT has_column_privilege('argus_auth_reader','auth.sessions','refresh_token_hmac_key','SELECT'), has_column_privilege('argus_auth_reader','auth.users','encrypted_password','SELECT')")
+        assert cursor.fetchone() == (False,False)
+        cursor.execute("SELECT has_function_privilege('compliance_auditor','argus_private.supabase_session_active(uuid,uuid)','EXECUTE')")
+        assert cursor.fetchone()[0] is False
+
+    def active(candidate_user=user_id):
+        with psycopg2.connect(_runtime('hr_admin')) as conn, conn.cursor() as cursor:
+            cursor.execute("SELECT argus_private.supabase_session_active(%s,%s)", (candidate_user,session_id))
+            return cursor.fetchone()[0]
+    assert active() is True
+    assert active(session_id) is False
+    for column in ('banned_until','deleted_at'):
+        with psycopg2.connect(admin) as conn, conn.cursor() as cursor:
+            cursor.execute(f"UPDATE auth.users SET {column}=now()+interval '1 hour'")
+        assert active() is False
+        with psycopg2.connect(admin) as conn, conn.cursor() as cursor:
+            cursor.execute(f"UPDATE auth.users SET {column}=NULL")
+    with psycopg2.connect(admin) as conn, conn.cursor() as cursor:
+        cursor.execute("UPDATE auth.sessions SET not_after=now()-interval '1 minute'")
+    assert active() is False
+
+    with psycopg2.connect(admin) as conn, conn.cursor() as cursor:
+        cursor.execute("UPDATE auth.sessions SET not_after=NULL")
+    assert active() is True
+    with psycopg2.connect(_runtime('hr_admin')) as conn, conn.cursor() as cursor:
+        with pytest.raises(psycopg2.errors.InsufficientPrivilege):
+            cursor.execute("SELECT * FROM auth.sessions")
+    with psycopg2.connect(admin) as conn, conn.cursor() as cursor:
+        cursor.execute("DELETE FROM auth.sessions")
+    assert active() is False
+
+def test_session_migration_restores_restricted_migration_owner(launch_database):
+    import importlib
+    migration_sql = importlib.import_module('db.alembic.versions.027_supabase_sessions').SQL
+    migration_sql = migration_sql.replace('argus_auth_reader', 'argus_auth_reader_test').replace('supabase_session_active', 'supabase_session_active_test')
+    admin = os.environ['ARGUS_TEST_DATABASE_URL']
+    with psycopg2.connect(admin) as conn, conn.cursor() as cursor:
+        cursor.execute("CREATE ROLE launch_auth_migrator LOGIN CREATEROLE NOSUPERUSER NOINHERIT PASSWORD 'disposable-auth-migration-only'")
+        cursor.execute("GRANT argus_audit_owner TO launch_auth_migrator WITH ADMIN TRUE, INHERIT FALSE, SET FALSE")
+        cursor.execute("GRANT USAGE ON SCHEMA auth TO launch_auth_migrator WITH GRANT OPTION")
+        cursor.execute("GRANT SELECT(id,user_id,not_after) ON auth.sessions TO launch_auth_migrator WITH GRANT OPTION")
+        cursor.execute("GRANT SELECT(id,banned_until,deleted_at) ON auth.users TO launch_auth_migrator WITH GRANT OPTION")
+    url = make_url(admin).set(drivername='postgresql',username='launch_auth_migrator',password='disposable-auth-migration-only')
+    try:
+        with psycopg2.connect(url.render_as_string(hide_password=False)) as conn, conn.cursor() as cursor:
+            cursor.execute(migration_sql)
+            cursor.execute("SELECT pg_has_role(current_user,'argus_audit_owner','USAGE'),pg_has_role(current_user,'argus_audit_owner','SET')")
+            assert cursor.fetchone() == (False,False)
+    finally:
+        with psycopg2.connect(admin) as conn, conn.cursor() as cursor:
+            cursor.execute("SELECT to_regrole('argus_auth_reader_test')")
+            if cursor.fetchone()[0] is not None:
+                # Column grants belong to the restricted migration administrator.
+                # Revoke as that grantor before removing this disposable test role.
+                cursor.execute("SET ROLE launch_auth_migrator")
+                cursor.execute("REVOKE SELECT(id,user_id,not_after) ON auth.sessions FROM argus_auth_reader_test")
+                cursor.execute("REVOKE SELECT(id,banned_until,deleted_at) ON auth.users FROM argus_auth_reader_test")
+                cursor.execute("REVOKE USAGE ON SCHEMA auth FROM argus_auth_reader_test")
+                cursor.execute("RESET ROLE")
+                cursor.execute("DROP OWNED BY argus_auth_reader_test")
+                cursor.execute("DROP ROLE argus_auth_reader_test")
+            cursor.execute("DROP OWNED BY launch_auth_migrator")
+            cursor.execute("DROP ROLE launch_auth_migrator")
+
 
 
 @pytest.mark.parametrize('own_grant', [False, True])
@@ -140,13 +222,13 @@ def test_request_budgets_are_atomic_across_connections(launch_database):
 
 
 def test_real_api_bootstrap_employee_and_checkpoint(launch_database, tmp_path, monkeypatch):
-    """Use actual SQL roles and triggers; only external Clerk verification is replaced."""
+    """Use actual SQL roles and triggers; only external Auth verification is replaced."""
     import asyncio
     from cryptography.hazmat.primitives import serialization
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
     from httpx import AsyncClient, ASGITransport
     from api.main import app
-    from api.middleware.clerk import verify_clerk_token
+    from api.middleware.supabase_auth import verify_supabase_token
     from api.config import get_settings
     from api.database import init_engines, dispose_engines
 
@@ -158,7 +240,7 @@ def test_real_api_bootstrap_employee_and_checkpoint(launch_database, tmp_path, m
     monkeypatch.setattr(get_settings(), 'CHECKPOINT_PUBLIC_KEYS_DIR', str(tmp_path))
     (tmp_path / 'public_key.pem').write_bytes(key.public_key().public_bytes(
         serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo))
-    app.dependency_overrides[verify_clerk_token] = lambda: {'sub': 'launch:test'}
+    app.dependency_overrides[verify_supabase_token] = lambda: {'sub': 'launch:test', 'email': 'launch@example.test', 'email_verified': True, 'argus_role': 'hr_admin'}
 
     async def run():
         await init_engines()
@@ -190,7 +272,7 @@ def test_real_api_bootstrap_employee_and_checkpoint(launch_database, tmp_path, m
                     cursor.execute('SELECT national_id_encrypted FROM employees WHERE employee_id=%s', (employee_id,))
                     assert b'api-test-national-id' not in bytes(cursor.fetchone()[0])
                     cursor.execute("INSERT INTO users(clerk_user_id,full_name,email,role,is_active) VALUES ('launch:auditor','Audit Test','audit-launch@example.test','compliance_auditor',true)")
-                app.dependency_overrides[verify_clerk_token] = lambda: {'sub': 'launch:auditor'}
+                app.dependency_overrides[verify_supabase_token] = lambda: {'sub': 'launch:auditor', 'email': 'audit-launch@example.test', 'email_verified': True, 'argus_role': 'compliance_auditor'}
                 directory = await client.get('/api/employees')
                 assert directory.status_code == 200, directory.text
                 assert all(row['email'] != 'api-test@example.com' for row in directory.json()['items'])

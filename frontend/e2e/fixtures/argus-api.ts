@@ -3,7 +3,7 @@ import type { Page } from '@playwright/test';
 /**
  * Stable, read-only data for browser rendering checks. These responses are
  * inspired by the user's populated workspace screenshots; they do not touch
- * the running database and never contain a real Clerk token.
+ * the running database and never contain a real session token.
  */
 export async function mockArgusApi(page: Page): Promise<void> {
   const now = Date.now();

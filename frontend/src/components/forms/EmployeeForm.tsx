@@ -4,7 +4,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useAuth } from '@clerk/clerk-react';
+import { useAuth } from '../auth/AuthProvider';
 import { fetchWithAuth, ApiError } from '../../lib/api';
 import { fetchRoles, type RoleItem } from '../../services/auditService';
 import { X, Lock, ShieldCheck, AlertCircle } from 'lucide-react';

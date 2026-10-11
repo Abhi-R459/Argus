@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { useAuth } from '@clerk/clerk-react';
+import { useAuth } from '../../components/auth/AuthProvider';
 import {
   GitBranch, Search, Filter, ShieldAlert, ShieldCheck,
   ArrowRight, ArrowLeft, Copy, Check, Clock,

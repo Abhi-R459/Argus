@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { useAuth } from '@clerk/clerk-react';
+import { useAuth } from '../auth/AuthProvider';
 import { Database, Zap, HardDrive, Table, Loader2 } from 'lucide-react';
 import { fetchSystemMetrics, type SystemMetrics } from '../../services/auditService';
 import RefreshButton from '../common/RefreshButton';

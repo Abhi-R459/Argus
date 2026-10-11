@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { useAuth } from '@clerk/clerk-react';
+import { useAuth } from '../../components/auth/AuthProvider';
 import {
   GitCompare, Play, AlertCircle, ShieldCheck,
   DollarSign, Clock, Sparkles,

@@ -12,6 +12,8 @@ class User(Base):
     )
 
     user_id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    # Historical column name is preserved to avoid rewriting signed audit history.
+    # Supabase identities are namespaced as "supabase:<uuid>".
     clerk_user_id: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
     full_name: Mapped[str] = mapped_column(String(255), nullable=False)
     email: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)

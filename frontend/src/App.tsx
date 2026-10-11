@@ -1,6 +1,7 @@
 import { lazy, Suspense, useMemo } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { SignIn, useAuth } from '@clerk/clerk-react';
+import { useAuth } from './components/auth/AuthProvider';
+import SignIn from './components/auth/SignIn';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { createQueryClient } from './lib/queryClient';
 import HRAdminLayout from './layouts/HRAdminLayout';
@@ -49,11 +50,12 @@ function App() {
                     <h1 className="text-3xl font-bold text-linear-ink tracking-tight">Argus Audit Engine</h1>
                     <p className="text-linear-ink-subtle mt-2">Sign in to access your dashboard</p>
                   </div>
-                  {isLoaded ? <SignIn routing="hash" /> : <div role="status">Loading sign-in�</div>}
+                  {isLoaded ? <SignIn /> : <div role="status">Loading sign-in…</div>}
                 </div>
               )
             } />
 
+            <Route path="/auth/callback" element={isLoaded ? <Navigate to="/" replace /> : <div role="status">Completing sign-in…</div>} />
             {/* HR Admin routes */}
             <Route path="/hr" element={
               <ProtectedPortal allowedRole="hr_admin">

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useAuth } from '@clerk/clerk-react';
+import { useAuth } from '../../components/auth/AuthProvider';
 import {
   ShieldCheck,
   Download,

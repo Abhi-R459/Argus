@@ -1719,7 +1719,7 @@ async def get_system_metrics(
         )
 
     settings = get_settings()
-    check_results["auth_enforced"] = bool(settings.CLERK_JWT_KEY.strip())
+    check_results["auth_enforced"] = bool(settings.SUPABASE_URL and settings.SUPABASE_PUBLISHABLE_KEY)
     security_checks = {name: result is True for name, result in check_results.items()}
     security_check_details = {
         name: ("pass" if result is True else "fail" if result is False else "unknown")

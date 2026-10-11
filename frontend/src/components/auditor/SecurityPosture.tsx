@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { useAuth } from '@clerk/clerk-react';
+import { useAuth } from '../auth/AuthProvider';
 import { Shield, Lock, Key, CheckCircle2, XCircle, Loader2 } from 'lucide-react';
 import { fetchSystemMetrics, type SystemMetrics } from '../../services/auditService';
 import RefreshButton from '../common/RefreshButton';
@@ -133,7 +133,7 @@ export default function SecurityPosture() {
             <div>
               <p className="text-sm font-semibold text-linear-ink">Application authentication</p>
               <p className="text-xs text-linear-ink-muted mt-0.5">
-                Clerk JWT verification is configured for server-side request validation.
+                Supabase session verification is configured for server-side request validation.
               </p>
             </div>
             <span className={`shrink-0 rounded border px-2 py-0.5 text-[10px] font-mono uppercase ${

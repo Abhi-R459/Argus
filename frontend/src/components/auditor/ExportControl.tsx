@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useAuth } from '@clerk/clerk-react';
+import { useAuth } from '../auth/AuthProvider';
 import { downloadSignedEvidence, downloadEvidencePack } from '../../services/auditService';
 import { Download, CheckCircle, AlertCircle, Package, FileJson, ShieldCheck } from 'lucide-react';
 

@@ -6,7 +6,7 @@
  */
 
 import { useQuery } from '@tanstack/react-query';
-import { useAuth } from '@clerk/clerk-react';
+import { useAuth } from '../components/auth/AuthProvider';
 import { fetchWithAuth, authenticatedFetch } from '../lib/api';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -621,7 +621,7 @@ export async function fetchEmployees(
 
 export interface UserProfile {
   user_id: number;
-  clerk_user_id: string;
+  auth_user_id: string;
   full_name: string;
   email: string;
   role: 'hr_admin' | 'compliance_auditor';

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { useAuth } from '@clerk/clerk-react';
+import { useAuth } from '../auth/AuthProvider';
 import { Activity, Play, Settings2, AlertOctagon } from 'lucide-react';
 import { runConcurrencyTest } from '../../services/auditService';
 import Button from '../common/Button';

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { useAuth } from '@clerk/clerk-react';
+import { useAuth } from '../../components/auth/AuthProvider';
 import AnchorStatus from '../../components/auditor/AnchorStatus';
 import ChainVisualization from '../../components/auditor/ChainVisualization';
 import VerificationControl from '../../components/auditor/VerificationControl';

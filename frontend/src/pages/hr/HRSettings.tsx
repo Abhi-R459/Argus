@@ -1,4 +1,4 @@
-import { useUser, useClerk, useAuth } from '@clerk/clerk-react';
+import { useAuth } from '../../components/auth/AuthProvider';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { ShieldCheck, Database, Key, User, Lock, CheckCircle2, Fingerprint } from 'lucide-react';
 import { Button } from '../../components/common/Button';
@@ -7,9 +7,8 @@ import { createCheckpointNow } from '../../services/auditService';
 import OrganizationSetup from '../../components/hr/OrganizationSetup';
 
 export default function HRSettings() {
-  const { user } = useUser();
-  const { getToken } = useAuth();
-  const { openUserProfile } = useClerk();
+  const { user, getToken } = useAuth();
+  const fullName = typeof user?.user_metadata.full_name === 'string' ? user.user_metadata.full_name : 'HR Administrator';
   const queryClient = useQueryClient();
   const checkpointMutation = useMutation({
     mutationFn: () => createCheckpointNow(getToken),
@@ -32,25 +31,25 @@ export default function HRSettings() {
 
       <OrganizationSetup />
 
-      {/* Clerk Profile & Session Card */}
+      {/* Account Profile & Session Card */}
       <div className="bg-white rounded-2xl border border-slate-200/80 p-6 shadow-xs space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-slate-100">
           <div className="flex items-center space-x-4">
             <div className="w-12 h-12 rounded-2xl bg-slate-100 border border-slate-200/80 flex items-center justify-center text-slate-800 font-bold text-base shadow-2xs">
-              {user?.firstName ? user.firstName[0] : 'U'}
+              {fullName[0]}
             </div>
             <div>
               <div className="flex items-center space-x-2">
-                <h3 className="text-base font-bold text-slate-900">{user?.fullName || 'HR Administrator'}</h3>
+                <h3 className="text-base font-bold text-slate-900">{fullName}</h3>
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-50 text-emerald-800 border border-emerald-200/80">
                   HR Admin
                 </span>
               </div>
-              <p className="text-xs text-slate-500 font-mono mt-0.5">{user?.primaryEmailAddress?.emailAddress || 'Loading account…'}</p>
+              <p className="text-xs text-slate-500 font-mono mt-0.5">{user?.email || 'Loading account…'}</p>
               <div className="mt-1.5 flex items-center space-x-2">
                 <span className="inline-flex items-center space-x-1 text-[11px] text-emerald-700 font-medium">
                   <CheckCircle2 className="w-3.5 h-3.5" />
-                  <span>Authenticated via Clerk SSO</span>
+                  <span>Google sign-in via Supabase</span>
                 </span>
               </div>
             </div>
@@ -59,7 +58,7 @@ export default function HRSettings() {
             variant="secondary"
             size="md"
             portalTheme="hr"
-            onClick={() => openUserProfile()}
+            onClick={() => window.open('https://myaccount.google.com/security', '_blank', 'noopener,noreferrer')}
             leftIcon={<User className="w-3.5 h-3.5 text-slate-600" />}
           >
             Manage Account
@@ -69,7 +68,7 @@ export default function HRSettings() {
         {/* Identity Details */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
           <div className="bg-slate-50 p-4 rounded-xl border border-slate-200/80">
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Clerk User Identifier</span>
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Account Identifier</span>
             <p className="font-mono text-xs text-slate-800 mt-1.5 break-all select-all font-semibold bg-white p-2 rounded-lg border border-slate-200 shadow-2xs">
               {user?.id || 'Loading account…'}
             </p>
@@ -77,9 +76,9 @@ export default function HRSettings() {
           <div className="bg-slate-50 p-4 rounded-xl border border-slate-200/80 flex flex-col justify-between">
             <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Two-Factor Authentication</span>
             <div className="mt-1.5 flex items-center space-x-2 bg-white p-2 rounded-lg border border-slate-200 shadow-2xs">
-              <Lock className={`w-4 h-4 shrink-0 ${user?.twoFactorEnabled ? 'text-portal-success' : 'text-portal-warning'}`} />
+              <Lock className="w-4 h-4 shrink-0 text-slate-600" />
               <span className="text-xs font-semibold text-slate-800" role="status">
-                {user ? (user.twoFactorEnabled ? 'Enabled' : 'Not enabled') : 'Checking status…'}
+                Managed in your Google account
               </span>
             </div>
           </div>
@@ -160,7 +159,7 @@ export default function HRSettings() {
               <span>PII Column Storage</span>
             </div>
             <p className="text-xs text-slate-600 leading-relaxed">
-              National IDs and sensitive contacts are currently stored as unencrypted bytes. Do not use real personal data until encryption and key management are implemented.
+              National IDs and sensitive contact information are encrypted with AES-256-GCM before storage. Decryption is restricted to the HR workspace; the encryption key is kept in server secrets.
             </p>
           </div>
         </div>

@@ -3,17 +3,19 @@ FROM node:22-slim AS build
 
 WORKDIR /app
 
-ARG VITE_CLERK_PUBLISHABLE_KEY
+ARG VITE_SUPABASE_URL
+ARG VITE_SUPABASE_PUBLISHABLE_KEY
 ARG VITE_API_URL=/api
-# This Clerk key is designed to be public and is embedded in browser assets.
-ENV VITE_CLERK_PUBLISHABLE_KEY=${VITE_CLERK_PUBLISHABLE_KEY}
+# Only public Supabase configuration is embedded in browser assets.
+ENV VITE_SUPABASE_URL=${VITE_SUPABASE_URL}
+ENV VITE_SUPABASE_PUBLISHABLE_KEY=${VITE_SUPABASE_PUBLISHABLE_KEY}
 ENV VITE_API_URL=${VITE_API_URL}
 
 COPY package*.json ./
 RUN npm ci
 
 COPY . .
-RUN test -n "$VITE_CLERK_PUBLISHABLE_KEY"
+RUN test -n "$VITE_SUPABASE_URL" && test -n "$VITE_SUPABASE_PUBLISHABLE_KEY"
 RUN npm run build
 
 # Production stage
