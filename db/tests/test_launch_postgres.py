@@ -61,7 +61,9 @@ def test_actor_key_rotation_restores_restricted_administrator_membership(launch_
         url = make_url(dsn).set(username='launch_key_admin', password='isolated-key-admin-only', drivername='postgresql')
         if own_grant:
             with psycopg2.connect(url.render_as_string(hide_password=False)) as conn, conn.cursor() as cursor:
-                cursor.execute("GRANT argus_audit_owner TO CURRENT_USER WITH ADMIN TRUE, INHERIT FALSE, SET FALSE")
+                # PostgreSQL prohibits a role from granting ADMIN back to itself.
+                # Keep the original external ADMIN grant and a restricted own grant.
+                cursor.execute("GRANT argus_audit_owner TO CURRENT_USER WITH ADMIN FALSE, INHERIT FALSE, SET FALSE")
         with psycopg2.connect(dsn) as conn, conn.cursor() as cursor:
             cursor.execute("SELECT grantor, admin_option, inherit_option, set_option FROM pg_auth_members WHERE roleid='argus_audit_owner'::regrole AND member='launch_key_admin'::regrole ORDER BY grantor")
             original_grants = cursor.fetchall()
