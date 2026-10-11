@@ -18,6 +18,11 @@ list. The approved Render Free API and static site have been provisioned:
 The API stores its runtime secrets and two signing files only in its backend
 configuration. The frontend has public Auth configuration and the API address.
 Supabase Site URL and its one callback redirect match the actual frontend.
+Both services run release `2f1dd71b170933b85255c3374a0a07f2bbf45210`.
+[CI run 38152267482](https://github.com/Abhi-R459/Argus/actions/runs/38152267482)
+passed both backend and frontend jobs. API deployment
+`dep-db5qt83bc2fs739qglug` and static deployment
+`dep-db5qthlckfvc73b4un0g` both report Live.
 
 ## Free deployment
 
@@ -26,7 +31,9 @@ Render Free Docker API, one Render static site, and the existing Supabase Free
 project. The repository's default `dev` branch must not be used: its old
 Blueprint selected paid compute and a disk. Automatic deploys are disabled for
 the public repository source; deploy only after the exact release commit's CI
-passes. The public GitHub repository uses ordinary free Actions runners.
+passes. Blueprint Auto Sync is also set to **No** in Render, so future YAML
+changes require a deliberate manual sync. The public GitHub repository uses
+ordinary free Actions runners.
 
 The Render workspace was verified on Hobby with no card or pending charges and
 a **$0 build-pipeline spending limit**. Recheck before changing services. Do not
@@ -63,6 +70,10 @@ and email confirmation enabled, anonymous login and manual linking disabled,
 and disable unused Email login once Google is enabled. Use the actual frontend
 HTTPS origin for the Auth Site URL and its exact `/auth/callback` address in the
 redirect allowlist. Never use wildcard preview domains.
+
+Google Audience remains in **Testing** with only the two real approved accounts
+permitted. These are launch accounts, not disposable demo accounts. The app is
+ready for that restricted audience; wider Google access has not been published.
 
 Approved identities:
 
@@ -121,7 +132,11 @@ have no application-table privileges; runtime roles are neither superusers nor
 RLS-bypass roles. Auditor employee reads use a masked view. The security advisor
 has one informational notice: the private request-budget table has no RLS
 policy because direct access is intentionally denied; only its restricted
-function can use it.
+function can use it. The advisor also reports disabled leaked-password
+protection; Email/password login is disabled and this application accepts Google
+sign-in only. No paid password-protection upgrade was enabled. See the
+[private-table notice](https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy)
+and [password-protection guidance](https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection).
 
 The actual free session pooler is `aws-0-ap-south-1.pooler.supabase.com:5432`,
 database `postgres`. Runtime usernames are `hr_admin.<project-ref>` and
@@ -195,6 +210,23 @@ that are addressed by migrations 028-030 and reproduced by the updated isolated
 checks. The strengthened readiness route executes the session check and checks
 the audit owner's schema access rather than only checking function existence.
 
+Release `2f1dd71` passed CI and all 15 public checks after deployment. Both real
+Google accounts loaded their correct portals; the HR directory/settings and
+auditor overview/log/analytics loaded successfully. Opposite-role portal
+navigation returned to the authorized workspace. Both sign-outs revoked their
+server sessions. Live token refresh and live account deactivation were not
+forced; refresh is covered by the browser tests and deactivation/ban/deletion
+by the isolated checks.
+
+The live auditor exported the empty ledger as an `.arguspack` file. Its public
+key matched the separately retained production public key, and the repository's
+verifier returned SUCCESS with no errors and zero events. This verifies the
+mounted production signer without inserting test business records. Hosted
+business tables remain empty with exactly two real Auth accounts and two active
+application profiles. The local database is also at migration 030 with zero
+employees, audit entries and active profiles. Disposable test containers were
+removed; the prior local database/Adminer services were preserved.
+
 For every subsequent release, verify the exact commit's CI, manually deploy the
 Free services, then run the read-only deployment check:
 
@@ -204,8 +236,8 @@ python scripts/check_live_deployment.py --frontend-origin https://argus-frontend
 
 It checks HTTPS, readiness, frontend routes/security headers, anonymous and
 invalid-token rejection, CORS and disabled API documentation without business
-writes. Separately verify both approved real Google accounts, wrong-role denial,
-sign-out, session refresh and deactivation. Synthetic workflow/load tests belong
+writes. Repeat real-account role and sign-out checks after authentication changes.
+Synthetic workflow/load tests belong
 in an isolated staging database; production audit history must be preserved once
 real usage begins. HR Settings can create the initial department and job role
 without demo data.
