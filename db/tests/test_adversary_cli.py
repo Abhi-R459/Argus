@@ -84,6 +84,17 @@ def isolated_snapshot(tmp_path):
         snap_file.unlink()
 
 
+def read_business_value(conn, change):
+    with conn.cursor() as cur:
+        if change["table_name"] == "salary_history" and change["column"] == "amount":
+            cur.execute("SELECT amount FROM salary_history WHERE salary_history_id = %s", (change["row_id"],))
+        elif change["table_name"] == "employees" and change["column"] == "is_active":
+            cur.execute("SELECT is_active FROM employees WHERE employee_id = %s", (change["row_id"],))
+        else:
+            raise AssertionError(f"Unexpected business mutation: {change}")
+        return cur.fetchone()[0]
+
+
 def test_adversary_cli_parser():
     """Validate CLI argument parser subcommands and arguments."""
     parser = build_parser()
@@ -105,6 +116,17 @@ def test_adversary_cli_parser():
     assert args_status.snapshot_path == "status_snap.json"
 
 
+def test_recovery_snapshot_alone_does_not_mark_attack(db_conn, isolated_snapshot):
+    """A restore file is recovery material, never cryptographic detection evidence."""
+    Path(isolated_snapshot).write_text(
+        json.dumps({"scenario": "recompute-and-hide", "target_sequence_id": 12}),
+        encoding="utf-8",
+    )
+    status = get_adversary_status(db_conn, snapshot_path=isolated_snapshot)
+    assert status["recovery_available"] is True
+    assert status["attack_active"] is False
+
+
 def test_dba_row_tamper_and_heal_cycle(db_conn, isolated_snapshot):
     """Test scenario 1: dba-row-tamper detection and healing."""
     try:
@@ -112,6 +134,8 @@ def test_dba_row_tamper_and_heal_cycle(db_conn, isolated_snapshot):
         attack_res = attack_dba_row_tamper(db_conn, snapshot_path=isolated_snapshot)
         assert attack_res["status"] == "success"
         target_seq = attack_res["target_sequence_id"]
+        business_change = attack_res["business_change"]
+        assert str(read_business_value(db_conn, business_change)) == str(business_change["after_value"])
 
         # Assert snapshot was created
         snap = load_snapshot(isolated_snapshot)
@@ -134,6 +158,7 @@ def test_dba_row_tamper_and_heal_cycle(db_conn, isolated_snapshot):
         # 3. Heal database back to pristine condition
         heal_res = heal_database(db_conn, snapshot_path=isolated_snapshot)
         assert heal_res["is_valid"] is True
+        assert str(read_business_value(db_conn, business_change)) == str(business_change["before_value"])
         assert heal_res["mismatches"] == 0
         assert heal_res["gaps"] == 0
         assert heal_res["orphans"] == 0
@@ -151,6 +176,8 @@ def test_recompute_and_hide_and_heal_cycle(db_conn, isolated_snapshot):
         attack_res = attack_recompute_and_hide(db_conn, snapshot_path=isolated_snapshot)
         assert attack_res["status"] == "success"
         assert attack_res["recalculated_rows"] > 0
+        business_change = attack_res["business_change"]
+        assert str(read_business_value(db_conn, business_change)) == str(business_change["after_value"])
 
         # Assert internal chain walk is internally valid (attacker succeeded in faking hash chain)
         res = verify_chain(db_conn)
@@ -166,6 +193,7 @@ def test_recompute_and_hide_and_heal_cycle(db_conn, isolated_snapshot):
         # 2. Heal database back to pristine condition
         heal_res = heal_database(db_conn, snapshot_path=isolated_snapshot)
         assert heal_res["is_valid"] is True
+        assert str(read_business_value(db_conn, business_change)) == str(business_change["before_value"])
 
         # Confirm post-heal verification and anchor match
         post_status = get_adversary_status(db_conn, snapshot_path=isolated_snapshot)

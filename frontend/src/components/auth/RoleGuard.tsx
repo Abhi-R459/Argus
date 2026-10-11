@@ -16,7 +16,7 @@ export default function RoleGuard({ allowedRole, children }: RoleGuardProps) {
 
   const { data: profile, isLoading, isError, refetch } = useQuery<UserProfile>({
     queryKey: ['myProfile'],
-    queryFn: () => fetchMyProfile(() => getToken()),
+    queryFn: () => fetchMyProfile(getToken),
     enabled: isLoaded && !devE2ERole,
     staleTime: 60000,
     refetchInterval: false,

@@ -18,6 +18,8 @@
 
 ## Table of Contents
 
+For real deployment, start with the [production launch handoff](docs/PRODUCTION_LAUNCH.md). It includes the Vercel/Render configuration, data cleanup status, and remaining live launch checks.
+
 - [Overview](#overview)
 - [Key Features](#key-features)
 - [Architecture & Security Model](#architecture--security-model)
@@ -183,9 +185,9 @@ Full architectural specification in [`docs/CRYPTO_SHREDDING_ANALYSIS.md`](docs/C
 The fastest way to spin up the complete end-to-end stack:
 
 For a professor walkthrough that must stay on your laptop and must not touch
-the configured hosted database, use the isolated [Local Demo Setup](docs/LOCAL_DEMO_SETUP.md).
-It generates a separate `.env.demo`, local cryptographic secrets, and a fresh
-`argus-demo` database. Clerk Development sign-in still needs internet access.
+the configured hosted database, use the [Local Demo Setup](docs/LOCAL_DEMO_SETUP.md).
+It uses the regular `argus` Compose PostgreSQL service with your usual local
+Uvicorn and Vite startup. Clerk Development sign-in still needs internet access.
 
 ```bash
 # 1. Clone the repository
@@ -334,8 +336,9 @@ python -m db.cli.actor_context_keys disable --key-id <old-key-id>
    python -m db.bench.seed --num-employees 25 --num-changes 50
    ```
 
-   For the isolated `argus-demo` stack, see [Local Professor Demo Setup](docs/LOCAL_DEMO_SETUP.md).
-   It documents the append-only `--skip-purge --scale 40` option and the currently verified demo snapshot.
+   For the local Compose-backed walkthrough database and usual host-run startup,
+   see [Local Professor Demo Setup](docs/LOCAL_DEMO_SETUP.md). It documents the
+   append-only `--skip-purge --scale 40` option and the verified demo snapshot.
 
 ### 4. Backend Setup (FastAPI)
 

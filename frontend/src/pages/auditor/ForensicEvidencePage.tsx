@@ -194,6 +194,11 @@ export default function ForensicEvidencePage() {
                 <div className="text-[11px] text-linear-ink-subtle">
                   Interval Leaf Size: {proof.tree_size} records
                 </div>
+                {proof.retrospective && (
+                  <div className="text-[10px] font-semibold uppercase tracking-wide text-amber-300">
+                    Retrospectively attested
+                  </div>
+                )}
               </div>
 
               <div className="p-3.5 rounded-lg border border-linear-hairline bg-linear-surface-2 space-y-1">
@@ -268,6 +273,17 @@ export default function ForensicEvidencePage() {
               </div>
             </div>
           </div>
+
+          {proof.retrospective && (
+            <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-5 space-y-2" role="status">
+              <div className="font-semibold text-amber-200 text-sm">
+                Retrospective Merkle attestation
+              </div>
+              <p className="text-xs leading-relaxed text-linear-ink-subtle">
+                Checkpoint #{proof.checkpoint_id} was originally signed without a Merkle root. Argus verified the current audit chain and the original checkpoint signature, then signed this Merkle root at {proof.retrospective_attested_at ? new Date(proof.retrospective_attested_at).toLocaleString() : 'the displayed attestation time'}. This proves the selected row against the verified ledger state at attestation time; it does not claim the root existed when the checkpoint was first created.
+              </p>
+            </div>
+          )}
 
           {/* Audit Path Traversal Graph */}
           <div className="p-6 rounded-xl border border-linear-hairline bg-linear-surface-1 shadow-xs space-y-4">

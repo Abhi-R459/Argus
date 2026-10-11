@@ -14,7 +14,11 @@ test.describe('Compliance Auditor Portal E2E', () => {
     const browserErrors: string[] = [];
     page.on('pageerror', (error) => browserErrors.push(error.message));
     page.on('console', (message) => {
-      if (message.type() === 'error') browserErrors.push(message.text());
+      // CI uses an inert Clerk publishable key. Only its expected DNS failures
+      // are ignored; application errors still fail this rendering check.
+      const isOfflineClerk = message.text() === 'Failed to load resource: net::ERR_NAME_NOT_RESOLVED'
+        && message.location().url.startsWith('https://clerk.example.test/');
+      if (message.type() === 'error' && !isOfflineClerk) browserErrors.push(message.text());
     });
     await page.goto('http://localhost:5173/auditor/overview');
     await page.waitForLoadState('networkidle');
@@ -193,12 +197,12 @@ test.describe('Compliance Auditor Portal E2E', () => {
 
     // Control panel labels
     await expect(page.locator('label', { hasText: 'Target Personnel' })).toBeVisible();
-    await expect(page.locator('label', { hasText: 'Exclude Sequence IDs' })).toBeVisible();
-    await expect(page.getByPlaceholder('Sequence IDs from the audit log')).toHaveValue('');
-    await expect(page.getByText(/IDs vary by database. Choose this employee’s event in the/)).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Choose events to exclude' })).toBeVisible();
+    await expect(page.getByPlaceholder('Find event')).toHaveValue('');
+    await expect(page.getByRole('checkbox', { name: 'Exclude sequence 142', exact: true })).toBeVisible();
   });
 
-  test('Counterfactual sequence IDs reject malformed tokens before calling the API', async ({ page }) => {
+  test('Counterfactual replay requires a selected audit event before calling the API', async ({ page }) => {
     let simulationRequests = 0;
     page.on('request', (request) => {
       if (new URL(request.url()).pathname.endsWith('/audit-logs/counterfactual')) {
@@ -207,11 +211,8 @@ test.describe('Compliance Auditor Portal E2E', () => {
     });
 
     await page.goto('http://localhost:5173/auditor/counterfactual');
-    const sequenceInput = page.getByPlaceholder('Sequence IDs from the audit log');
-    await sequenceInput.fill('71junk, 72');
-    await page.getByRole('button', { name: 'Run Provenance Simulation' }).click();
-
-    await expect(page.getByText(/Sequence ID “71junk” is invalid/)).toBeVisible();
+    await expect(page.getByRole('checkbox', { name: 'Exclude sequence 142', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Run Provenance Simulation' })).toBeDisabled();
     expect(simulationRequests).toBe(0);
   });
 
@@ -225,7 +226,7 @@ test.describe('Compliance Auditor Portal E2E', () => {
         body: JSON.stringify({
           employee_id: 1001,
           as_of: new Date().toISOString(),
-          skip_sequence_ids: [71],
+          skip_sequence_ids: [142],
           actual_state: { salary: 900000 },
           counterfactual_state: { salary: 800000 },
           blast_radius: {
@@ -235,7 +236,7 @@ test.describe('Compliance Auditor Portal E2E', () => {
             salary_overpaid_cumulative: 50000,
             tenure_months: 6,
             skipped_events_count: 1,
-            skipped_sequence_ids: [71],
+            skipped_sequence_ids: [142],
           },
           skipped_events: [],
           applied_events_count: 4,
@@ -245,11 +246,12 @@ test.describe('Compliance Auditor Portal E2E', () => {
     });
 
     await page.goto('http://localhost:5173/auditor/counterfactual');
-    await page.getByPlaceholder('Sequence IDs from the audit log').fill('71');
+    await expect(page.getByRole('combobox')).toHaveValue('1001');
+    await page.getByRole('checkbox', { name: 'Exclude sequence 142', exact: true }).check();
     await page.getByRole('button', { name: 'Run Provenance Simulation' }).click();
     await expect(page.getByText('₹1,00,000.00')).toBeVisible();
     await expect(page.getByText('$100,000.00')).toHaveCount(0);
-    expect(submittedPayload).toMatchObject({ employee_id: 1001, skip_sequence_ids: [71] });
+    expect(submittedPayload).toMatchObject({ employee_id: 1001, skip_sequence_ids: [142] });
   });
 
   test('Audit Chain Explorer page rendering', async ({ page }) => {

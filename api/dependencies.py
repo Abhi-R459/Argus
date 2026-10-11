@@ -8,6 +8,7 @@ from .database import get_session_factory
 from .models.user import User
 from db.crypto.actor_context import create_actor_context
 from .config import get_settings
+from .services.request_budget import consume_request_budget
 
 
 async def get_current_user(
@@ -41,6 +42,7 @@ async def get_current_user(
             detail="User not found or inactive. Call POST /api/auth/sync first."
         )
     
+    await consume_request_budget(user)
     return user
 
 

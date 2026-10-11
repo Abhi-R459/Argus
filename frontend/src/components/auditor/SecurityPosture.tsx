@@ -9,7 +9,7 @@ export default function SecurityPosture() {
 
   const { data, isLoading, refetch } = useQuery<SystemMetrics>({
     queryKey: ['systemMetrics'],
-    queryFn: () => fetchSystemMetrics(() => getToken()),
+    queryFn: () => fetchSystemMetrics(getToken),
   });
 
   const score = data?.security_score ?? (isLoading ? 0 : 70);

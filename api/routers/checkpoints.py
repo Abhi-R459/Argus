@@ -27,11 +27,6 @@ _CHECKPOINT_LOCK_KEY = 514729380123
 def _load_signer() -> LocalFileSigner:
     """Load the configured signing key, failing closed when it is unavailable."""
     settings = get_settings()
-    if settings.APP_ENV == "production":
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="On-demand signing is unavailable in production until a managed signer is configured.",
-        )
     key_path = Path(settings.SIGNING_PRIVATE_KEY_PATH)
     if not key_path.is_file():
         raise HTTPException(
@@ -54,7 +49,7 @@ def _load_signer() -> LocalFileSigner:
 async def create_checkpoint_now(
     request: Request,
     current_user: User = Depends(get_current_user),
-    session: AsyncSession = Depends(get_db_session),
+    session: AsyncSession = Depends(get_db_session, scope="function"),
 ) -> dict[str, Any]:
     """Seal all events since the prior checkpoint and record the requesting HR admin."""
     # Audit triggers take the chain_state row lock before appending events. Taking
@@ -65,7 +60,7 @@ async def create_checkpoint_now(
         {"lock_key": _CHECKPOINT_LOCK_KEY},
     )
     await session.execute(
-        text("SELECT id FROM chain_state WHERE id = 1 FOR UPDATE")
+        text("SELECT argus_private.lock_checkpoint_boundary()")
     )
     latest_result = await session.execute(
         text("SELECT sequence_id FROM chain_checkpoints ORDER BY sequence_id DESC LIMIT 1")
@@ -77,7 +72,7 @@ async def create_checkpoint_now(
         text(
             "SELECT sequence_id, actor_user_id, employee_id, action, table_name, row_id, "
             "old_value, new_value, severity, entry_hash, previous_hash, created_at "
-            "FROM audit_log WHERE sequence_id > :last_sequence ORDER BY sequence_id ASC"
+            "FROM audit_log WHERE sequence_id > :last_sequence ORDER BY sequence_id ASC LIMIT 10000"
         ),
         {"last_sequence": last_checkpoint_sequence},
     )

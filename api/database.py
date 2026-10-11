@@ -1,4 +1,5 @@
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
+from sqlalchemy.engine import make_url
 from .config import get_settings
 from db.crypto.actor_context import create_actor_context
 
@@ -7,6 +8,29 @@ _hr_admin_engine = None
 _compliance_auditor_engine = None
 _hr_admin_session_factory = None
 _compliance_auditor_session_factory = None
+
+
+def runtime_engine_options(database_url: str, settings) -> dict:
+    """Translate libpq-style TLS URLs and bound work on each DB connection."""
+    url = make_url(database_url)
+    if "sslmode" in url.query:
+        if "ssl" in url.query:
+            raise ValueError("Specify only one of ssl or sslmode in a runtime URL.")
+        mode = url.query["sslmode"]
+        url = url.difference_update_query(["sslmode"]).update_query_dict({"ssl": mode})
+    return {
+        "url": url,
+        "connect_args": {
+            "timeout": 10,
+            "command_timeout": settings.DB_STATEMENT_TIMEOUT_MS / 1000,
+            # Use direct PostgreSQL or the Supabase session pooler (port 5432).
+            "server_settings": {
+                "statement_timeout": str(settings.DB_STATEMENT_TIMEOUT_MS),
+                "lock_timeout": str(settings.DB_LOCK_TIMEOUT_MS),
+                "idle_in_transaction_session_timeout": "60000",
+            },
+        },
+    }
 
 
 async def init_engines():
@@ -27,7 +51,7 @@ async def init_engines():
     )
     
     _hr_admin_engine = create_async_engine(
-        settings.DATABASE_URL_HR_ADMIN,
+        **runtime_engine_options(settings.DATABASE_URL_HR_ADMIN, settings),
         echo=False,
         pool_size=settings.DB_POOL_SIZE,
         max_overflow=settings.DB_MAX_OVERFLOW,
@@ -37,7 +61,7 @@ async def init_engines():
         hide_parameters=True,
     )
     _compliance_auditor_engine = create_async_engine(
-        settings.DATABASE_URL_COMPLIANCE_AUDITOR,
+        **runtime_engine_options(settings.DATABASE_URL_COMPLIANCE_AUDITOR, settings),
         echo=False,
         pool_size=settings.DB_POOL_SIZE,
         max_overflow=settings.DB_MAX_OVERFLOW,

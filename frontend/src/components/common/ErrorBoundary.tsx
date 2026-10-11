@@ -81,7 +81,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
             </div>
           </div>
 
-          {this.state.error && (
+          {import.meta.env.DEV && this.state.error && (
             <div
               className={`p-3 rounded-lg text-xs font-mono break-all overflow-x-auto border ${
                 isAuditor

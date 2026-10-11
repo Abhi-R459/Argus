@@ -1,4 +1,18 @@
-export const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
+export const API_BASE_URL = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
+const configuredTimeout = Number(import.meta.env.VITE_API_TIMEOUT_MS || 30_000);
+const API_TIMEOUT_MS = Number.isInteger(configuredTimeout) && configuredTimeout >= 1_000 && configuredTimeout <= 120_000
+  ? configuredTimeout : 30_000;
+
+export async function boundedFetch(url: string, options: RequestInit = {}): Promise<Response> {
+  const timeout = AbortSignal.timeout(API_TIMEOUT_MS);
+  const signal = options.signal ? AbortSignal.any([options.signal, timeout]) : timeout;
+  try {
+    return await fetch(url, { ...options, signal, cache: 'no-store' });
+  } catch (error) {
+    if (timeout.aborted) throw new ApiError(408, 'The request timed out. Please try again.');
+    throw error;
+  }
+}
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
@@ -15,7 +29,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * A wrapper around fetch that attaches the Clerk JWT token.
  * Use this inside a React component context where `getToken` from `useAuth()` is available.
  */
-export async function fetchWithAuth(
+export async function authenticatedFetch(
   url: string,
   options: RequestInit = {},
   getToken: (options?: { skipCache?: boolean }) => Promise<string | null>
@@ -26,6 +40,7 @@ export async function fetchWithAuth(
     : await getToken();
   
   const headers = new Headers(options.headers);
+  if (!token) throw new ApiError(401, 'Your session has ended. Please sign in again.');
   if (token) {
     headers.set('Authorization', `Bearer ${token}`);
   }
@@ -35,7 +50,7 @@ export async function fetchWithAuth(
     headers.set('Content-Type', 'application/json');
   }
 
-  let response = await fetch(`${API_BASE_URL}${url}`, {
+  let response = await boundedFetch(`${API_BASE_URL}${url}`, {
     ...options,
     headers
   });
@@ -47,12 +62,22 @@ export async function fetchWithAuth(
     if (freshToken && freshToken !== token) {
       const retryHeaders = new Headers(headers);
       retryHeaders.set('Authorization', `Bearer ${freshToken}`);
-      response = await fetch(`${API_BASE_URL}${url}`, {
+      response = await boundedFetch(`${API_BASE_URL}${url}`, {
         ...options,
         headers: retryHeaders,
       });
     }
   }
+
+  return response;
+}
+
+export async function fetchWithAuth(
+  url: string,
+  options: RequestInit = {},
+  getToken: (options?: { skipCache?: boolean }) => Promise<string | null>
+) {
+  const response = await authenticatedFetch(url, options, getToken);
 
   if (!response.ok) {
     let errorDetail = 'An unexpected API error occurred';

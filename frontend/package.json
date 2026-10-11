@@ -6,9 +6,13 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "build:production": "tsc && vite build --mode launch",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "test:e2e": "playwright test",
     "preview": "vite preview"
+  },
+  "engines": {
+    "node": ">=22.12.0 <25"
   },
   "dependencies": {
     "@clerk/clerk-react": "^5.0.0",

@@ -26,6 +26,7 @@ class AuditLogItem(BaseModel):
     row_id: int
     old_value: Optional[Dict[str, Any]]
     new_value: Optional[Dict[str, Any]]
+    forensic_before_value: Optional[Dict[str, Any]] = None
     severity: str        # INFO | WARNING | CRITICAL
     entry_hash: str
     previous_hash: str
@@ -49,6 +50,8 @@ class VerificationResult(BaseModel):
     tampered_sequence_id: Optional[int]
     details: str
     verification_checks: Dict[str, Literal["pass", "fail", "unknown"]] = Field(default_factory=dict)
+    checkpoint_signature_evidence: Optional[Dict[str, Any]] = None
+    deleted_entry_evidence: Optional[Dict[str, Any]] = None
 
 
 # ─── Suspicious Activity ───────────────────────────────────────────────────────
@@ -128,6 +131,7 @@ class ChainEntry(BaseModel):
     severity: str                       # low | medium | high | critical
     old_value: Optional[Dict[str, Any]] = None
     new_value: Optional[Dict[str, Any]] = None
+    forensic_before_value: Optional[Dict[str, Any]] = None
 
     model_config = {"from_attributes": True}
 
@@ -156,7 +160,7 @@ class AnchorInfo(BaseModel):
     """Response from GET /api/anchor/status."""
 
     status: str                         # ANCHORED | STALE | MISSING | MISMATCH | UNVERIFIED
-    anchor_store: str                   # local_file | github_repo
+    anchor_store: str                   # none | local_file | github_repo
     anchor_location: str
     last_anchored: Optional[datetime] = None
     anchor_hash: str
@@ -238,4 +242,6 @@ class MerkleProofResponse(BaseModel):
     audit_path_depth: int
     audit_path: List[MerkleAuditStep]
     created_at: Optional[str] = None
+    retrospective: bool = False
+    retrospective_attested_at: Optional[str] = None
 

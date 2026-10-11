@@ -166,7 +166,7 @@ async def test_blind_search_fails_closed_without_unique_audit_salt(
     from types import SimpleNamespace
     from unittest.mock import patch
 
-    with patch("api.routers.audits.get_settings", return_value=SimpleNamespace(AUDIT_SALT="short")):
+    with patch("api.routers.audits.get_settings", return_value=SimpleNamespace(AUDIT_SALT="short", APP_ENV="development")):
         response = await client_auditor.get("/api/audit-logs?national_id_search=123-45-6789")
 
     assert response.status_code == 503

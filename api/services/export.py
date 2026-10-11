@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from fastapi import HTTPException
 
 from ..models.audit_log import AuditLog
 from ..models.user import User
@@ -32,6 +33,10 @@ def get_or_create_signing_key():
     """Resolve or generate an Ed25519 signing keypair for audit evidence export."""
     settings = get_settings()
     configured_path = Path(settings.SIGNING_PRIVATE_KEY_PATH)
+    if settings.APP_ENV != "development":
+        # Never silently switch trust identities or create ephemeral signing
+        # material after a missing mount or a corrupt production key.
+        return load_private_key(str(configured_path))
     default_path = Path(get_default_key_dir()) / "signing_key.pem"
 
     for candidate in [configured_path, default_path]:
@@ -68,11 +73,13 @@ async def generate_signed_evidence_export(session: AsyncSession) -> dict:
             AuditLog.created_at,
         )
         .outerjoin(User, AuditLog.actor_user_id == User.user_id)
-        .order_by(AuditLog.sequence_id.asc())
+        .order_by(AuditLog.sequence_id.asc()).limit(50001)
     )
     
     result = await session.execute(query)
     rows = result.all()
+    if len(rows) > 50000:
+        raise HTTPException(status_code=413, detail="This ledger is too large for an interactive export. Use the offline evidence export tools.")
     
     logs = []
     for row in rows:
@@ -147,10 +154,12 @@ async def generate_evidence_bundle(session: AsyncSession) -> bytes:
             AuditLog.previous_hash,
             cast(AuditLog.created_at, Text).label("created_at_text"),
         )
-        .order_by(AuditLog.sequence_id.asc())
+        .order_by(AuditLog.sequence_id.asc()).limit(50001)
     )
     result = await session.execute(query)
     rows = result.all()
+    if len(rows) > 50000:
+        raise HTTPException(status_code=413, detail="This ledger is too large for an interactive export. Use the offline evidence export tools.")
 
     events_lines = []
     tail_hash = "0" * 64

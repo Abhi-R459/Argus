@@ -8,6 +8,7 @@ import {
 import { runVerification, type VerificationResult } from '../../services/auditService';
 import RefreshButton from '../common/RefreshButton';
 import { Button } from '../common/Button';
+import CheckpointSignatureEvidence from './CheckpointSignatureEvidence';
 
 interface VerificationControlProps {
   onResult?: (result: VerificationResult) => void;
@@ -278,6 +279,9 @@ export default function VerificationControl({ onResult }: VerificationControlPro
                 })}
               </div>
             </div>
+            {lastResult.checkpoint_signature_evidence && (
+              <CheckpointSignatureEvidence evidence={lastResult.checkpoint_signature_evidence} />
+            )}
           </div>
         )}
       </div>

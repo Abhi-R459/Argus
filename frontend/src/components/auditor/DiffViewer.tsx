@@ -7,6 +7,7 @@ interface DiffField {
   newVal: unknown;
   changed: boolean;
   isAnomalous?: boolean;
+  changeType?: 'Added' | 'Removed' | 'Changed';
 }
 
 interface DiffViewerProps {
@@ -20,6 +21,8 @@ interface DiffViewerProps {
   tamperDetails?: string | null;
   /** Sequence ID of the block */
   sequenceId?: number;
+  /** oldValue is the original stored payload captured before a local attack. */
+  forensicComparison?: boolean;
 }
 
 function renderValue(val: unknown): string {
@@ -45,6 +48,7 @@ export default function DiffViewer({
   isTampered = false,
   tamperDetails,
   sequenceId,
+  forensicComparison = false,
 }: DiffViewerProps) {
   const allKeys = Array.from(
     new Set([
@@ -57,17 +61,23 @@ export default function DiffViewer({
     const ov = oldValue?.[key];
     const nv = newValue?.[key];
     const anomalous = isAnomalousKey(key);
+    const changed = JSON.stringify(ov) !== JSON.stringify(nv);
     return {
       key,
       oldVal: ov,
       newVal: nv,
-      changed: JSON.stringify(ov) !== JSON.stringify(nv) || anomalous,
+      changed,
       isAnomalous: anomalous,
+      changeType: ov === undefined ? 'Added' : nv === undefined ? 'Removed' : 'Changed',
     };
   });
 
-  const anomalousFields = fields.filter((f) => f.isAnomalous);
+  const anomalousFields = fields.filter((f) => f.isAnomalous && (!forensicComparison || f.changed));
+  const displayedFields = forensicComparison ? fields.filter((field) => field.changed) : fields;
   const changedCount = fields.filter((f) => f.changed).length;
+  const addedCount = fields.filter((f) => f.changed && f.changeType === 'Added').length;
+  const removedCount = fields.filter((f) => f.changed && f.changeType === 'Removed').length;
+  const modifiedCount = fields.filter((f) => f.changed && f.changeType === 'Changed').length;
   const showTamperAlert = isTampered || anomalousFields.length > 0;
 
   if (allKeys.length === 0) {
@@ -120,7 +130,7 @@ export default function DiffViewer({
                 : 'Cryptographic hash chain or anchor store mismatch detected on this block.')}
           </p>
 
-          {anomalousFields.length > 0 && (
+          {anomalousFields.length > 0 && !forensicComparison && (
             <div className="pt-2 border-t border-red-500/20">
               <div className="flex items-center space-x-1.5 text-[10px] uppercase tracking-wider font-semibold text-red-300 mb-1.5">
                 <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
@@ -145,7 +155,9 @@ export default function DiffViewer({
       {/* Header */}
       <div className="flex items-center justify-between mb-1">
         <span className="text-[10px] uppercase tracking-wider font-semibold text-linear-ink-muted">
-          {operation === 'INSERT'
+          {forensicComparison
+            ? `${changedCount} payload field${changedCount === 1 ? '' : 's'} changed`
+            : operation === 'INSERT'
             ? 'New record'
             : operation === 'DELETE'
             ? 'Deleted record'
@@ -155,20 +167,42 @@ export default function DiffViewer({
           {oldValue !== null && (
             <span className="flex items-center space-x-1">
               <span className="w-2 h-2 rounded-sm bg-status-warning/30 border border-status-warning/60" />
-              <span className="text-linear-ink-muted">Before</span>
+              <span className="text-linear-ink-muted">{forensicComparison ? 'Before attack' : 'Before'}</span>
             </span>
           )}
           {newValue !== null && (
             <span className="flex items-center space-x-1">
               <span className="w-2 h-2 rounded-sm bg-linear-success/30 border border-linear-success/60" />
-              <span className="text-linear-ink-muted">After</span>
+              <span className="text-linear-ink-muted">{forensicComparison ? 'After attack' : 'After'}</span>
             </span>
           )}
         </div>
       </div>
 
+      {!forensicComparison && operation === 'INSERT' && (
+        <p className="text-[11px] text-linear-ink-muted">
+          No prior row exists for this INSERT event. The before/after attack comparison appears on the exact row captured by an active local attack snapshot.
+        </p>
+      )}
+
+      {forensicComparison && changedCount > 0 && (
+        <p className="text-[11px] text-linear-ink-muted">
+          {addedCount > 0 && `${addedCount} added`}
+          {addedCount > 0 && (removedCount > 0 || modifiedCount > 0) ? ' · ' : ''}
+          {removedCount > 0 && `${removedCount} removed`}
+          {removedCount > 0 && modifiedCount > 0 ? ' · ' : ''}
+          {modifiedCount > 0 && `${modifiedCount} existing value${modifiedCount === 1 ? '' : 's'} modified`}
+          {modifiedCount === 0 && ' · No existing values were modified.'}
+          {' '}Unchanged fields are omitted.
+        </p>
+      )}
+
       {/* Table */}
-      <div className="overflow-x-auto rounded-lg border border-linear-hairline bg-linear-surface-1">
+      {forensicComparison && changedCount === 0 ? (
+        <div className="rounded-lg border border-linear-hairline bg-linear-surface-1 p-4 text-xs text-linear-ink-muted">
+          The saved before-attack payload and stored payload have no field-level differences.
+        </div>
+      ) : <div className="overflow-x-auto rounded-lg border border-linear-hairline bg-linear-surface-1">
         <table className="min-w-full text-xs font-mono">
           <thead>
             <tr className="border-b border-linear-hairline bg-linear-surface-2/60">
@@ -177,18 +211,18 @@ export default function DiffViewer({
               </th>
               {oldValue !== null && (
                 <th className="py-1.5 px-3 text-left text-[10px] uppercase tracking-wider text-status-warning/80 font-semibold">
-                  Before
+                  {forensicComparison ? 'Before attack' : 'Before'}
                 </th>
               )}
               {newValue !== null && (
                 <th className="py-1.5 px-3 text-left text-[10px] uppercase tracking-wider text-linear-success/80 font-semibold">
-                  After
+                  {forensicComparison ? 'After attack' : 'After'}
                 </th>
               )}
             </tr>
           </thead>
           <tbody>
-            {fields.map((field) => {
+            {displayedFields.map((field) => {
               const isFieldAnomalous = field.isAnomalous;
               return (
                 <tr
@@ -215,6 +249,17 @@ export default function DiffViewer({
                       >
                         {field.key}
                       </span>
+                      {forensicComparison && field.changeType && (
+                        <span className={`text-[9px] uppercase font-mono px-1 py-0.5 rounded border ${
+                          field.changeType === 'Added'
+                            ? 'text-emerald-300 bg-emerald-500/10 border-emerald-500/30'
+                            : field.changeType === 'Removed'
+                            ? 'text-amber-300 bg-amber-500/10 border-amber-500/30'
+                            : 'text-sky-300 bg-sky-500/10 border-sky-500/30'
+                        }`}>
+                          {field.changeType}
+                        </span>
+                      )}
                       {isFieldAnomalous && (
                         <span className="text-[9px] uppercase font-mono px-1 py-0.5 rounded bg-red-500/20 text-red-300 border border-red-500/40 font-semibold ml-1">
                           Injected Field
@@ -233,7 +278,7 @@ export default function DiffViewer({
                             : 'text-linear-ink-muted'
                         }
                       >
-                        {renderValue(field.oldVal)}
+                        {forensicComparison && field.changeType === 'Added' ? '— (not present)' : renderValue(field.oldVal)}
                       </span>
                     </td>
                   )}
@@ -248,7 +293,7 @@ export default function DiffViewer({
                             : 'text-linear-ink-muted'
                         }
                       >
-                        {renderValue(field.newVal)}
+                        {forensicComparison && field.changeType === 'Removed' ? '— (removed)' : renderValue(field.newVal)}
                       </span>
                     </td>
                   )}
@@ -258,6 +303,7 @@ export default function DiffViewer({
           </tbody>
         </table>
       </div>
+      }
     </div>
   );
 }

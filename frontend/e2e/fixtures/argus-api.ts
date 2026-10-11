@@ -155,6 +155,16 @@ export async function mockArgusApi(page: Page): Promise<void> {
       case '/audit-logs/chain':
         response = chainEntries;
         break;
+      case '/audit-logs':
+        response = {
+          items: [{ sequence_id: 142, table_name: 'salary_history', row_id: 1001,
+            employee_id: 1001, action: 'UPDATE', actor_user_id: 101,
+            actor_email: 'hr@example.test', actor_name: 'HR Operator', actor_role: 'hr_admin', severity: 'INFO',
+            old_value: { amount: 800000 }, new_value: { amount: 900000 },
+            created_at: isoDaysAgo(2), previous_hash: 'a'.repeat(64), entry_hash: 'b'.repeat(64) }],
+          total: 1, page: 1, pages: 1,
+        };
+        break;
       case '/suspicious-activity':
         response = suspiciousFlags;
         break;

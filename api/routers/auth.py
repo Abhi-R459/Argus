@@ -1,12 +1,15 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.exc import IntegrityError
 
 from ..middleware.clerk import verify_clerk_token
 from ..database import get_session_factory
 from ..models.user import User
 from ..schemas.user import UserSyncResponse
 from ..config import get_settings
+from ..services.request_budget import consume_request_budget
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -23,8 +26,11 @@ async def sync_user(
     are never used to grant a role.
     """
     clerk_user_id = token_payload.get("sub")
-    email = token_payload.get("email", "")
-    full_name = token_payload.get("name", token_payload.get("first_name", ""))
+    email = token_payload.get("email", "") or ""
+    full_name = token_payload.get("name", token_payload.get("first_name", "")) or ""
+    if not isinstance(email, str) or not isinstance(full_name, str) or len(email) > 255 or len(full_name) > 255:
+        raise HTTPException(status_code=400, detail="Invalid account profile claims.")
+    email = email.strip().lower()
     
     if not clerk_user_id:
         raise HTTPException(
@@ -71,16 +77,23 @@ async def sync_user(
                     detail="This account has not been provisioned for Argus. Contact an administrator.",
                 )
 
-            user = User(
+            statement = insert(User).values(
                 clerk_user_id=clerk_user_id,
                 full_name=full_name or "Unknown",
-                email=email or f"{clerk_user_id}@placeholder.com",
+                email=normalized_email,
                 role=assigned_role,
                 is_active=True,
-            )
-            session.add(user)
-            await session.commit()
-            await session.refresh(user)
+            ).on_conflict_do_nothing(index_elements=[User.clerk_user_id])
+            try:
+                await session.execute(statement)
+                await session.commit()
+            except IntegrityError as exc:
+                await session.rollback()
+                raise HTTPException(status_code=409, detail="This email is already linked to another account. Contact an administrator.") from exc
+            result = await session.execute(select(User).where(User.clerk_user_id == clerk_user_id))
+            user = result.scalar_one()
+            if not user.is_active:
+                raise HTTPException(status_code=401, detail="User account is deactivated.")
         elif not user.is_active:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -92,13 +105,18 @@ async def sync_user(
             if full_name and user.full_name != full_name:
                 user.full_name = full_name
                 updated = True
-            if email and user.email != email:
+            if email and token_payload.get("email_verified") is True and user.email != email:
                 user.email = email
                 updated = True
             if updated:
-                await session.commit()
+                try:
+                    await session.commit()
+                except IntegrityError as exc:
+                    await session.rollback()
+                    raise HTTPException(status_code=409, detail="This email is already linked to another account. Contact an administrator.") from exc
                 await session.refresh(user)
     
+    await consume_request_budget(user)
     return user
 
 
@@ -119,10 +137,13 @@ async def get_my_profile(
             select(User).where(User.clerk_user_id == clerk_user_id)
         )
         user = result.scalar_one_or_none()
-        if user is None:
-            # Sync user if not yet created in db
-            return await sync_user(token_payload)
-        return user
+    # Release this connection before synchronization or budgeting uses the pool.
+    if user is None:
+        return await sync_user(token_payload)
+    if not user.is_active:
+        raise HTTPException(status_code=401, detail="User account is deactivated.")
+    await consume_request_budget(user)
+    return user
 
 
 @router.post("/role", response_model=UserSyncResponse)

@@ -111,7 +111,8 @@ async def test_export_signature_cryptographic_verification(client_auditor: Async
     from unittest.mock import MagicMock
     from pathlib import Path
     from db.cli.signer import verify_signature
-    from db.cli.keygen import load_public_key, get_default_key_dir
+    from api.config import get_settings
+    from db.cli.keygen import load_private_key
 
     mock_result = MagicMock()
     mock_result.all.return_value = []
@@ -126,13 +127,8 @@ async def test_export_signature_cryptographic_verification(client_auditor: Async
     payload_hash = meta["payload_hash"]
     sig_bytes = bytes.fromhex(meta["signature"])
 
-    pub_key_path = Path("keys/public_key.pem")
-    if not pub_key_path.is_file():
-        pub_key_path = Path(get_default_key_dir()) / "public_key.pem"
-    if pub_key_path.is_file():
-        pub_key = load_public_key(str(pub_key_path))
-        is_valid = verify_signature(pub_key, payload_hash, sig_bytes)
-        assert is_valid is True
+    public_key = load_private_key(get_settings().SIGNING_PRIVATE_KEY_PATH).public_key()
+    assert verify_signature(public_key, payload_hash, sig_bytes) is True
 
 
 @pytest.mark.asyncio

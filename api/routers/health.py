@@ -22,7 +22,14 @@ async def readiness_check():
         for role in ("hr_admin", "compliance_auditor"):
             session_factory = get_session_factory(role)
             async with session_factory() as session:
-                await session.execute(text("SELECT 1"))
+                result = await session.execute(text("""
+                    SELECT current_user = :role AND NOT rolsuper AND NOT rolbypassrls
+                      AND to_regprocedure('argus_private.consume_request_budget(integer,text,integer)') IS NOT NULL
+                      AND to_regprocedure('argus_private.lock_checkpoint_boundary()') IS NOT NULL
+                    FROM pg_roles WHERE rolname = current_user
+                """), {"role": role})
+                if not result.scalar_one():
+                    raise RuntimeError("Runtime role or required schema is not ready")
         return {"status": "ready"}
     except Exception as exc:
         logger.warning("API readiness check failed: %s", type(exc).__name__)

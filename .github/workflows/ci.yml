@@ -2,18 +2,25 @@ name: Argus CI
 
 on:
   push:
-    branches: [ "main", "feature/*" ]
+    branches: [ "main", "feature/*", "codex/**" ]
   pull_request:
     branches: [ "main" ]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: argus-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test-backend:
     runs-on: ubuntu-latest
     services:
       db:
-        image: postgres:15-alpine
+        image: postgres:17-alpine
         env:
-          POSTGRES_DB: argus
+          POSTGRES_DB: argus_test
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: password
         ports:
@@ -41,11 +48,17 @@ jobs:
         cd api
         pip-audit -r requirements.lock
     - name: Run Pytest
-      env:
-        DATABASE_URL: postgresql+asyncpg://postgres:password@localhost:5432/argus
       run: |
-        cd api
-        pytest
+        python -m pytest api/tests -q
+        python -m pytest db/tests -q
+    - name: Check fresh migrations and database security
+      env:
+        ARGUS_TEST_DATABASE_URL: postgresql://postgres:password@localhost:5432/argus_test
+        ARGUS_TEST_DATABASE_NAME: argus_test
+        ARGUS_ENABLE_DESTRUCTIVE_TESTS: I_CONFIRM_DISPOSABLE_DATABASE
+        DATABASE_URL_HR_ADMIN: postgresql+asyncpg://hr_admin:hr-test-only@localhost:5432/argus_test
+        DATABASE_URL_COMPLIANCE_AUDITOR: postgresql+asyncpg://compliance_auditor:audit-test-only@localhost:5432/argus_test
+      run: python scripts/run_launch_checks.py
 
   test-frontend:
     runs-on: ubuntu-latest
@@ -54,7 +67,7 @@ jobs:
     - name: Use Node.js
       uses: actions/setup-node@v4
       with:
-        node-version: '20'
+        node-version: '22'
     - name: Install frontend dependencies
       run: |
         cd frontend
@@ -63,11 +76,20 @@ jobs:
       run: |
         cd frontend
         npm audit --audit-level=high
+    - name: Lint and build frontend
+      working-directory: frontend
+      env:
+        VITE_CLERK_PUBLISHABLE_KEY: pk_test_Y2xlcmsuZXhhbXBsZS50ZXN0JA
+      run: |
+        npm run lint
+        npm run build
     - name: Install Playwright Browsers
       run: |
         cd frontend
         npx playwright install --with-deps
     - name: Run Playwright Tests
+      env:
+        VITE_CLERK_PUBLISHABLE_KEY: pk_test_Y2xlcmsuZXhhbXBsZS50ZXN0JA
       run: |
         cd frontend
         npx playwright test

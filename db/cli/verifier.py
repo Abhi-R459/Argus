@@ -30,7 +30,9 @@ import logging
 import os
 import sys
 import time
+from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 # Ensure environment variables from .env are loaded for all processes (including workers)
 try:
@@ -627,7 +629,9 @@ def _cmd_auto_checkpoint(args: argparse.Namespace) -> int:
                     from db.cli.anchor_store import get_anchor_store
                     anchor_cfg = {"type": getattr(args, "anchor_type", "local")}
                     if anchor_cfg["type"] == "local":
-                        anchor_cfg["path"] = getattr(args, "anchor_path", "./anchors")
+                        anchor_cfg["path"] = _configured_anchor_directory(
+                            getattr(args, "anchor_path", None)
+                        )
                     anchor_store = get_anchor_store(anchor_cfg)
                     payload = json.dumps({
                         "checkpoint_id": res["checkpoint_id"],
@@ -885,14 +889,36 @@ def _cmd_anchor(args: argparse.Namespace) -> int:
 
         # Optionally verify signature before anchoring
         if args.verify_sig:
-            pub_path = args.public_key_path or (
-                "keys/public_key.pem"
-                if os.path.exists("keys/public_key.pem")
-                else os.path.join(get_default_key_dir(), "public_key.pem")
-            )
-            pub_key = load_public_key(pub_path)
+            key_id = checkpoint.get("key_id")
+            if args.public_key_path:
+                pub_path = Path(args.public_key_path)
+            else:
+                key_directory = Path(
+                    os.environ.get("CHECKPOINT_PUBLIC_KEYS_DIR", "keys")
+                )
+                candidates = (
+                    [key_directory / f"{quote(str(key_id), safe='')}.pem"]
+                    if key_id
+                    else []
+                )
+                candidates.extend(
+                    [
+                        key_directory / "public_key.pem",
+                        Path("keys/public_key.pem"),
+                        Path(get_default_key_dir()) / "public_key.pem",
+                    ]
+                )
+                pub_path = next(
+                    (candidate for candidate in candidates if candidate.is_file()),
+                    candidates[0],
+                )
+            pub_key = load_public_key(str(pub_path))
             if not verify_signature(
-                pub_key, checkpoint["checkpoint_hash"], sig
+                pub_key,
+                checkpoint["checkpoint_hash"],
+                sig,
+                key_id=key_id,
+                merkle_root=checkpoint.get("merkle_root"),
             ):
                 logger.error("Signature verification failed — aborting anchor.")
                 return 1
@@ -901,7 +927,7 @@ def _cmd_anchor(args: argparse.Namespace) -> int:
         # Build anchor store config
         config: dict[str, Any] = {"type": args.type}
         if args.type == "local":
-            config["path"] = args.path or "./anchors"
+            config["path"] = _configured_anchor_directory(args.path)
         elif args.type == "github":
             config["repo"] = args.repo
             config["token"] = args.token or os.environ.get("GITHUB_TOKEN", "")
@@ -938,6 +964,21 @@ def _cmd_anchor(args: argparse.Namespace) -> int:
         return 1
     finally:
         conn.close()
+
+
+def _configured_anchor_directory(path: str | None = None) -> str:
+    """Resolve a local anchor directory from CLI input or application config.
+
+    ``ANCHOR_FILE_PATH`` has historically held a filename while the local
+    anchor store writes one JSON file per checkpoint into its parent directory.
+    An explicit CLI path always takes precedence.
+    """
+    configured_path = Path(
+        path or os.environ.get("ANCHOR_FILE_PATH", "./anchor/chain_anchor.log")
+    )
+    if path is None and configured_path.suffix:
+        configured_path = configured_path.parent
+    return str(configured_path)
 
 
 def _cmd_backup(args: argparse.Namespace) -> int:
@@ -1263,8 +1304,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_auto.add_argument(
         "--anchor-path",
-        default="./anchors",
-        help="Directory path for local anchor store (default: ./anchors)",
+        default=None,
+        help="Directory path for local anchor store (defaults to configured ANCHOR_FILE_PATH)",
     )
     p_auto.add_argument(
         "--key-id",
@@ -1314,7 +1355,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_anchor.add_argument(
         "--path",
         default=None,
-        help="Base directory for local anchor store (default: ./anchors)",
+        help="Base directory for local anchor store (defaults to configured ANCHOR_FILE_PATH)",
     )
     p_anchor.add_argument(
         "--repo",

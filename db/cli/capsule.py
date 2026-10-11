@@ -16,6 +16,7 @@ Bundle Structure (.arguscap - ZIP archive):
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
 import io
 import json
 import logging
@@ -29,6 +30,8 @@ import psycopg2
 import psycopg2.extras
 
 from db.cli.merkle_tree import ArgusMerkleTree, canonical_json_serialize
+from db.cli.checkpoint_store import compute_checkpoint_hash
+from db.cli.hash_verifier import verify_chain
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +57,11 @@ class UncheckpointedTailError(CapsuleError, ValueError):
 
 class PreMerkleCheckpointError(CapsuleError, ValueError):
     """Raised when the checkpoint covering sequence_id lacks a Merkle root."""
+    pass
+
+
+class RetrospectiveAttestationError(CapsuleError, ValueError):
+    """Raised when current ledger state cannot safely be attested for a legacy checkpoint."""
     pass
 
 
@@ -102,6 +110,8 @@ def generate_capsule(
     seq_id: int,
     output_path: Optional[Union[str, Path]] = None,
     public_key_pem: Optional[str] = None,
+    retrospective_signer: Any | None = None,
+    public_keys_dir: Optional[Union[str, Path]] = None,
 ) -> bytes:
     """Generate a self-contained .arguscap Merkle evidence capsule for a single record.
 
@@ -110,6 +120,8 @@ def generate_capsule(
         seq_id: The target sequence_id to encapsulate.
         output_path: Optional file path to write the .arguscap file to.
         public_key_pem: Optional explicit public key PEM string.
+        retrospective_signer: Optional local/demo signer used only to issue a
+            clearly labeled, newly signed attestation for a legacy checkpoint.
 
     Returns:
         bytes: Raw bytes of the generated .arguscap ZIP archive.
@@ -168,7 +180,8 @@ def generate_capsule(
         )
 
     cp_dict = dict(cp_row)
-    if cp_dict.get("merkle_root") is None:
+    is_retrospective = cp_dict.get("merkle_root") is None
+    if is_retrospective and retrospective_signer is None:
         raise PreMerkleCheckpointError(
             f"Checkpoint #{cp_dict.get('checkpoint_id')} for sequence ID {seq_id} "
             "is pre-Merkle (merkle_root is null)."
@@ -204,18 +217,75 @@ def generate_capsule(
     for r in interval_rows:
         rows.append(dict(r))
 
-    # 5. Build Merkle tree and generate proof for seq_id
+    # 5. Legacy checkpoints need a separately signed, current-time attestation.
+    # Never retrofit their original checkpoint row or claim the derived root
+    # was present when that checkpoint was first signed.
+    retrospective_payload = None
+    retrospective_signature_hex = None
+    if is_retrospective:
+        verification = verify_chain(conn, end_seq=int(target_cp_seq))
+        if not verification.is_valid or verification.last_sequence_id != int(target_cp_seq):
+            raise RetrospectiveAttestationError(
+                "The audit chain through this legacy checkpoint is not intact; no retrospective proof was issued."
+            )
+
+        computed_checkpoint_hash = compute_checkpoint_hash(
+            [str(row["entry_hash"]) for row in rows]
+        )
+        if computed_checkpoint_hash != str(cp_dict["checkpoint_hash"]):
+            raise RetrospectiveAttestationError(
+                "The legacy checkpoint hash does not match its current audit interval; no retrospective proof was issued."
+            )
+
+        original_signature = cp_dict.get("signature")
+        if isinstance(original_signature, memoryview):
+            original_signature = original_signature.tobytes()
+        if not isinstance(original_signature, (bytes, bytearray)) or not retrospective_signer.verify(
+            str(cp_dict["checkpoint_hash"]).encode("utf-8"), bytes(original_signature)
+        ):
+            raise RetrospectiveAttestationError(
+                "The original legacy checkpoint signature could not be verified with the configured signer; no retrospective proof was issued."
+            )
+
+    # 6. Build Merkle tree and generate proof for seq_id
     tree = ArgusMerkleTree.build(rows)
     proof = tree.generate_proof(seq_id)
 
-    # 6. Read standalone verifier code
+    if is_retrospective:
+        retrospective_payload = {
+            "attestation_type": "ARGUS_RETROSPECTIVE_MERKLE_ATTESTATION",
+            "version": 1,
+            "checkpoint_id": int(cp_dict["checkpoint_id"]),
+            "checkpoint_hash": str(cp_dict["checkpoint_hash"]),
+            "checkpoint_created_at": (
+                cp_dict["created_at"].isoformat()
+                if hasattr(cp_dict.get("created_at"), "isoformat")
+                else str(cp_dict.get("created_at", ""))
+            ),
+            "start_sequence_id": int(prev_cp_seq) + 1,
+            "end_sequence_id": int(target_cp_seq),
+            "merkle_root": tree.root,
+            "merkle_leaf_count": tree.leaf_count,
+            "issued_at": datetime.now(timezone.utc).isoformat(),
+            "key_id": retrospective_signer.key_id,
+            "chain_verified_through_sequence_id": int(target_cp_seq),
+            "checkpoint_hash_matches_current_interval": True,
+            "original_checkpoint_signature_verified": True,
+        }
+        signed_payload = (
+            b"ARGUS_RETROSPECTIVE_MERKLE_ATTESTATION_V1\n"
+            + canonical_json_serialize(retrospective_payload).encode("utf-8")
+        )
+        retrospective_signature_hex = retrospective_signer.sign(signed_payload).hex()
+
+    # 7. Read standalone verifier code
     verifier_path = Path(__file__).resolve().parent / "verify_capsule.py"
     if verifier_path.is_file():
         verifier_content = verifier_path.read_text(encoding="utf-8")
     else:
         verifier_content = "# Argus Standalone Capsule Verifier\n"
 
-    # 7. Format signature hex
+    # 8. Format signature hex
     raw_sig = cp_dict.get("signature")
     if isinstance(raw_sig, memoryview):
         raw_sig = raw_sig.tobytes()
@@ -226,8 +296,10 @@ def generate_capsule(
         "start_sequence_id": prev_cp_seq + 1,
         "end_sequence_id": cp_dict["sequence_id"],
         "checkpoint_hash": cp_dict["checkpoint_hash"],
-        "merkle_root": cp_dict["merkle_root"],
-        "merkle_leaf_count": cp_dict.get("merkle_leaf_count", len(rows)),
+        "merkle_root": cp_dict.get("merkle_root"),
+        "merkle_leaf_count": (
+            tree.leaf_count if is_retrospective else cp_dict.get("merkle_leaf_count", len(rows))
+        ),
         "key_id": cp_dict.get("key_id", "local:ed25519:v1"),
         "signature_hex": sig_hex,
         "created_at": (
@@ -236,11 +308,28 @@ def generate_capsule(
             else str(cp_dict.get("created_at", ""))
         ),
     }
+    if is_retrospective:
+        checkpoint_payload["retrospective_merkle_root"] = tree.root
+        checkpoint_payload["retrospective_attestation_issued_at"] = retrospective_payload["issued_at"]
 
-    # 8. Resolve public key PEM
-    active_pub_pem = public_key_pem or resolve_public_key_pem()
+    # 9. Resolve the public key that verifies the retrospective statement.
+    if public_key_pem:
+        active_pub_pem = public_key_pem
+    elif is_retrospective:
+        from cryptography.hazmat.primitives import serialization
+        active_pub_pem = retrospective_signer.get_public_key().public_bytes(
+            serialization.Encoding.PEM,
+            serialization.PublicFormat.SubjectPublicKeyInfo,
+        ).decode("utf-8")
+    elif public_keys_dir is not None:
+        from urllib.parse import quote
+        key_id = cp_dict.get('key_id')
+        filename = 'public_key.pem' if not key_id or key_id == 'local:ed25519:v1' else f'{quote(str(key_id), safe="")}.pem'
+        active_pub_pem = (Path(public_keys_dir) / filename).read_text(encoding='utf-8')
+    else:
+        active_pub_pem = resolve_public_key_pem()
 
-    # 9. Build .arguscap ZIP archive
+    # 10. Build .arguscap ZIP archive
     zip_buffer = io.BytesIO()
     with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
         zf.writestr(
@@ -255,6 +344,17 @@ def generate_capsule(
             "checkpoint.json",
             json.dumps(checkpoint_payload, indent=2),
         )
+        if is_retrospective:
+            zf.writestr(
+                "retrospective_attestation.json",
+                json.dumps(
+                    {
+                        "payload": retrospective_payload,
+                        "signature_hex": retrospective_signature_hex,
+                    },
+                    indent=2,
+                ),
+            )
         zf.writestr(
             "public_key.pem",
             active_pub_pem,

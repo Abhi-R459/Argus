@@ -1,5 +1,6 @@
-# Isolated laptop demo overlay. It deliberately overrides hosted database URLs
-# and binds the stack to loopback-only alternate ports.
+# Legacy overlay for the retired argus-demo Compose project. The local
+# walkthrough now uses docker-compose.yml with .env.local, host Uvicorn, and
+# Vite on localhost:5173. Keep this file only for recovering the old setup.
 services:
   api:
     environment:

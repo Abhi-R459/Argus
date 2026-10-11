@@ -287,6 +287,12 @@ def verify_capsule(
         merkle_proof = reader.read_json("merkle_proof.json")
         checkpoint = reader.read_json("checkpoint.json")
         public_key_pem = reader.read_text("public_key.pem")
+        is_retrospective = reader.has_file("retrospective_attestation.json")
+        retrospective_attestation = (
+            reader.read_json("retrospective_attestation.json")
+            if is_retrospective
+            else None
+        )
 
         details: Dict[str, Any] = {
             "sequence_id": evidence_row.get("sequence_id"),
@@ -309,12 +315,10 @@ def verify_capsule(
         if isinstance(trusted_public_key_pem, bytes):
             trusted_public_key_pem = trusted_public_key_pem.decode("utf-8")
 
-        # 2. Checkpoint signature verification
+        # 2. Verify either the original signed Merkle checkpoint or, for a
+        # legacy checkpoint, its separately signed retrospective attestation.
         checkpoint_hash = checkpoint.get("checkpoint_hash", "")
         merkle_root = checkpoint.get("merkle_root")
-        if not merkle_root:
-            return False, "Checkpoint does not contain a Merkle root (pre-Merkle era).", details
-
         sig_hex = checkpoint.get("signature_hex", "")
         if not sig_hex:
             return False, "Checkpoint signature is missing from capsule metadata.", details
@@ -324,15 +328,73 @@ def verify_capsule(
         except ValueError:
             return False, "Malformed signature hex string in checkpoint metadata.", details
 
-        # Try post-Merkle bound payload first, fallback to legacy checkpoint_hash
-        bound_payload = f"{checkpoint_hash}:{merkle_root}".encode("utf-8")
-        # Merkle-bearing checkpoints must be signed over both the checkpoint
-        # digest and root, using a key trusted outside the archive.
-        sig_ok = verify_signature(trusted_public_key_pem, bound_payload, sig_bytes)
+        expected_root = merkle_root
+        attestation_issued_at = None
+        if is_retrospective:
+            attestation_payload = retrospective_attestation.get("payload", {})
+            attestation_sig_hex = retrospective_attestation.get("signature_hex", "")
+            try:
+                attestation_sig = bytes.fromhex(attestation_sig_hex)
+            except (TypeError, ValueError):
+                return False, "Malformed retrospective attestation signature.", details
 
-        details["signature_valid"] = sig_ok
-        if not sig_ok:
-            return False, "Checkpoint Ed25519 signature verification failed (tampered checkpoint).", details
+            # The old checkpoint signed only the chain digest. Verify that
+            # historical signature independently from the new Merkle claim.
+            original_signature_valid = verify_signature(
+                trusted_public_key_pem,
+                checkpoint_hash.encode("utf-8"),
+                sig_bytes,
+            )
+            details["signature_valid"] = original_signature_valid
+            details["original_checkpoint_signature_valid"] = original_signature_valid
+            if not original_signature_valid:
+                return False, "Legacy checkpoint signature verification failed.", details
+
+            expected_root = attestation_payload.get("merkle_root")
+            attestation_binding_valid = (
+                attestation_payload.get("attestation_type")
+                == "ARGUS_RETROSPECTIVE_MERKLE_ATTESTATION"
+                and attestation_payload.get("version") == 1
+                and attestation_payload.get("checkpoint_id") == checkpoint.get("checkpoint_id")
+                and attestation_payload.get("checkpoint_hash") == checkpoint_hash
+                and attestation_payload.get("start_sequence_id") == checkpoint.get("start_sequence_id")
+                and attestation_payload.get("end_sequence_id") == checkpoint.get("end_sequence_id")
+                and attestation_payload.get("merkle_root") == checkpoint.get("retrospective_merkle_root")
+                and attestation_payload.get("merkle_leaf_count") == checkpoint.get("merkle_leaf_count")
+                and attestation_payload.get("chain_verified_through_sequence_id")
+                == checkpoint.get("end_sequence_id")
+                and attestation_payload.get("checkpoint_hash_matches_current_interval") is True
+                and attestation_payload.get("original_checkpoint_signature_verified") is True
+                and checkpoint.get("merkle_root") is None
+            )
+            if not attestation_binding_valid:
+                details["retrospective_attestation_valid"] = False
+                return False, "Retrospective attestation does not match the legacy checkpoint metadata.", details
+
+            signed_attestation_payload = (
+                b"ARGUS_RETROSPECTIVE_MERKLE_ATTESTATION_V1\n"
+                + canonical_json_serialize(attestation_payload).encode("utf-8")
+            )
+            attestation_valid = verify_signature(
+                trusted_public_key_pem,
+                signed_attestation_payload,
+                attestation_sig,
+            )
+            details["retrospective_attestation_valid"] = attestation_valid
+            details["retrospective_attestation_issued_at"] = attestation_payload.get("issued_at")
+            details["expected_merkle_root"] = expected_root
+            if not attestation_valid:
+                return False, "Retrospective Merkle attestation signature verification failed.", details
+            attestation_issued_at = attestation_payload.get("issued_at")
+        else:
+            if not merkle_root:
+                return False, "Checkpoint does not contain a Merkle root (pre-Merkle era).", details
+
+            bound_payload = f"{checkpoint_hash}:{merkle_root}".encode("utf-8")
+            sig_ok = verify_signature(trusted_public_key_pem, bound_payload, sig_bytes)
+            details["signature_valid"] = sig_ok
+            if not sig_ok:
+                return False, "Checkpoint Ed25519 signature verification failed (tampered checkpoint).", details
 
         # 3. Leaf hash verification
         computed_leaf = compute_leaf_hash(evidence_row)
@@ -377,13 +439,14 @@ def verify_capsule(
             )
         details["path_valid"] = True
 
-        # 5. Root binding check: proof root vs checkpoint root
-        if merkle_proof.get("merkle_root") != checkpoint.get("merkle_root"):
+        # 5. Bind to the signed root in the original checkpoint or to the
+        # separately signed retrospective attestation for legacy checkpoints.
+        if merkle_proof.get("merkle_root") != expected_root:
             details["root_match"] = False
             return (
                 False,
                 f"Merkle proof root {merkle_proof.get('merkle_root')} does not match "
-                f"checkpoint root {checkpoint.get('merkle_root')}.",
+                f"trusted root {expected_root}.",
                 details,
             )
         details["root_match"] = True
@@ -392,7 +455,24 @@ def verify_capsule(
         seq_id = evidence_row.get("sequence_id")
         if seq_id != merkle_proof.get("sequence_id"):
             return False, "Evidence row sequence_id does not match proof sequence_id.", details
+        start_seq = checkpoint.get("start_sequence_id")
+        end_seq = checkpoint.get("end_sequence_id")
+        if (
+            not isinstance(start_seq, int)
+            or not isinstance(end_seq, int)
+            or not start_seq <= seq_id <= end_seq
+            or seq_id != start_seq + merkle_proof.get("leaf_index", -1)
+            or merkle_proof.get("tree_size") != checkpoint.get("merkle_leaf_count")
+        ):
+            return False, "Evidence sequence or Merkle leaf position is outside the attested checkpoint interval.", details
 
+        if is_retrospective:
+            details["retrospective"] = True
+            return (
+                True,
+                f"Retrospective verification SUCCESS: Sequence #{seq_id} matches the current audit interval for legacy Checkpoint #{checkpoint.get('checkpoint_id')} as attested at {attestation_issued_at}.",
+                details,
+            )
         return (
             True,
             f"Cryptographic verification SUCCESS: Sequence #{seq_id} is proven authentic "

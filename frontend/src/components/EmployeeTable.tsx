@@ -73,7 +73,7 @@ export default function EmployeeTable() {
   // Query departments for filtering
   const { data: departments = [] } = useQuery<DepartmentItem[]>({
     queryKey: ['departments'],
-    queryFn: () => fetchDepartments(() => getToken()),
+    queryFn: () => fetchDepartments(getToken),
     staleTime: 300000,
   });
 

@@ -4,6 +4,7 @@ import { ShieldCheck, Database, Key, User, Lock, CheckCircle2, Fingerprint } fro
 import { Button } from '../../components/common/Button';
 import PageHeader from '../../components/common/PageHeader';
 import { createCheckpointNow } from '../../services/auditService';
+import OrganizationSetup from '../../components/hr/OrganizationSetup';
 
 export default function HRSettings() {
   const { user } = useUser();
@@ -11,7 +12,7 @@ export default function HRSettings() {
   const { openUserProfile } = useClerk();
   const queryClient = useQueryClient();
   const checkpointMutation = useMutation({
-    mutationFn: () => createCheckpointNow(() => getToken()),
+    mutationFn: () => createCheckpointNow(getToken),
     onSuccess: async () => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['dashboardStats'] }),
@@ -29,6 +30,8 @@ export default function HRSettings() {
         portalTheme="hr"
       />
 
+      <OrganizationSetup />
+
       {/* Clerk Profile & Session Card */}
       <div className="bg-white rounded-2xl border border-slate-200/80 p-6 shadow-xs space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-slate-100">
@@ -43,7 +46,7 @@ export default function HRSettings() {
                   HR Admin
                 </span>
               </div>
-              <p className="text-xs text-slate-500 font-mono mt-0.5">{user?.primaryEmailAddress?.emailAddress || 'hr@argustech.com'}</p>
+              <p className="text-xs text-slate-500 font-mono mt-0.5">{user?.primaryEmailAddress?.emailAddress || 'Loading account…'}</p>
               <div className="mt-1.5 flex items-center space-x-2">
                 <span className="inline-flex items-center space-x-1 text-[11px] text-emerald-700 font-medium">
                   <CheckCircle2 className="w-3.5 h-3.5" />
@@ -68,7 +71,7 @@ export default function HRSettings() {
           <div className="bg-slate-50 p-4 rounded-xl border border-slate-200/80">
             <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Clerk User Identifier</span>
             <p className="font-mono text-xs text-slate-800 mt-1.5 break-all select-all font-semibold bg-white p-2 rounded-lg border border-slate-200 shadow-2xs">
-              {user?.id || 'user_demo'}
+              {user?.id || 'Loading account…'}
             </p>
           </div>
           <div className="bg-slate-50 p-4 rounded-xl border border-slate-200/80 flex flex-col justify-between">

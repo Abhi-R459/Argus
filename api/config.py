@@ -5,8 +5,10 @@ from urllib.parse import parse_qs, urlsplit
 
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from cryptography.hazmat.primitives.serialization import load_pem_public_key
+from cryptography.hazmat.primitives.serialization import load_pem_public_key, load_pem_private_key
 from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicKey
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
 from db.crypto.actor_context import parse_context_secret
 from db.crypto.pii import require_pii_encryption_key, validate_audit_salt
@@ -37,12 +39,26 @@ class Settings(BaseSettings):
     BLIND_INDEX_RATE_LIMIT_PER_MINUTE: int = 10
     PII_ENCRYPTION_KEY: str = ""
     ALLOW_DEMO_ROLE_SWITCH: bool = False
+    ALLOW_CONCURRENCY_DIAGNOSTICS: bool = False
     HR_ADMIN_EMAILS: str = ""
     COMPLIANCE_AUDITOR_EMAILS: str = ""
     SUSPICIOUS_ACTIVITY_REFRESH_SECONDS: int = 30
     CORS_ORIGINS: str = "http://localhost:5173,http://localhost:3000"
     DB_POOL_SIZE: int = 2
     DB_MAX_OVERFLOW: int = 1
+    DB_STATEMENT_TIMEOUT_MS: int = 30000
+    DB_LOCK_TIMEOUT_MS: int = 5000
+    MAX_REQUEST_BODY_BYTES: int = 1048576
+
+    @staticmethod
+    def _is_https_origin(value: str) -> bool:
+        parsed = urlsplit(value)
+        return bool(
+            parsed.scheme == "https" and parsed.hostname
+            and not parsed.username and not parsed.password
+            and not parsed.query and not parsed.fragment
+            and parsed.path in ("", "/") and "*" not in value
+        )
 
     @property
     def authorized_parties(self) -> set[str]:
@@ -73,13 +89,12 @@ class Settings(BaseSettings):
 
         issuer = urlsplit(self.CLERK_ISSUER)
         parties = self.authorized_parties
-        if issuer.scheme != "https" or not issuer.netloc:
+        if not self._is_https_origin(self.CLERK_ISSUER):
             raise ValueError("CLERK_ISSUER must be an HTTPS issuer URL.")
+        if self.APP_ENV == "production" and (issuer.hostname or "").endswith(".clerk.accounts.dev"):
+            raise ValueError("Production requires a Clerk production instance, not a development issuer.")
         if not parties or any(
-            urlsplit(party).scheme != "https"
-            or not urlsplit(party).netloc
-            or "*" in party
-            or urlsplit(party).path not in ("", "/")
+            not self._is_https_origin(party)
             for party in parties
         ):
             raise ValueError("CLERK_AUTHORIZED_PARTIES must contain exact HTTPS application origins.")
@@ -92,23 +107,28 @@ class Settings(BaseSettings):
 
         origins = [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]
         if not origins or any(
-            urlsplit(origin).scheme != "https"
-            or not urlsplit(origin).netloc
-            or "*" in origin
-            or urlsplit(origin).path not in ("", "/")
+            not self._is_https_origin(origin)
             for origin in origins
         ):
             raise ValueError("Production CORS_ORIGINS must contain exact HTTPS origins only.")
+        if not parties.issubset({origin.rstrip("/") for origin in origins}):
+            raise ValueError("Every CLERK_AUTHORIZED_PARTIES origin must be allowed by CORS_ORIGINS.")
 
-        for name, value in (
-            ("DATABASE_URL_HR_ADMIN", self.DATABASE_URL_HR_ADMIN),
-            ("DATABASE_URL_COMPLIANCE_AUDITOR", self.DATABASE_URL_COMPLIANCE_AUDITOR),
+        database_targets = []
+        for name, value, expected_role in (
+            ("DATABASE_URL_HR_ADMIN", self.DATABASE_URL_HR_ADMIN, "hr_admin"),
+            ("DATABASE_URL_COMPLIANCE_AUDITOR", self.DATABASE_URL_COMPLIANCE_AUDITOR, "compliance_auditor"),
         ):
             parsed = urlsplit(value)
             query = parse_qs(parsed.query)
             ssl_value = (query.get("ssl") or query.get("sslmode") or [""])[0].lower()
             if parsed.scheme != "postgresql+asyncpg" or not parsed.hostname or ssl_value not in {"require", "verify-ca", "verify-full"}:
                 raise ValueError(f"{name} must use PostgreSQL asyncpg with TLS required.")
+            if (parsed.username or "").split(".")[0] != expected_role:
+                raise ValueError(f"{name} must use the dedicated {expected_role} database login.")
+            database_targets.append((parsed.hostname, parsed.port, parsed.path))
+        if database_targets[0] != database_targets[1]:
+            raise ValueError("Both runtime roles must connect to the same database.")
 
         try:
             require_pii_encryption_key(self.PII_ENCRYPTION_KEY)
@@ -119,18 +139,46 @@ class Settings(BaseSettings):
 
         if self.ALLOW_DEMO_ROLE_SWITCH:
             raise ValueError("ALLOW_DEMO_ROLE_SWITCH must remain disabled in production.")
+        if self.ALLOW_CONCURRENCY_DIAGNOSTICS:
+            raise ValueError("ALLOW_CONCURRENCY_DIAGNOSTICS must remain disabled in production.")
         if self.DB_POOL_SIZE < 1 or self.DB_MAX_OVERFLOW < 0:
             raise ValueError("Production database pool limits are invalid.")
+        if not (1000 <= self.DB_STATEMENT_TIMEOUT_MS <= 120000) or not (100 <= self.DB_LOCK_TIMEOUT_MS <= self.DB_STATEMENT_TIMEOUT_MS):
+            raise ValueError("Production database timeouts are invalid.")
+        if not 1024 <= self.MAX_REQUEST_BODY_BYTES <= 10485760:
+            raise ValueError("MAX_REQUEST_BODY_BYTES must be between 1 KiB and 10 MiB.")
+
+        hr_emails = {v.strip().lower() for v in self.HR_ADMIN_EMAILS.split(",") if v.strip()}
+        auditor_emails = {v.strip().lower() for v in self.COMPLIANCE_AUDITOR_EMAILS.split(",") if v.strip()}
+        if hr_emails & auditor_emails:
+            raise ValueError("HR and auditor provisioning allowlists must not overlap.")
+        if not 1 <= self.BLIND_INDEX_RATE_LIMIT_PER_MINUTE <= 300:
+            raise ValueError("BLIND_INDEX_RATE_LIMIT_PER_MINUTE must be between 1 and 300.")
 
         signing_key = Path(self.SIGNING_PRIVATE_KEY_PATH)
         if not signing_key.is_file():
             raise ValueError("SIGNING_PRIVATE_KEY_PATH must point to the mounted signing key.")
+        try:
+            private_key = load_pem_private_key(signing_key.read_bytes(), password=None)
+        except (OSError, TypeError, ValueError) as exc:
+            raise ValueError("SIGNING_PRIVATE_KEY_PATH must contain a valid Ed25519 private key.") from exc
+        if not isinstance(private_key, Ed25519PrivateKey):
+            raise ValueError("SIGNING_PRIVATE_KEY_PATH must contain a valid Ed25519 private key.")
+        try:
+            trusted_key = load_pem_public_key((Path(self.CHECKPOINT_PUBLIC_KEYS_DIR) / 'public_key.pem').read_bytes())
+            if trusted_key.public_bytes(Encoding.Raw, PublicFormat.Raw) != private_key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw):
+                raise ValueError('Signing key does not match the trusted checkpoint public key.')
+        except (OSError, TypeError, ValueError) as exc:
+            raise ValueError('CHECKPOINT_PUBLIC_KEYS_DIR must include a matching Ed25519 public_key.pem.') from exc
         return self
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        # .env.local is an ignored per-machine override for the usual host-run
+        # Uvicorn workflow. Keep .env as the shared source; local values override it.
+        env_file=(".env", ".env.local"),
         env_file_encoding="utf-8",
         case_sensitive=True,
+        hide_input_in_errors=True,
         # The repository shares one .env across the API, Compose, migrations,
         # and maintenance CLIs. Ignore keys owned by other processes.
         extra="ignore",

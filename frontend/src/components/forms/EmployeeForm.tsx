@@ -50,7 +50,7 @@ export default function EmployeeForm({ isOpen = true, onClose }: EmployeeFormPro
 
   const { data: roles = [], isLoading: isRolesLoading } = useQuery<RoleItem[]>({
     queryKey: ['roles'],
-    queryFn: () => fetchRoles(() => getToken()),
+    queryFn: () => fetchRoles(getToken),
     staleTime: 300000,
     refetchInterval: false,
   });

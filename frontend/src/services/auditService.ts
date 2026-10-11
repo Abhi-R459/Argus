@@ -7,7 +7,7 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@clerk/clerk-react';
-import { fetchWithAuth, API_BASE_URL } from '../lib/api';
+import { fetchWithAuth, authenticatedFetch } from '../lib/api';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -25,6 +25,8 @@ export interface IncidentState {
   anchorMismatch: boolean;
   verificationStatus: VerificationResult['status'] | 'checking';
   verificationChecks: Record<string, 'pass' | 'fail' | 'unknown'>;
+  checkpointSignatureEvidence: CheckpointSignatureEvidence | null;
+  deletedEntryEvidence: DeletedEntryEvidence | null;
   unreviewedFlagsCount: number;
   lastVerifiedAt: string | null;
   details: string | null;
@@ -52,6 +54,8 @@ export interface ChainEntry {
   severity: Severity;
   old_value: Record<string, unknown> | null;
   new_value: Record<string, unknown> | null;
+  /** Original payload captured before a local adversary simulation changed it. */
+  forensic_before_value?: Record<string, unknown> | null;
 }
 
 export interface WitnessItem {
@@ -102,6 +106,41 @@ export interface VerificationBannerResult {
   last_checkpoint_id: number;
   last_checkpoint_hash: string;
   error_detail: string | null;
+}
+
+export interface CheckpointSignatureEvidence {
+  checkpoint_id: number;
+  sequence_id: number;
+  checkpoint_hash_before: string | null;
+  checkpoint_hash: string;
+  merkle_root_before: string | null;
+  merkle_root: string | null;
+  key_id: string | null;
+  public_key_fingerprint: string | null;
+  created_at: string | null;
+  signature_before_hex: string | null;
+  signature_before_status: 'pass' | 'fail' | 'unknown';
+  signature_after_hex: string;
+  signature_after_status: 'pass' | 'fail' | 'unknown';
+  hash_chain_status: 'pass' | 'fail' | 'unknown';
+  anchor_status: 'pass' | 'fail' | 'unknown';
+  before_source: string | null;
+}
+
+export interface DeletedEntryEvidence {
+  sequence_id: number;
+  actor_user_id: number | null;
+  employee_id: number | null;
+  action: string;
+  table_name: string;
+  row_id: number;
+  old_value: Record<string, unknown> | null;
+  new_value: Record<string, unknown> | null;
+  severity: string | null;
+  entry_hash: string;
+  previous_hash: string | null;
+  created_at: string | null;
+  evidence_source: 'recovery_snapshot' | string;
 }
 
 export interface DashboardRecentActivity {
@@ -189,6 +228,7 @@ export interface AuditLogItem {
   row_id: number;
   old_value: Record<string, unknown> | null;
   new_value: Record<string, unknown> | null;
+  forensic_before_value?: Record<string, unknown> | null;
   severity: 'INFO' | 'WARNING' | 'CRITICAL';
   entry_hash: string;
   previous_hash: string;
@@ -237,6 +277,8 @@ export interface VerificationResult {
   tampered_sequence_id: number | null;
   details: string;
   verification_checks?: Record<string, 'pass' | 'fail' | 'unknown'>;
+  checkpoint_signature_evidence?: CheckpointSignatureEvidence | null;
+  deleted_entry_evidence?: DeletedEntryEvidence | null;
 }
 
 export interface SuspiciousFlagItem {
@@ -347,17 +389,10 @@ export async function fetchTimeTravelState(
 // ─── INT-006: Signed JSON Evidence Export ─────────────────────────────────────
 
 export async function downloadSignedEvidence(
-  getToken: () => Promise<string | null>,
+  getToken: (options?: { skipCache?: boolean }) => Promise<string | null>,
 ): Promise<void> {
-  const token = await getToken();
-  const headers = new Headers();
-  if (token) {
-    headers.set('Authorization', `Bearer ${token}`);
-  }
+  const response = await authenticatedFetch(`/audit-logs/export`, {}, getToken);
 
-  // Use raw fetch to get the blob directly
-  const response = await fetch(`${API_BASE_URL}/audit-logs/export`, { headers });
-  
   if (!response.ok) {
     let errorDetail = 'Failed to export evidence';
     try {
@@ -451,6 +486,8 @@ export function useIncidentStatus(): IncidentState {
     anchorMismatch,
     verificationStatus: verificationQuery.data?.status ?? (verificationQuery.isFetching ? 'checking' : 'unknown'),
     verificationChecks: verificationQuery.data?.verification_checks ?? {},
+    checkpointSignatureEvidence: verificationQuery.data?.checkpoint_signature_evidence ?? null,
+    deletedEntryEvidence: verificationQuery.data?.deleted_entry_evidence ?? null,
     unreviewedFlagsCount,
     lastVerifiedAt: verificationQuery.dataUpdatedAt
       ? new Date(verificationQuery.dataUpdatedAt).toISOString()
@@ -475,16 +512,10 @@ export async function fetchAnchorStatus(
 // ─── PACK-002 / PACK-003: Portable Evidence Bundle (.arguspack) ─────────────
 
 export async function downloadEvidencePack(
-  getToken: () => Promise<string | null>,
+  getToken: (options?: { skipCache?: boolean }) => Promise<string | null>,
 ): Promise<void> {
-  const token = await getToken();
-  const headers = new Headers();
-  if (token) {
-    headers.set('Authorization', `Bearer ${token}`);
-  }
+  const response = await authenticatedFetch(`/audit-logs/export-pack`, {}, getToken);
 
-  const response = await fetch(`${API_BASE_URL}/audit-logs/export-pack`, { headers });
-  
   if (!response.ok) {
     let errorDetail = 'Failed to export evidence pack';
     try {
@@ -675,6 +706,8 @@ export interface MerkleProof {
   audit_path_depth: number;
   audit_path: MerkleAuditStep[];
   created_at?: string | null;
+  retrospective?: boolean;
+  retrospective_attested_at?: string | null;
 }
 
 export async function getMerkleProof(
@@ -707,22 +740,8 @@ export async function downloadCapsule(
   seqId: number,
   getToken: (options?: { skipCache?: boolean }) => Promise<string | null>,
 ): Promise<string> {
-  let token = await getToken();
-  const headers = new Headers();
-  if (token) {
-    headers.set('Authorization', `Bearer ${token}`);
-  }
+  const response = await authenticatedFetch(`/audit-logs/${seqId}/capsule`, {}, getToken);
 
-  let response = await fetch(`${API_BASE_URL}/audit-logs/${seqId}/capsule`, { headers });
-  if (response.status === 401) {
-    const freshToken = await getToken({ skipCache: true });
-    if (freshToken && freshToken !== token) {
-      token = freshToken;
-      headers.set('Authorization', `Bearer ${token}`);
-      response = await fetch(`${API_BASE_URL}/audit-logs/${seqId}/capsule`, { headers });
-    }
-  }
-  
   if (!response.ok) {
     let errorDetail = 'Failed to export forensic capsule';
     try {

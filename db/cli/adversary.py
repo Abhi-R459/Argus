@@ -10,7 +10,7 @@ Scenarios
 ---------
 1. dba-row-tamper       — Mutates an historical audit_log entry directly via SQL without updating hashes.
                           Detected by: Hash mismatch during sequential chain walk.
-2. recompute-and-hide   — Mutates an historical row and recalculates all forward SHA-256 chain hashes
+2. recompute-and-hide   — Replaces a business value, then recalculates all forward SHA-256 chain hashes
                           up to the chain tail.
                           Detected by: Discrepancy against external Ed25519 checkpoint anchor store.
 3. checkpoint-forgery   — Corrupts the Ed25519 signature on an historical checkpoint.
@@ -29,12 +29,15 @@ from __future__ import annotations
 
 import argparse
 from datetime import datetime, timezone
+from decimal import Decimal
 import hashlib
 import json
 import os
+import secrets
 from pathlib import Path
 import sys
 from typing import Any, Optional
+from urllib.parse import quote
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -127,6 +130,98 @@ def clear_snapshot(snapshot_path: str = DEFAULT_SNAPSHOT_PATH) -> None:
         path.unlink()
 
 
+def plan_business_value_replacement(cur: Any, audit_row: dict) -> tuple[dict, dict, dict]:
+    """Prepare a real source-row mutation and matching audit payload change.
+
+    Only the demo's supported business tables/columns are mutable. The caller
+    snapshots the returned source value before applying the SQL update.
+    """
+    table_name = audit_row["table_name"]
+    row_id = int(audit_row["row_id"])
+    payload_text = audit_row.get("new_value_text") or "{}"
+    try:
+        payload = json.loads(payload_text)
+    except (TypeError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"Sequence {audit_row['sequence_id']} has an unreadable audit payload.") from exc
+    if not isinstance(payload, dict):
+        raise RuntimeError(f"Sequence {audit_row['sequence_id']} does not contain a record payload.")
+
+    if table_name == "salary_history" and audit_row["action"] != "DELETE":
+        cur.execute(
+            "SELECT amount AS amount FROM salary_history WHERE salary_history_id = %s FOR UPDATE",
+            (row_id,),
+        )
+        source = cur.fetchone()
+        if not source:
+            raise RuntimeError(f"Salary record {row_id} no longer exists in salary_history.")
+        original = Decimal(str(source["amount"]))
+        replacement = (original * Decimal("1.50")).quantize(Decimal("0.01"))
+        if replacement == original:
+            replacement += Decimal("1.00")
+        payload["amount"] = float(replacement)
+        change = {
+            "table_name": "salary_history",
+            "row_id": row_id,
+            "column": "amount",
+            "before_value": str(original),
+            "after_value": str(replacement),
+        }
+    elif table_name == "employees" and audit_row["action"] != "DELETE":
+        cur.execute(
+            "SELECT is_active AS is_active FROM employees WHERE employee_id = %s FOR UPDATE",
+            (row_id,),
+        )
+        source = cur.fetchone()
+        if not source:
+            raise RuntimeError(f"Employee {row_id} no longer exists in employees.")
+        cur.execute(
+            "SELECT MAX(sequence_id) FROM audit_log WHERE table_name = 'employees' AND row_id = %s",
+            (row_id,),
+        )
+        latest_sequence = cur.fetchone()["max"]
+        if latest_sequence != audit_row["sequence_id"]:
+            raise RuntimeError(
+                f"Employee event #{audit_row['sequence_id']} is historical; choose the latest employee event "
+                "or a salary_history event so the live row and event describe the same value."
+            )
+        original = bool(source["is_active"])
+        replacement = not original
+        payload["is_active"] = replacement
+        change = {
+            "table_name": "employees",
+            "row_id": row_id,
+            "column": "is_active",
+            "before_value": original,
+            "after_value": replacement,
+        }
+    else:
+        raise RuntimeError(
+            f"Sequence {audit_row['sequence_id']} is not a supported live salary or employee event. "
+            "Choose a salary_history record or the latest employees event."
+        )
+
+    return payload, change, {"table_name": table_name, "row_id": row_id, "column": change["column"], "value": change["before_value"]}
+
+
+def apply_business_value_replacement(cur: Any, change: dict, value: Any) -> None:
+    """Apply an allow-listed source-row change while suppressing audit triggers."""
+    # This is the adversary's privileged, out-of-band path: session_replication_role
+    # suppresses user triggers so the attack does not generate a clean new audit row.
+    cur.execute("SET LOCAL session_replication_role = replica")
+    if change["table_name"] == "salary_history" and change["column"] == "amount":
+        cur.execute(
+            "UPDATE salary_history SET amount = %s WHERE salary_history_id = %s",
+            (value, change["row_id"]),
+        )
+    elif change["table_name"] == "employees" and change["column"] == "is_active":
+        cur.execute(
+            "UPDATE employees SET is_active = %s WHERE employee_id = %s",
+            (value, change["row_id"]),
+        )
+    else:
+        raise RuntimeError("Refusing an unsupported business-row mutation.")
+
+
 # ---------------------------------------------------------------------------
 # Attack Scenarios
 # ---------------------------------------------------------------------------
@@ -145,10 +240,10 @@ def attack_dba_row_tamper(
     match the recomputed SHA-256 digest.
     """
     existing_snap = load_snapshot(snapshot_path)
-    if existing_snap and not force:
+    if existing_snap:
         raise RuntimeError(
             f"An attack snapshot already exists ({existing_snap.get('scenario')}). "
-            f"Run 'heal' first or pass force=True."
+            "Run 'heal' first; an active recovery baseline cannot be overwritten."
         )
 
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -165,13 +260,13 @@ def attack_dba_row_tamper(
             if not target_row:
                 raise ValueError(f"Sequence ID {sequence_id} not found in audit_log.")
         else:
-            # Pick a suitable row that has a new_value
+            # Prefer a live salary record so the default attack changes real data.
             cur.execute(
                 "SELECT sequence_id, actor_user_id, employee_id, action, table_name, "
                 "row_id, old_value::TEXT AS old_value_text, new_value::TEXT AS new_value_text, "
                 "severity, entry_hash, previous_hash, created_at::TEXT AS created_at_text "
-                "FROM audit_log WHERE new_value IS NOT NULL AND sequence_id >= 5 "
-                "ORDER BY sequence_id LIMIT 1"
+                "FROM audit_log WHERE table_name = 'salary_history' AND new_value ? 'amount' "
+                "AND action <> 'DELETE' ORDER BY sequence_id DESC LIMIT 1"
             )
             target_row = cur.fetchone()
             if not target_row:
@@ -187,6 +282,7 @@ def attack_dba_row_tamper(
             raise RuntimeError("audit_log table is empty. Cannot perform attack.")
 
         target_seq = target_row["sequence_id"]
+        tampered_val, business_change, business_snapshot = plan_business_value_replacement(cur, target_row)
 
         # Record snapshot
         snapshot = {
@@ -194,25 +290,14 @@ def attack_dba_row_tamper(
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "target_sequence_id": target_seq,
             "audit_rows": [dict(target_row)],
-            "notes": "Direct SQL mutation of historical audit_log row without hash update.",
+            "business_rows": [business_snapshot],
+            "notes": "Out-of-band business-row and matching audit-payload mutation without hash update.",
         }
         save_snapshot(snapshot, snapshot_path)
 
-        # Mutate new_value
-        current_text = target_row["new_value_text"] or "{}"
-        try:
-            current_val = json.loads(current_text)
-        except Exception:
-            current_val = {"raw": current_text}
-
-        tampered_val = dict(current_val)
-        tampered_val["_unauthorized_dba_bonus"] = 250000.00
-        tampered_val["tampered_by"] = "rogue_dba_sql_mutation"
-        if "salary" in tampered_val:
-            tampered_val["salary"] = 999999.00
-        elif "amount" in tampered_val:
-            tampered_val["amount"] = 999999.00
-
+        # A privileged DBA changes the business table and falsifies its ledger
+        # event while leaving the stored chain hashes untouched.
+        apply_business_value_replacement(cur, business_change, business_change["after_value"])
         tampered_json = json.dumps(tampered_val)
 
         cur.execute(
@@ -226,8 +311,8 @@ def attack_dba_row_tamper(
             "status": "success",
             "target_sequence_id": target_seq,
             "original_hash": target_row["entry_hash"],
-            "tampered_new_value": tampered_val,
-            "sql_executed": f"UPDATE audit_log SET new_value = '{tampered_json}' WHERE sequence_id = {target_seq};",
+            "business_change": business_change,
+            "sql_executed": "Updated the live business row and matching audit payload with triggers suppressed; left hashes unchanged.",
             "message": f"Successfully injected SQL row tamper at sequence_id {target_seq}. Hash chain is now invalid.",
         }
 
@@ -238,10 +323,11 @@ def attack_recompute_and_hide(
     snapshot_path: str = DEFAULT_SNAPSHOT_PATH,
     force: bool = False,
 ) -> dict:
-    """Scenario 2: Mutate historical row and recalculate all forward hashes.
+    """Scenario 2: Replace a business value and recalculate all forward hashes.
     
-    A sophisticated rogue DBA modifies a historical record and rewrites the SHA-256
-    hash chain from that point forward to the chain tail.
+    A sophisticated rogue DBA replaces a historical salary amount (or employee
+    status/role for an explicitly selected employee event) and rewrites the
+    SHA-256 hash chain from that point forward to the chain tail.
     
     Result:
     The internal chain passes a naive verification walk (`verify_chain` returns True),
@@ -249,10 +335,10 @@ def attack_recompute_and_hide(
     anchor was already committed to an immutable store before the attack occurred.
     """
     existing_snap = load_snapshot(snapshot_path)
-    if existing_snap and not force:
+    if existing_snap:
         raise RuntimeError(
             f"An attack snapshot already exists ({existing_snap.get('scenario')}). "
-            f"Run 'heal' first or pass force=True."
+            "Run 'heal' first; an active recovery baseline cannot be overwritten."
         )
 
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -260,15 +346,27 @@ def attack_recompute_and_hide(
         if sequence_id is not None:
             target_seq = sequence_id
         else:
-            # Select sequence 15 or 20, or a row that comes before an existing checkpoint
+            # Prefer a real salary event before the first checkpoint so the demo
+            # shows an actual business-value replacement in the forensic diff.
             cur.execute("SELECT MIN(sequence_id) FROM chain_checkpoints")
             min_cp = cur.fetchone()["min"]
             if min_cp and min_cp > 5:
-                target_seq = min_cp - 5
+                target_boundary = min_cp - 5
             else:
                 cur.execute("SELECT COUNT(*) FROM audit_log")
                 cnt = cur.fetchone()["count"]
-                target_seq = max(1, cnt // 2)
+                target_boundary = max(1, cnt // 2)
+            cur.execute(
+                "SELECT MAX(sequence_id) FROM audit_log "
+                "WHERE table_name = 'salary_history' AND sequence_id <= %s "
+                "AND new_value ? 'amount'",
+                (target_boundary,),
+            )
+            salary_target = cur.fetchone()["max"]
+            if salary_target is not None:
+                target_seq = salary_target
+            else:
+                target_seq = target_boundary
 
         # Fetch all rows from target_seq to tail with preserved text formatting
         cur.execute(
@@ -281,6 +379,7 @@ def attack_recompute_and_hide(
         affected_rows = cur.fetchall()
         if not affected_rows:
             raise RuntimeError(f"No rows found at or after sequence_id {target_seq}.")
+        tampered_val, business_change, business_snapshot = plan_business_value_replacement(cur, affected_rows[0])
 
         # Fetch chain_state
         cur.execute("SELECT id, tail_hash, tail_sequence_id, last_checkpoint_sequence_id FROM chain_state WHERE id = 1")
@@ -288,11 +387,16 @@ def attack_recompute_and_hide(
 
         # Fetch checkpoints at or after target_seq
         cur.execute(
-            "SELECT checkpoint_id, sequence_id, checkpoint_hash, signature, created_at "
+            "SELECT checkpoint_id, sequence_id, checkpoint_hash, merkle_root, signature, created_at "
             "FROM chain_checkpoints WHERE sequence_id >= %s ORDER BY sequence_id ASC",
             (target_seq,),
         )
         affected_cps = cur.fetchall()
+        if not affected_cps:
+            raise RuntimeError(
+                f"Sequence {target_seq} is beyond the latest signed checkpoint. "
+                "Choose an event covered by an existing checkpoint so the external anchor can detect the rewrite."
+            )
 
         # Save snapshot
         snapshot = {
@@ -300,12 +404,14 @@ def attack_recompute_and_hide(
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "target_sequence_id": target_seq,
             "audit_rows": [dict(r) for r in affected_rows],
+            "business_rows": [business_snapshot],
             "chain_state": dict(chain_state_row) if chain_state_row else None,
             "checkpoints": [
                 {
                     "checkpoint_id": cp["checkpoint_id"],
                     "sequence_id": cp["sequence_id"],
                     "checkpoint_hash": cp["checkpoint_hash"],
+                    "merkle_root": cp["merkle_root"],
                     "signature_hex": bytes(cp["signature"]).hex(),
                     "created_at": cp["created_at"].isoformat() if hasattr(cp["created_at"], "isoformat") else str(cp["created_at"]),
                 }
@@ -313,8 +419,6 @@ def attack_recompute_and_hide(
             ],
             "notes": "Recalculated forward hash chain to test external anchor mismatch.",
         }
-        save_snapshot(snapshot, snapshot_path)
-
         # Get predecessor hash for target row
         if target_seq > 1:
             cur.execute("SELECT entry_hash FROM audit_log WHERE sequence_id = %s", (target_seq - 1,))
@@ -323,17 +427,14 @@ def attack_recompute_and_hide(
         else:
             current_prev_hash = "0" * 64
 
-        # Mutate target row's value
-        target_text = affected_rows[0]["new_value_text"] or "{}"
-        try:
-            target_val = json.loads(target_text)
-        except Exception:
-            target_val = {"raw": target_text}
-        tampered_val = dict(target_val)
-        tampered_val["_recomputed_hidden_alteration"] = True
-        tampered_val["tampered_by"] = "rogue_dba_recompute_and_hide"
+        # Save the recovery snapshot only after confirming this target supports
+        # a meaningful replacement, so a rejected target cannot leave a stale
+        # snapshot that blocks the next attack.
+        save_snapshot(snapshot, snapshot_path)
 
-        # Apply mutation to target row
+        # A compromised database administrator changes the live source row,
+        # falsifies the corresponding ledger event, and recomputes the chain.
+        apply_business_value_replacement(cur, business_change, business_change["after_value"])
         cur.execute(
             "UPDATE audit_log SET new_value = %s::jsonb WHERE sequence_id = %s",
             (json.dumps(tampered_val), target_seq),
@@ -404,9 +505,12 @@ def attack_recompute_and_hide(
             "target_sequence_id": target_seq,
             "recalculated_rows": recalculated_count,
             "new_tail_hash": tail_hash,
+            "business_change": business_change,
             "message": (
-                f"Recalculated {recalculated_count} forward hashes from sequence {target_seq} to tail. "
-                "Internal chain is now internally consistent, but external anchors will detect the forgery!"
+                f"Replaced {business_change['table_name']}.{business_change['column']} "
+                f"from {business_change['before_value']} to {business_change['after_value']}, "
+                f"then recalculated {recalculated_count} forward hashes. "
+                "The internal chain is consistent; the signed checkpoint and external anchor detect the rewrite."
             ),
         }
 
@@ -424,10 +528,10 @@ def attack_checkpoint_forgery(
     or manipulated signature fails asymmetric verification.
     """
     existing_snap = load_snapshot(snapshot_path)
-    if existing_snap and not force:
+    if existing_snap:
         raise RuntimeError(
             f"An attack snapshot already exists ({existing_snap.get('scenario')}). "
-            f"Run 'heal' first or pass force=True."
+            "Run 'heal' first; an active recovery baseline cannot be overwritten."
         )
 
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -471,8 +575,10 @@ def attack_checkpoint_forgery(
         }
         save_snapshot(snapshot, snapshot_path)
 
-        # Inject invalid signature bytes
-        forged_sig = b"\xde\xad\xbe\xef" * 16
+        # Simulate opaque signature corruption without a recognizable marker.
+        # A random 64-byte value has the same shape as an Ed25519 signature but
+        # cannot authenticate the checkpoint under the trusted public key.
+        forged_sig = secrets.token_bytes(64)
         cur.execute(
             "UPDATE chain_checkpoints SET signature = %s WHERE checkpoint_id = %s",
             (psycopg2.Binary(forged_sig), target_cp_id),
@@ -502,10 +608,10 @@ def attack_delete_audit_row(
     The verifier detects both a sequence gap and an orphaned subsequent row.
     """
     existing_snap = load_snapshot(snapshot_path)
-    if existing_snap and not force:
+    if existing_snap:
         raise RuntimeError(
             f"An attack snapshot already exists ({existing_snap.get('scenario')}). "
-            f"Run 'heal' first or pass force=True."
+            "Run 'heal' first; an active recovery baseline cannot be overwritten."
         )
 
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -640,6 +746,25 @@ def heal_database(
 
         # 2. Restore row edits if dba-row-tamper or recompute-and-hide
         elif scenario in ("dba-row-tamper", "recompute-and-hide"):
+            business_rows = snapshot.get("business_rows", [])
+            if business_rows:
+                # Recovery updates source tables without generating fresh audit
+                # events; their original audit rows and hashes are restored below.
+                cur.execute("SET LOCAL session_replication_role = replica")
+            for business_row in business_rows:
+                if business_row["table_name"] == "salary_history" and business_row["column"] == "amount":
+                    cur.execute(
+                        "UPDATE salary_history SET amount = %s WHERE salary_history_id = %s",
+                        (business_row["value"], business_row["row_id"]),
+                    )
+                elif business_row["table_name"] == "employees" and business_row["column"] == "is_active":
+                    cur.execute(
+                        "UPDATE employees SET is_active = %s WHERE employee_id = %s",
+                        (business_row["value"], business_row["row_id"]),
+                    )
+                else:
+                    raise RuntimeError("Snapshot contains an unsupported business-row restoration.")
+
             for r in snapshot.get("audit_rows", []):
                 cur.execute(
                     "UPDATE audit_log SET "
@@ -693,62 +818,124 @@ def heal_database(
 
         conn.commit()
 
-        # Autonomous Cryptographic Healing:
-        # Guarantee that all checkpoints in chain_checkpoints have valid signatures.
-        # If any signature fails or was forged (or if snapshot was missing/stale),
-        # re-sign with the authentic verifier private key!
+        # Repair signatures only with the configured local signer, and only when
+        # its public key is the trusted key for that checkpoint's key_id. The old
+        # hard-coded keys/public_key.pem + signing_key.pem pair could silently
+        # replace valid demo signatures with signatures the API did not trust.
         healed_checkpoints = []
+        signature_failures = []
         try:
-            from db.cli.keygen import load_public_key, load_private_key, get_default_key_dir
+            from api.config import get_settings
+            from db.cli.keygen import load_public_key, load_private_key
             from db.cli.signer import verify_signature, sign_checkpoint
-            pub_path = Path("keys/public_key.pem")
-            if not pub_path.exists():
-                pub_path = Path(get_default_key_dir()) / "public_key.pem"
+            from cryptography.hazmat.primitives import serialization
 
-            priv_path = Path("keys/signing_key.pem")
-            if not priv_path.exists():
-                priv_path = Path("keys/verifier_private_key.pem")
-            if not priv_path.exists():
-                priv_path = Path(get_default_key_dir()) / "signing_key.pem"
+            settings = get_settings()
+            key_dir = Path(settings.CHECKPOINT_PUBLIC_KEYS_DIR)
+            private_path = Path(settings.SIGNING_PRIVATE_KEY_PATH)
+            private_key = load_private_key(str(private_path)) if private_path.is_file() else None
+            private_public = (
+                private_key.public_key().public_bytes(
+                    encoding=serialization.Encoding.Raw,
+                    format=serialization.PublicFormat.Raw,
+                )
+                if private_key
+                else None
+            )
 
-            if pub_path.exists() and priv_path.exists():
-                pub = load_public_key(str(pub_path))
-                priv = load_private_key(str(priv_path))
+            cur.execute(
+                "SELECT checkpoint_id, checkpoint_hash, signature, merkle_root, key_id "
+                "FROM chain_checkpoints ORDER BY checkpoint_id ASC"
+            )
+            for chk_id, chk_hash, chk_sig, merkle_root, key_id in cur.fetchall():
+                public_filename = (
+                    "public_key.pem"
+                    if not key_id or key_id == "local:ed25519:v1"
+                    else f"{quote(str(key_id), safe='')}.pem"
+                )
+                public_path = key_dir / public_filename
+                if not public_path.is_file():
+                    signature_failures.append(chk_id)
+                    continue
+                public_key = load_public_key(str(public_path))
+                sig_bytes = bytes(chk_sig) if chk_sig else None
+                if sig_bytes and verify_signature(
+                    public_key, chk_hash, sig_bytes, key_id=key_id, merkle_root=merkle_root
+                ):
+                    continue
 
-                cur.execute("SELECT checkpoint_id, checkpoint_hash, signature FROM chain_checkpoints ORDER BY checkpoint_id ASC")
-                for chk_id, chk_hash, chk_sig in cur.fetchall():
-                    sig_bytes = bytes(chk_sig) if chk_sig else None
-                    if not sig_bytes or not verify_signature(pub, chk_hash, sig_bytes):
-                        correct_sig = sign_checkpoint(priv, chk_hash)
-                        with conn.cursor() as update_cur:
-                            update_cur.execute(
-                                "UPDATE chain_checkpoints SET signature = %s WHERE checkpoint_id = %s",
-                                (psycopg2.Binary(correct_sig), chk_id),
-                            )
-                        healed_checkpoints.append(chk_id)
-                conn.commit()
+                trusted_public = public_key.public_bytes(
+                    encoding=serialization.Encoding.Raw,
+                    format=serialization.PublicFormat.Raw,
+                )
+                if private_key is None or private_public != trusted_public:
+                    signature_failures.append(chk_id)
+                    continue
+
+                signed_payload = f"{chk_hash}:{merkle_root}" if merkle_root else chk_hash
+                repaired_signature = sign_checkpoint(private_key, signed_payload)
+                cur.execute(
+                    "UPDATE chain_checkpoints SET signature = %s WHERE checkpoint_id = %s",
+                    (psycopg2.Binary(repaired_signature), chk_id),
+                )
+                healed_checkpoints.append(chk_id)
+            conn.commit()
+
+            # Re-check every signature after any repairs.
+            signature_failures = []
+            cur.execute(
+                "SELECT checkpoint_id, checkpoint_hash, signature, merkle_root, key_id "
+                "FROM chain_checkpoints ORDER BY checkpoint_id ASC"
+            )
+            for chk_id, chk_hash, chk_sig, merkle_root, key_id in cur.fetchall():
+                public_filename = (
+                    "public_key.pem"
+                    if not key_id or key_id == "local:ed25519:v1"
+                    else f"{quote(str(key_id), safe='')}.pem"
+                )
+                public_path = key_dir / public_filename
+                if not public_path.is_file() or not chk_sig:
+                    signature_failures.append(chk_id)
+                    continue
+                public_key = load_public_key(str(public_path))
+                if not verify_signature(
+                    public_key,
+                    chk_hash,
+                    bytes(chk_sig),
+                    key_id=key_id,
+                    merkle_root=merkle_root,
+                ):
+                    signature_failures.append(chk_id)
         except Exception:
-            pass
-
-    # Clear the snapshot file
-    if snapshot:
-        clear_snapshot(snapshot_path)
+            # A hash walk alone does not prove checkpoint signatures. Fail closed.
+            signature_failures = [-1]
 
     # Validate post-healing integrity
     verify_res = verify_chain(conn)
 
+    signatures_valid = not signature_failures
+    restored_cleanly = verify_res.is_valid and signatures_valid
+    # Keep the recovery material whenever validation fails so the operator can
+    # investigate or retry instead of losing the only known-good baseline.
+    if snapshot and restored_cleanly:
+        clear_snapshot(snapshot_path)
+
     return {
-        "status": "healed" if (snapshot or healed_checkpoints) else "clean",
+        "status": "healed" if restored_cleanly and (snapshot or healed_checkpoints) else "failed" if not restored_cleanly else "clean",
         "scenario": scenario or ("checkpoint-signature-repair" if healed_checkpoints else None),
-        "is_valid": verify_res.is_valid,
+        "is_valid": verify_res.is_valid and signatures_valid,
+        "signatures_valid": signatures_valid,
+        "invalid_checkpoints": signature_failures,
         "entries_scanned": verify_res.total_entries,
         "mismatches": len(verify_res.mismatches),
         "gaps": len(verify_res.gaps),
         "orphans": len(verify_res.orphans),
         "healed_checkpoints": healed_checkpoints,
         "message": (
-            "Database and cryptographic integrity successfully restored to 100% pristine condition."
-            if (snapshot or healed_checkpoints)
+            "Database and cryptographic integrity successfully restored and re-verified."
+            if restored_cleanly and (snapshot or healed_checkpoints)
+            else "Restoration could not be fully verified. The recovery snapshot was retained."
+            if not restored_cleanly
             else "No active attack snapshot found. Database is in pristine condition."
         ),
     }
@@ -772,94 +959,136 @@ def get_adversary_status(
         cur.execute("SELECT tail_sequence_id, tail_hash FROM chain_state WHERE id = 1")
         chain_state = cur.fetchone()
 
-    # Check external anchor alignment
-    anchor_intact = True
-    anchor_details = "No external anchor file found."
-    anchor_path = Path("anchor/2.json")
-    if anchor_path.exists():
-        try:
-            with open(anchor_path, "r", encoding="utf-8") as f:
-                anchor_data = json.load(f)
-                with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-                    cur.execute(
-                        "SELECT checkpoint_hash FROM chain_checkpoints WHERE checkpoint_id = %s",
-                        (anchor_data.get("checkpoint_id"),),
-                    )
-                    db_cp = cur.fetchone()
-                    if db_cp and db_cp["checkpoint_hash"] != anchor_data.get("checkpoint_hash"):
-                        anchor_intact = False
-                        anchor_details = (
-                            f"Anchor mismatch for checkpoint {anchor_data.get('checkpoint_id')}: "
-                            f"DB hash {db_cp['checkpoint_hash'][:16]}... != Anchor {anchor_data.get('checkpoint_hash')[:16]}..."
-                        )
-                    else:
-                        anchor_details = f"Anchor {anchor_data.get('checkpoint_id')} matches external store."
-        except Exception as e:
-            anchor_details = f"Anchor read error: {e}"
-
-    # Verify cryptographic signatures for all checkpoints
-    checkpoints_valid = True
+    # Use the same configured anchor and trusted-key paths as the API verifier.
+    checkpoint_status = "unknown"
+    checkpoints_valid = False
     invalid_checkpoints = []
+    anchor_status = "unknown"
+    anchor_intact = False
+    anchor_details = "No checkpoints are available for anchor comparison."
     try:
-        from db.cli.keygen import load_public_key, get_default_key_dir
+        from api.config import get_settings
+        from db.cli.keygen import load_public_key
         from db.cli.signer import verify_signature
-        pub_path = Path("keys/public_key.pem")
-        if not pub_path.exists():
-            pub_path = Path(get_default_key_dir()) / "public_key.pem"
-        if pub_path.exists():
-            pub = load_public_key(str(pub_path))
-            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-                cur.execute(
-                    "SELECT checkpoint_id, sequence_id, checkpoint_hash, signature "
-                    "FROM chain_checkpoints ORDER BY checkpoint_id ASC"
+        settings = get_settings()
+        key_dir = Path(settings.CHECKPOINT_PUBLIC_KEYS_DIR)
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                "SELECT checkpoint_id, sequence_id, checkpoint_hash, signature, merkle_root, key_id "
+                "FROM chain_checkpoints ORDER BY checkpoint_id ASC"
+            )
+            checkpoint_rows = cur.fetchall()
+            checkpoint_status = "pass" if checkpoint_rows else "unknown"
+            for cp in checkpoint_rows:
+                key_name = (
+                    "public_key.pem"
+                    if not cp["key_id"] or cp["key_id"] == "local:ed25519:v1"
+                    else f"{quote(str(cp['key_id']), safe='')}.pem"
                 )
-                for cp in cur.fetchall():
-                    sig_bytes = bytes(cp["signature"]) if cp["signature"] else None
-                    if not sig_bytes or not verify_signature(pub, cp["checkpoint_hash"], sig_bytes):
-                        checkpoints_valid = False
-                        invalid_checkpoints.append({
-                            "checkpoint_id": cp["checkpoint_id"],
-                            "sequence_id": cp["sequence_id"],
-                            "checkpoint_hash": cp["checkpoint_hash"],
-                        })
-    except Exception:
-        pass
+                pub_path = key_dir / key_name
+                sig_bytes = bytes(cp["signature"]) if cp["signature"] else None
+                if not pub_path.is_file():
+                    if checkpoint_status != "fail":
+                        checkpoint_status = "unknown"
+                    continue
+                if not sig_bytes:
+                    checkpoint_status = "fail"
+                    checkpoints_valid = False
+                    invalid_checkpoints.append({
+                        "checkpoint_id": cp["checkpoint_id"],
+                        "sequence_id": cp["sequence_id"],
+                        "checkpoint_hash": cp["checkpoint_hash"],
+                    })
+                    continue
+                if not verify_signature(
+                    load_public_key(str(pub_path)),
+                    cp["checkpoint_hash"],
+                    sig_bytes,
+                    key_id=cp["key_id"],
+                    merkle_root=cp["merkle_root"],
+                ):
+                    checkpoint_status = "fail"
+                    invalid_checkpoints.append({
+                        "checkpoint_id": cp["checkpoint_id"],
+                        "sequence_id": cp["sequence_id"],
+                        "checkpoint_hash": cp["checkpoint_hash"],
+                    })
+        checkpoints_valid = checkpoint_status == "pass"
 
+        configured_anchor = Path(settings.ANCHOR_FILE_PATH)
+        anchor_dir = configured_anchor.parent if configured_anchor.suffix else configured_anchor
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                "SELECT checkpoint_id, sequence_id, checkpoint_hash "
+                "FROM chain_checkpoints ORDER BY sequence_id DESC LIMIT 1"
+            )
+            latest = cur.fetchone()
+        if latest:
+            anchor_path = anchor_dir / f"{latest['checkpoint_id']}.json"
+            try:
+                anchor_data = json.loads(anchor_path.read_text(encoding="utf-8"))
+                anchor_intact = (
+                    anchor_data.get("checkpoint_id") == latest["checkpoint_id"]
+                    and anchor_data.get("sequence_id") == latest["sequence_id"]
+                    and anchor_data.get("checkpoint_hash") == latest["checkpoint_hash"]
+                )
+                anchor_status = "pass" if anchor_intact else "fail"
+                anchor_details = (
+                    f"Anchor {latest['checkpoint_id']} matches configured store."
+                    if anchor_intact
+                    else f"Anchor mismatch for checkpoint {latest['checkpoint_id']}."
+                )
+            except FileNotFoundError:
+                anchor_details = f"No external anchor record exists for checkpoint {latest['checkpoint_id']}."
+            except (OSError, json.JSONDecodeError, TypeError):
+                anchor_details = f"External anchor record for checkpoint {latest['checkpoint_id']} could not be read."
+    except Exception as e:
+        checkpoint_status = "unknown"
+        checkpoints_valid = False
+        anchor_status = "unknown"
+        anchor_intact = False
+        anchor_details = f"Configured verification evidence could not be read: {e}"
+
+    # A recovery snapshot is not evidence of compromise. Only failed integrity
+    # checks are allowed to mark the database as attacked.
     anomaly_detected = (
-        snapshot is not None
-        or not chain_res.is_valid
-        or not checkpoints_valid
-        or not anchor_intact
+        not chain_res.is_valid
+        or checkpoint_status == "fail"
+        or anchor_status == "fail"
     )
 
     inferred_scenario = None
-    if snapshot:
-        inferred_scenario = snapshot.get("scenario")
-    elif not checkpoints_valid:
-        inferred_scenario = "checkpoint-forgery"
-    elif not chain_res.is_valid:
-        inferred_scenario = "dba-row-tamper"
-    elif not anchor_intact:
+    if not chain_res.is_valid:
+        inferred_scenario = "delete-audit-row" if chain_res.gaps else "dba-row-tamper"
+    elif anchor_status == "fail":
         inferred_scenario = "recompute-and-hide"
+    elif checkpoint_status == "fail":
+        inferred_scenario = "checkpoint-forgery"
 
     inferred_target_seq = None
-    if snapshot and snapshot.get("target_sequence_id"):
-        inferred_target_seq = snapshot.get("target_sequence_id")
-    elif invalid_checkpoints:
-        inferred_target_seq = invalid_checkpoints[0]["sequence_id"]
-    elif chain_res.mismatches:
-        inferred_target_seq = chain_res.mismatches[0]["sequence_id"]
+    if chain_res.mismatches:
+        inferred_target_seq = chain_res.mismatches[0].get("sequence_id")
     elif chain_res.gaps:
         inferred_target_seq = chain_res.gaps[0].get("expected_seq")
+    elif chain_res.orphans:
+        inferred_target_seq = chain_res.orphans[0].get("sequence_id")
+    elif invalid_checkpoints:
+        inferred_target_seq = invalid_checkpoints[0]["sequence_id"]
+    elif anchor_status == "fail" and snapshot and snapshot.get("target_sequence_id"):
+        # The independently verified anchor mismatch proves tampering. The
+        # snapshot is used only to focus the forensic view on the edited row.
+        inferred_target_seq = snapshot["target_sequence_id"]
 
     return {
         "attack_active": anomaly_detected,
         "snapshot_exists": snapshot is not None,
+        "recovery_available": snapshot is not None,
         "active_scenario": inferred_scenario,
         "attack_timestamp": snapshot.get("timestamp") if snapshot else None,
         "target_sequence_id": inferred_target_seq,
         "chain_valid": chain_res.is_valid,
         "checkpoints_valid": checkpoints_valid,
+        "checkpoint_status": checkpoint_status,
         "invalid_checkpoints": invalid_checkpoints,
         "total_audit_rows": total_rows,
         "total_checkpoints": total_checkpoints,
@@ -867,6 +1096,7 @@ def get_adversary_status(
         "gaps": chain_res.gaps,
         "orphans": chain_res.orphans,
         "anchor_intact": anchor_intact,
+        "anchor_status": anchor_status,
         "anchor_details": anchor_details,
     }
 
@@ -902,6 +1132,11 @@ def cmd_attack(args: argparse.Namespace) -> int:
             )
             print(f"{Colors.GREEN}[+] Attack Injected Successfully!{Colors.RESET}")
             print(f"    Target Sequence ID : {Colors.BOLD}{res['target_sequence_id']}{Colors.RESET}")
+            change = res["business_change"]
+            print(
+                f"    Live DB Change     : {Colors.YELLOW}{change['table_name']}.{change['column']} "
+                f"{change['before_value']} -> {change['after_value']}{Colors.RESET}"
+            )
             print(f"    SQL Executed       : {Colors.CYAN}{res['sql_executed']}{Colors.RESET}")
             print()
             print(f"{Colors.BOLD}Auditor Observation Instructions:{Colors.RESET}")
@@ -919,6 +1154,11 @@ def cmd_attack(args: argparse.Namespace) -> int:
             )
             print(f"{Colors.GREEN}[+] Recompute Attack Injected Successfully!{Colors.RESET}")
             print(f"    Target Sequence ID : {Colors.BOLD}{res['target_sequence_id']}{Colors.RESET}")
+            change = res["business_change"]
+            print(
+                f"    Live DB Change     : {Colors.YELLOW}{change['table_name']}.{change['column']} "
+                f"{change['before_value']} -> {change['after_value']}{Colors.RESET}"
+            )
             print(f"    Forward Rows Fixed : {Colors.BOLD}{res['recalculated_rows']}{Colors.RESET}")
             print(f"    New Tail Hash      : {Colors.CYAN}{res['new_tail_hash'][:32]}...{Colors.RESET}")
             print()
@@ -978,17 +1218,21 @@ def cmd_heal(args: argparse.Namespace) -> int:
         print(f"{Colors.CYAN}[*] Restoring database integrity from snapshot...{Colors.RESET}")
         res = heal_database(conn, snapshot_path=args.snapshot_path)
         
-        if res["status"] == "clean":
+        if res["status"] == "clean" and res["is_valid"]:
             print(f"{Colors.GREEN}[OK] {res['message']}{Colors.RESET}")
-        else:
+        elif res["is_valid"]:
             print(f"{Colors.GREEN}{Colors.BOLD}[OK] HEAL SUCCESSFUL!{Colors.RESET}")
             print(f"    Reverted Scenario  : {Colors.BOLD}{res['scenario']}{Colors.RESET}")
             if res.get("healed_checkpoints"):
                 print(f"    Healed Signatures  : {Colors.BOLD}Checkpoints {res['healed_checkpoints']}{Colors.RESET}")
             print(f"    Entries Verified   : {Colors.BOLD}{res['entries_scanned']}{Colors.RESET}")
-            print(f"    Chain Status       : {Colors.GREEN}{Colors.BOLD}100% VALID (Zero Tampering){Colors.RESET}")
+            print(f"    Chain & Signatures : {Colors.GREEN}{Colors.BOLD}VALID (Zero Tampering){Colors.RESET}")
             print()
             print(f"Verify in Web Dashboard at {Colors.CYAN}http://localhost:5173/auditor/overview{Colors.RESET} (Status: VALID).")
+        else:
+            print(f"{Colors.RED}{Colors.BOLD}[!] HEAL INCOMPLETE: cryptographic verification still fails.{Colors.RESET}")
+            print(f"    Hash Chain         : {'VALID' if res['mismatches'] == 0 and res['gaps'] == 0 and res['orphans'] == 0 else 'INVALID'}")
+            print(f"    Invalid Checkpoints: {res.get('invalid_checkpoints', [])}")
 
         return 0 if res["is_valid"] else 1
 
@@ -1010,20 +1254,21 @@ def cmd_status(args: argparse.Namespace) -> int:
 
         if status["attack_active"]:
             print(f"{Colors.RED}{Colors.BOLD}+---------------------------------------------------------------+{Colors.RESET}")
-            print(f"{Colors.RED}{Colors.BOLD}| [!] ATTACK SIMULATION / BREACH CURRENTLY DETECTED             |{Colors.RESET}")
+            print(f"{Colors.RED}{Colors.BOLD}| [!] CRYPTOGRAPHIC INTEGRITY BREACH DETECTED                    |{Colors.RESET}")
             print(f"{Colors.RED}{Colors.BOLD}+---------------------------------------------------------------+{Colors.RESET}")
-            if status.get("snapshot_exists"):
-                print(f"  Scenario   : {Colors.YELLOW}{status['active_scenario']}{Colors.RESET}")
-                print(f"  Target Seq : {Colors.YELLOW}{status['target_sequence_id']}{Colors.RESET}")
-                print(f"  Injected   : {status['attack_timestamp']}")
-            else:
-                print(f"  Scenario   : {Colors.YELLOW}{status['active_scenario'] or 'Direct DB Tampering'}{Colors.RESET}")
-                if status.get("target_sequence_id"):
-                    print(f"  Target Seq : {Colors.YELLOW}{status['target_sequence_id']}{Colors.RESET}")
-                print(f"  State      : {Colors.YELLOW}Direct tampering detected without active snapshot file{Colors.RESET}")
+            print(f"  Evidence   : {Colors.YELLOW}{status['active_scenario'] or 'Direct DB Tampering'}{Colors.RESET}")
+            if status.get("target_sequence_id"):
+                print(f"  Evidence Seq: {Colors.YELLOW}{status['target_sequence_id']}{Colors.RESET}")
+            if status.get("recovery_available"):
+                print(f"  Recovery   : {Colors.GREEN}Pre-attack snapshot available{Colors.RESET}")
             print(f"  Heal with  : {Colors.GREEN}python -m db.cli.adversary heal{Colors.RESET}\n")
+        elif status.get("recovery_available"):
+            print(f"{Colors.YELLOW}[i] Recovery snapshot available; no cryptographic breach was detected.{Colors.RESET}")
+            print(f"    The snapshot is for restore only and is not used as verifier evidence. Heal before another attack.\n")
+        elif status.get("checkpoint_status") == "unknown" or status.get("anchor_status") == "unknown":
+            print(f"{Colors.YELLOW}[?] No breach was proven, but some cryptographic evidence is unavailable.{Colors.RESET}\n")
         else:
-            print(f"{Colors.GREEN}[OK] System Normal (No active adversary attacks staged).{Colors.RESET}\n")
+            print(f"{Colors.GREEN}[OK] Cryptographic checks passed; no integrity breach detected.{Colors.RESET}\n")
 
         valid_str = f"{Colors.GREEN}VALID (INTACT){Colors.RESET}" if status["chain_valid"] else f"{Colors.RED}TAMPERED / INVALID{Colors.RESET}"
         print(f"  Total Audit Log Entries : {status['total_audit_rows']}")
@@ -1032,11 +1277,13 @@ def cmd_status(args: argparse.Namespace) -> int:
 
         cp_valid_str = (
             f"{Colors.GREEN}VALID (All signatures verified){Colors.RESET}"
-            if status.get("checkpoints_valid", True)
-            else f"{Colors.RED}FORGERY DETECTED ({len(status.get('invalid_checkpoints', []))} invalid signature(s)){Colors.RESET}"
+            if status.get("checkpoint_status") == "pass"
+            else f"{Colors.RED}INVALID ({len(status.get('invalid_checkpoints', []))} invalid signature(s)){Colors.RESET}"
+            if status.get("checkpoint_status") == "fail"
+            else f"{Colors.YELLOW}UNVERIFIED (trusted key/evidence unavailable){Colors.RESET}"
         )
         print(f"  Checkpoint Signatures   : {cp_valid_str}")
-        if not status.get("checkpoints_valid", True):
+        if status.get("checkpoint_status") == "fail":
             for inv_cp in status.get("invalid_checkpoints", []):
                 print(f"    - Checkpoint {inv_cp['checkpoint_id']} (Seq {inv_cp['sequence_id']}): {Colors.RED}Invalid Ed25519 signature{Colors.RESET}")
 
@@ -1054,7 +1301,13 @@ def cmd_status(args: argparse.Namespace) -> int:
                 for o in status["orphans"][:3]:
                     print(f"      - Seq {o['sequence_id']}: previous_hash does not match predecessor")
 
-        anchor_str = f"{Colors.GREEN}MATCH{Colors.RESET}" if status["anchor_intact"] else f"{Colors.RED}MISMATCH{Colors.RESET}"
+        anchor_str = (
+            f"{Colors.GREEN}MATCH{Colors.RESET}"
+            if status.get("anchor_status") == "pass"
+            else f"{Colors.RED}MISMATCH{Colors.RESET}"
+            if status.get("anchor_status") == "fail"
+            else f"{Colors.YELLOW}UNVERIFIED{Colors.RESET}"
+        )
         print(f"  External Anchor Store   : {anchor_str} ({status['anchor_details']})")
         print()
 
@@ -1116,7 +1369,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_attack.add_argument(
         "--force",
         action="store_true",
-        help="Force overwrite existing snapshot if an attack was already active.",
+        help="Deprecated. Active recovery snapshots are never overwritten; heal first.",
     )
 
     # heal
@@ -1134,7 +1387,21 @@ def main() -> int:
 
     if getattr(args, "tui", False) or args.command == "tui":
         from db.cli.tui_adversary import run_adversary_tui
-        run_adversary_tui(args.db_url)
+        try:
+            # The normal Argus walkthrough keeps its database override in
+            # .env.local. Load it after .env so every TUI action uses the same
+            # explicitly resolved database instead of splitting discovery and
+            # mutation across different targets.
+            from dotenv import load_dotenv
+
+            load_dotenv(".env", override=False)
+            if Path(".env.local").is_file():
+                load_dotenv(".env.local", override=True)
+            tui_db_url = resolve_db_url(args.db_url)
+        except (ImportError, ValueError) as exc:
+            print(f"{Colors.RED}[!] Cannot resolve TUI database: {exc}{Colors.RESET}")
+            return 2
+        run_adversary_tui(tui_db_url)
         return 0
 
     if not args.command:

@@ -24,7 +24,7 @@ export default function Dashboard() {
 
   const { data, isLoading, isError, refetch } = useQuery<DashboardStats>({
     queryKey: ['dashboardStats'],
-    queryFn: () => fetchDashboardStats(() => getToken()),
+    queryFn: () => fetchDashboardStats(getToken),
   });
 
   return (

@@ -80,6 +80,15 @@ function getMutationSemanticNote(log: AuditLogItem) {
   return `${log.action} on ${log.table_name}`;
 }
 
+function getForensicPayloadChanges(log: AuditLogItem) {
+  const before = log.forensic_before_value ?? {};
+  const after = log.new_value ?? {};
+  const keys = new Set([...Object.keys(before), ...Object.keys(after)]);
+  return [...keys]
+    .filter((key) => JSON.stringify(before[key]) !== JSON.stringify(after[key]))
+    .map((key) => ({ key, before: before[key], after: after[key] }));
+}
+
 export default function TimeTravelView() {
   const { getToken } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -208,6 +217,15 @@ export default function TimeTravelView() {
   });
 
   const employeeLogs: AuditLogItem[] = employeeLogsData?.items || [];
+  const reconstructedAuditEvent = queryParams?.sequenceId == null
+    ? null
+    : employeeLogs.find((log) => log.sequence_id === queryParams.sequenceId) ?? null;
+  const forensicPayloadChanges = useMemo(
+    () => reconstructedAuditEvent?.forensic_before_value
+      ? getForensicPayloadChanges(reconstructedAuditEvent)
+      : [],
+    [reconstructedAuditEvent],
+  );
 
   const { data: employeeOriginData } = useQuery({
     queryKey: ['employeeAuditOrigin', parsedEmpId],
@@ -312,10 +330,18 @@ export default function TimeTravelView() {
   const isHistoricalDelta = useMemo(() => {
     if (!record || !selectedEmployee) return false;
     return (
-      (record.salary !== null && Math.abs(record.salary - (selectedEmployee.salary || 0)) > 0.01) ||
+      (!record.pii_redacted && (
+        (record.salary === null) !== (selectedEmployee.salary === null) ||
+        (record.salary !== null && selectedEmployee.salary !== null && Math.abs(record.salary - selectedEmployee.salary) > 0.01)
+      )) ||
       record.role_title !== selectedEmployee.role_title ||
       record.is_active !== selectedEmployee.is_active ||
-      record.department_name !== selectedEmployee.department_name
+      record.department_name !== selectedEmployee.department_name ||
+      (!record.pii_redacted && (
+        record.full_name !== selectedEmployee.full_name ||
+        record.email !== selectedEmployee.email ||
+        new Date(record.date_hired).getTime() !== new Date(selectedEmployee.date_hired).getTime()
+      ))
     );
   }, [record, selectedEmployee]);
 
@@ -514,7 +540,7 @@ export default function TimeTravelView() {
             onChange={(event) => setRevealPii(event.target.checked)}
             className="mt-0.5 accent-linear-primary"
           />
-          <span>Reveal employee name, email, and salary in this investigation. Directory and time-travel access is recorded in security events.</span>
+          <span>Reveal employee name, email, and salary in this investigation. Hidden fields are shown as Restricted below. Each reveal is recorded in security events.</span>
         </label>
 
         <form onSubmit={handleSearch} autoComplete="off" className="space-y-4 max-w-5xl relative z-10">
@@ -1155,6 +1181,13 @@ export default function TimeTravelView() {
                     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-mono font-medium bg-amber-500/15 text-amber-300 border border-amber-500/30">
                       <TrendingUp className="w-3 h-3" /> Past Delta Detected
                     </span>
+                  ) : record.pii_redacted ? (
+                    <span
+                      title="Sensitive fields are hidden, so this comparison is partial."
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-mono font-medium bg-slate-500/15 text-slate-300 border border-slate-500/30"
+                    >
+                      <UserCheck className="w-3 h-3" /> Limited Comparison
+                    </span>
                   ) : (
                     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-mono font-medium bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
                       <UserCheck className="w-3 h-3" /> Matches Live State
@@ -1163,7 +1196,7 @@ export default function TimeTravelView() {
                 </div>
                 <div className="flex items-center text-xs font-mono text-linear-primary bg-linear-primary/15 px-3 py-1 rounded-md border border-linear-primary/30">
                   <CalendarClock className="w-3 h-3 mr-2" />
-                  <span>AS OF {new Date(record.as_of).toLocaleString()} UTC</span>
+                  <span>AS OF {new Date(record.as_of).toLocaleString(undefined, { timeZone: 'UTC' })} UTC</span>
                   {record.sequence_id && (
                     <span className="ml-1.5 font-bold text-emerald-400">· Seq #{record.sequence_id}</span>
                   )}
@@ -1202,7 +1235,13 @@ export default function TimeTravelView() {
                   </div>
                   <div>
                     <div className="text-xs font-medium text-linear-ink-muted mb-1 uppercase tracking-wider">Email</div>
-                    <div className="text-base text-linear-ink-muted font-mono text-xs">{record.email ?? 'Restricted'}</div>
+                    <div className="text-base text-linear-ink-muted font-mono text-xs">
+                      {record.email ?? (
+                        <button type="button" onClick={() => setRevealPii(true)} className="text-linear-primary hover:underline">
+                          Restricted · Reveal sensitive fields above
+                        </button>
+                      )}
+                    </div>
                   </div>
 
                   <div>
@@ -1218,7 +1257,15 @@ export default function TimeTravelView() {
                   <div>
                     <div className="text-xs font-medium text-linear-ink-muted mb-1 uppercase tracking-wider">Historical Compensation</div>
                     <div className="text-lg font-mono text-linear-ink font-semibold">
-                      {record.salary === null ? 'Restricted' : formatINR(record.salary)}
+                      {record.salary === null ? (
+                        record.pii_redacted ? (
+                          <button type="button" onClick={() => setRevealPii(true)} className="text-linear-primary hover:underline text-sm">
+                            Restricted · Reveal sensitive fields above
+                          </button>
+                        ) : (
+                          <span className="text-sm text-linear-ink-muted">No compensation event recorded by this time</span>
+                        )
+                      ) : formatINR(record.salary)}
                     </div>
                     {record.salary !== null && selectedEmployee && selectedEmployee.salary && Math.abs(record.salary - selectedEmployee.salary) > 0.01 && (
                       <div className="text-[11px] text-linear-ink-muted font-mono mt-1">
@@ -1252,6 +1299,48 @@ export default function TimeTravelView() {
             </div>
           </div>
         </div>
+      )}
+
+      {record && reconstructedAuditEvent?.forensic_before_value && forensicPayloadChanges.length > 0 && (
+        <section className="rounded-2xl border border-rose-500/40 bg-rose-950/20 overflow-hidden">
+          <div className="px-5 py-4 border-b border-rose-500/25 flex items-start gap-3">
+            <AlertTriangle className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
+            <div>
+              <h3 className="text-sm font-semibold text-rose-300">
+                Tampered audit event payload · Seq #{reconstructedAuditEvent.sequence_id}
+              </h3>
+              <p className="text-xs text-rose-200/80 mt-1">
+                This is the payload stored in the audit ledger compared with the saved pre-attack copy. Time Travel reconstructs from the ledger; the attack may not have changed the live employee record.
+              </p>
+            </div>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-rose-950/30 text-rose-200/80 uppercase tracking-wide">
+                <tr>
+                  <th className="px-5 py-2.5 font-medium">Field</th>
+                  <th className="px-5 py-2.5 font-medium">Before tamper</th>
+                  <th className="px-5 py-2.5 font-medium">Stored after tamper</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-rose-500/15">
+                {forensicPayloadChanges.map(({ key, before, after }) => {
+                  const sensitive = /email|name|salary|amount|national|contact|phone|address/i.test(key);
+                  const display = (value: unknown) => sensitive && !revealPii
+                    ? 'Restricted · reveal sensitive fields above'
+                    : value === undefined ? '—' : JSON.stringify(value);
+                  return (
+                    <tr key={key}>
+                      <th className="px-5 py-2.5 font-mono font-medium text-rose-100">{key}</th>
+                      <td className="px-5 py-2.5 font-mono text-linear-ink-muted break-all">{display(before)}</td>
+                      <td className="px-5 py-2.5 font-mono text-rose-200 break-all">{display(after)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
       )}
 
       {!record && !isLoading && !isError && (

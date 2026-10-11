@@ -72,8 +72,10 @@ GRANT SELECT ON chain_checkpoints TO compliance_auditor;
 -- HR can append checkpoints only through the role-checked API. Updates/deletes
 -- remain unavailable; signatures and actor metadata are written atomically.
 GRANT INSERT ON chain_checkpoints TO hr_admin;
+GRANT SELECT ON chain_checkpoints TO hr_admin;
 GRANT USAGE, SELECT ON SEQUENCE chain_checkpoints_checkpoint_id_seq TO hr_admin;
 GRANT INSERT ON security_audit_events TO hr_admin;
+GRANT SELECT (event_id, created_at) ON security_audit_events TO hr_admin;
 GRANT USAGE, SELECT ON SEQUENCE security_audit_events_event_id_seq TO hr_admin;
 REVOKE UPDATE, DELETE, TRUNCATE ON chain_checkpoints FROM hr_admin;
 REVOKE UPDATE, DELETE, TRUNCATE ON security_audit_events FROM hr_admin;

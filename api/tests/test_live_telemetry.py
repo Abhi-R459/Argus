@@ -140,7 +140,8 @@ async def test_concurrency_run_auditor(client_auditor: AsyncClient, mock_db_sess
         worker_session.execute.return_value = result
         return worker_session
 
-    with patch('api.routers.audits.get_session_factory', return_value=MagicMock(side_effect=make_worker_session)):
+    from api.config import get_settings
+    with patch('api.routers.audits.get_session_factory', return_value=MagicMock(side_effect=make_worker_session)), patch.object(get_settings(), 'ALLOW_CONCURRENCY_DIAGNOSTICS', True):
         response = await client_auditor.post('/api/analytics/diagnostics/concurrency-benchmark', json={'workers': 3})
     assert response.status_code == 200
 

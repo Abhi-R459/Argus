@@ -83,7 +83,7 @@ async def list_employees(
     include_pii: bool = Query(False, description="Auditors may explicitly reveal PII; access is recorded"),
     request: Request = None,
     current_user: User = Depends(get_current_user),
-    session: AsyncSession = Depends(get_db_session),
+    session: AsyncSession = Depends(get_db_session, scope="function"),
 ):
     """Retrieve the employee directory with search and pagination.
 
@@ -308,7 +308,7 @@ async def list_employees(
 async def create_employee(
     data: EmployeeCreate,
     current_user: User = Depends(get_current_user),
-    session: AsyncSession = Depends(get_db_session),
+    session: AsyncSession = Depends(get_db_session, scope="function"),
 ):
     """Create a new employee record. HR Admin only.
 
@@ -391,7 +391,7 @@ async def update_employee(
     employee_id: int,
     data: EmployeeUpdate,
     current_user: User = Depends(get_current_user),
-    session: AsyncSession = Depends(get_db_session),
+    session: AsyncSession = Depends(get_db_session, scope="function"),
 ):
     """Update an existing employee record. HR Admin only.
 
@@ -473,7 +473,7 @@ async def update_employee(
 async def deactivate_employee(
     employee_id: int,
     current_user: User = Depends(get_current_user),
-    session: AsyncSession = Depends(get_db_session),
+    session: AsyncSession = Depends(get_db_session, scope="function"),
 ):
     """Soft-delete an employee record. HR Admin only.
 
@@ -510,7 +510,7 @@ async def add_salary_record(
     employee_id: int,
     data: SalaryCreate,
     current_user: User = Depends(get_current_user),
-    session: AsyncSession = Depends(get_db_session),
+    session: AsyncSession = Depends(get_db_session, scope="function"),
 ):
     """Add a new salary record for an employee. HR Admin only.
 

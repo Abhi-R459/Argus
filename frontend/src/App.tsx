@@ -1,8 +1,8 @@
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, useMemo } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { SignedIn, SignedOut, SignIn } from '@clerk/clerk-react';
+import { SignIn, useAuth } from '@clerk/clerk-react';
 import { QueryClientProvider } from '@tanstack/react-query';
-import { queryClient } from './lib/queryClient';
+import { createQueryClient } from './lib/queryClient';
 import HRAdminLayout from './layouts/HRAdminLayout';
 import AuditorLayout from './layouts/AuditorLayout';
 import RoleGuard from './components/auth/RoleGuard';
@@ -21,39 +21,37 @@ const CounterfactualPage = lazy(() => import('./pages/auditor/CounterfactualPage
 const ForensicEvidencePage = lazy(() => import('./pages/auditor/ForensicEvidencePage'));
 
 function ProtectedPortal({ allowedRole, children }: { allowedRole: 'hr_admin' | 'compliance_auditor'; children: React.ReactNode }) {
+  const { isLoaded, isSignedIn } = useAuth();
   if (import.meta.env.DEV && typeof window !== 'undefined' && window.__E2E_ROLE__) {
     return <RoleGuard allowedRole={allowedRole}>{children}</RoleGuard>;
   }
-  return (
-    <SignedIn>
-      <RoleGuard allowedRole={allowedRole}>{children}</RoleGuard>
-    </SignedIn>
-  );
+  if (!isLoaded) return <div role="status">Loading your session…</div>;
+  if (!isSignedIn) return <Navigate to="/" replace />;
+  return <RoleGuard allowedRole={allowedRole}>{children}</RoleGuard>;
 }
 
 function App() {
+  const { userId, isLoaded, isSignedIn } = useAuth();
+  const sessionKey = import.meta.env.DEV && window.__E2E_ROLE__ ? `e2e:${window.__E2E_ROLE__}` : userId ?? 'signed-out';
+  // A new account gets a new cache; HR and audit data never cross sessions.
+  const queryClient = useMemo(() => createQueryClient(), [sessionKey]);
   return (
-    <QueryClientProvider client={queryClient}>
+    <QueryClientProvider key={sessionKey} client={queryClient}>
       <BrowserRouter>
         <ErrorBoundary fallbackTitle="Application Error" fallbackSubtitle="An unexpected system error occurred. Please refresh or try again.">
           <Suspense fallback={<div className="min-h-screen bg-linear-canvas text-linear-ink flex items-center justify-center" role="status">Loading page…</div>}>
           <Routes>
             {/* Root: redirect signed-in users based on role; show sign-in for guests */}
             <Route path="/" element={
-              <>
-                <SignedIn>
-                  <AuthDispatcher />
-                </SignedIn>
-                <SignedOut>
-                  <div className="min-h-screen bg-linear-canvas flex flex-col items-center justify-center p-4">
-                    <div className="mb-8 text-center">
-                      <h1 className="text-3xl font-bold text-linear-ink tracking-tight">Argus Audit Engine</h1>
-                      <p className="text-linear-ink-subtle mt-2">Sign in to access your dashboard</p>
-                    </div>
-                    <SignIn routing="hash" />
+              isSignedIn ? <AuthDispatcher /> : (
+                <div className="min-h-screen bg-linear-canvas flex flex-col items-center justify-center p-4">
+                  <div className="mb-8 text-center">
+                    <h1 className="text-3xl font-bold text-linear-ink tracking-tight">Argus Audit Engine</h1>
+                    <p className="text-linear-ink-subtle mt-2">Sign in to access your dashboard</p>
                   </div>
-                </SignedOut>
-              </>
+                  {isLoaded ? <SignIn routing="hash" /> : <div role="status">Loading sign-in�</div>}
+                </div>
+              )
             } />
 
             {/* HR Admin routes */}
@@ -84,6 +82,7 @@ function App() {
               <Route path="activity" element={<ActivityPage />} />
               <Route path="analytics" element={<AnalyticsPage />} />
             </Route>
+            <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
           </Suspense>
         </ErrorBoundary>

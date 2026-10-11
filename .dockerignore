@@ -1,6 +1,12 @@
 .git
 .env
 **/.env
+.env.*
+**/.env.*
+backups/
+trusted-checkpoint-keys/
+trusted-witness-keys/
+test-results/
 keys/
 **/keys/
 anchor/
@@ -17,3 +23,10 @@ api/tests/
 db/tests/
 db/bench/
 db/backups/
+reports/
+**/*.pem
+**/*.key
+**/*.dump
+**/.argus_snapshot.json
+frontend/e2e/
+db/seed_demo.py

@@ -99,6 +99,37 @@ test.describe('HR Admin Portal E2E', () => {
     await expect(page.getByRole('button', { name: 'Create checkpoint now' })).toBeVisible();
   });
 
+  test('HR can bootstrap a department and job role without demo data', async ({ page }) => {
+    const departments: { department_id: number; name: string }[] = [];
+    await page.route('**/api/departments', async (route) => {
+      if (route.request().method() === 'POST') {
+        const body = route.request().postDataJSON() as { name: string };
+        departments.push({ department_id: 42, name: body.name });
+        await route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(departments[0]) });
+      } else {
+        await route.fulfill({ contentType: 'application/json', body: JSON.stringify(departments) });
+      }
+    });
+    let submittedRole: unknown;
+    await page.route('**/api/roles', async (route) => {
+      submittedRole = route.request().postDataJSON();
+      await route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({ role_id: 9 }) });
+    });
+    await page.goto('http://localhost:5173/hr/settings');
+    await expect(page.getByRole('button', { name: 'Create job role' })).toBeDisabled();
+    await page.getByLabel('Department name').fill('Operations');
+    await page.getByRole('button', { name: 'Create department', exact: true }).click();
+    await expect(page.getByText('Department created.', { exact: true })).toBeVisible();
+    await page.getByLabel('Job title').fill('Operations Analyst');
+    await page.getByLabel('Department', { exact: true }).selectOption('42');
+    await page.getByLabel('Minimum annual salary (₹)').fill('400000');
+    await page.getByLabel('Maximum annual salary (₹)').fill('800000');
+    await page.getByRole('button', { name: 'Create job role' }).click();
+    await expect(page.getByText('Job role created. You can now add employees with this role.')).toBeVisible();
+    expect(submittedRole).toMatchObject({ title: 'Operations Analyst', department_id: 42,
+      salary_band_min: '400000', salary_band_max: '800000' });
+  });
+
   test('HR Admin can create a checkpoint and sees its signed range', async ({ page }) => {
     await page.goto('http://localhost:5173/hr/settings');
 

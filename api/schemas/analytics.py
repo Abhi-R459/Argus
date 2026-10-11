@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict, model_validator
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 from decimal import Decimal
@@ -24,6 +24,25 @@ class DashboardStatsResponse(BaseModel):
 class DepartmentItem(BaseModel):
     department_id: int
     name: str
+
+
+class DepartmentCreate(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+    name: str = Field(min_length=2, max_length=255)
+
+
+class RoleCreate(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+    title: str = Field(min_length=2, max_length=255)
+    department_id: int = Field(gt=0)
+    salary_band_min: Decimal = Field(ge=0, max_digits=12, decimal_places=2)
+    salary_band_max: Decimal = Field(gt=0, max_digits=12, decimal_places=2)
+
+    @model_validator(mode="after")
+    def validate_salary_band(self):
+        if self.salary_band_min > self.salary_band_max:
+            raise ValueError("The minimum salary must not exceed the maximum salary.")
+        return self
 
 
 class RoleItem(BaseModel):
@@ -68,7 +87,7 @@ class ConcurrencyLogItem(BaseModel):
 
 
 class ConcurrencyRunRequest(BaseModel):
-    workers: int = 5
+    workers: int = Field(5, ge=1, le=10)
 
 
 class ConcurrencyRunResponse(BaseModel):

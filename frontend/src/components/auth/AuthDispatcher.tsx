@@ -9,7 +9,7 @@ export default function AuthDispatcher() {
 
   const { data: profile, isLoading, isError, refetch } = useQuery<UserProfile>({
     queryKey: ['myProfile'],
-    queryFn: () => fetchMyProfile(() => getToken()),
+    queryFn: () => fetchMyProfile(getToken),
     enabled: isLoaded,
     staleTime: 60000,
     refetchInterval: false,

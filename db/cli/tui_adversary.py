@@ -56,7 +56,12 @@ def _safe_connect(db_url: Optional[str] = None):
     """Attempt non-fatal PostgreSQL connection for status inspection."""
     try:
         from dotenv import load_dotenv
-        load_dotenv()
+        # Match API settings precedence: local walkthrough overrides shared .env.
+        # Loading .env first can populate legacy anchor/key paths in os.environ,
+        # which then override values from .env.local in Pydantic Settings.
+        if os.path.isfile(".env.local"):
+            load_dotenv(".env.local", override=True)
+        load_dotenv(".env", override=False)
     except Exception:
         pass
     url = db_url or os.environ.get("DATABASE_URL_MIGRATIONS") or os.environ.get("DATABASE_URL")
@@ -78,6 +83,18 @@ def _get_target_candidates(db_url: Optional[str] = None) -> Dict[str, Any]:
         with conn.cursor() as cur:
             cur.execute("SELECT MIN(sequence_id), MAX(sequence_id), COUNT(*) FROM audit_log;")
             min_seq, max_seq, total_rows = cur.fetchone()
+            cur.execute(
+                "SELECT MAX(sequence_id) FROM audit_log "
+                "WHERE table_name = 'salary_history' AND new_value ? 'amount' AND action <> 'DELETE'"
+            )
+            salary_seq = cur.fetchone()[0]
+            cur.execute(
+                "SELECT MAX(a.sequence_id) FROM audit_log a "
+                "WHERE a.table_name = 'salary_history' AND a.new_value ? 'amount' "
+                "AND a.action <> 'DELETE' AND a.sequence_id < COALESCE(("
+                "SELECT MIN(sequence_id) FROM chain_checkpoints), a.sequence_id + 1)"
+            )
+            anchored_salary_seq = cur.fetchone()[0]
             cur.execute("SELECT MIN(checkpoint_id), MAX(checkpoint_id), COUNT(*) FROM chain_checkpoints;")
             min_cp, max_cp, total_cps = cur.fetchone()
         conn.close()
@@ -86,6 +103,8 @@ def _get_target_candidates(db_url: Optional[str] = None) -> Dict[str, Any]:
             "min_seq": min_seq or 1,
             "max_seq": max_seq or 1,
             "total_rows": total_rows or 0,
+            "salary_seq": salary_seq,
+            "anchored_salary_seq": anchored_salary_seq,
             "min_cp": min_cp or 1,
             "max_cp": max_cp or 1,
             "total_cps": total_cps or 0,
@@ -120,43 +139,67 @@ def action_attack_scenario(scenario: str, db_url: Optional[str] = None) -> None:
 
     # Active attack guard: enforce single active attack to preserve deterministic recovery
     if os.path.exists(DEFAULT_SNAPSHOT_PATH):
-        console.print("[bold red][!] An attack simulation is already active![/bold red]")
-        console.print("[yellow]Argus stages one attack scenario at a time to guarantee deterministic self-healing.[/yellow]\n")
-        auto_heal = Confirm.ask("  Would you like to self-heal the active attack first before staging this one?", default=True)
+        console.print("[bold yellow][!] A recovery snapshot already exists.[/bold yellow]")
+        console.print("[yellow]Heal it first so the original baseline is preserved for reliable restoration.[/yellow]\n")
+        auto_heal = Confirm.ask("  Restore the saved baseline before staging the next attack?", default=True)
         if auto_heal:
             action_heal(db_url)
             # Re-check if heal succeeded
             if os.path.exists(DEFAULT_SNAPSHOT_PATH):
-                console.print("[dim]Active attack could not be cleared. Attack cancelled.[/dim]")
+                console.print("[dim]Recovery snapshot remains. Attack cancelled.[/dim]")
                 _pause()
                 return
         else:
-            overwrite = Confirm.ask("  Overwrite existing snapshot anyway? (Warning: prior pre-attack baseline will be replaced)", default=False)
-            if not overwrite:
-                console.print("[dim]Attack cancelled.[/dim]")
-                _pause()
-                return
+            console.print("[dim]Attack cancelled to preserve the active recovery baseline.[/dim]")
+            _pause()
+            return
 
     # Check candidates from DB
     candidates = _get_target_candidates(db_url)
+    if not candidates.get("success"):
+        console.print(
+            "[bold red][!] Could not inspect the selected database; attack canceled.[/bold red]"
+        )
+        console.print(
+            "[dim]Start the local Argus database and retry. The TUI will not guess a sequence or switch databases.[/dim]"
+        )
+        _pause()
+        return
+
     target_seq = None
     target_cp = None
 
     if scenario in ("dba-row-tamper", "recompute-and-hide", "delete-audit-row"):
-        if candidates.get("success") and candidates["total_rows"] > 0:
-            suggested = max(1, candidates["max_seq"] - 2) if candidates["max_seq"] > 3 else candidates["min_seq"]
+        if candidates["total_rows"] > 0:
+            if scenario == "recompute-and-hide" and candidates.get("anchored_salary_seq"):
+                suggested = candidates["anchored_salary_seq"]
+            elif scenario == "recompute-and-hide":
+                console.print(
+                    "[bold red][!] No salary event is covered by a signed checkpoint. "
+                    "Create and externally anchor a checkpoint before running recompute-and-hide.[/bold red]"
+                )
+                _pause()
+                return
+            elif scenario == "dba-row-tamper" and candidates.get("salary_seq"):
+                suggested = candidates["salary_seq"]
+            else:
+                suggested = max(1, candidates["max_seq"] - 2) if candidates["max_seq"] > 3 else candidates["min_seq"]
             console.print(f"  [dim]Audit log contains {candidates['total_rows']} entries (seq #{candidates['min_seq']} to #{candidates['max_seq']}).[/dim]")
             target_seq = IntPrompt.ask("  Target sequence ID in audit_log", default=suggested)
         else:
-            target_seq = IntPrompt.ask("  Target sequence ID in audit_log", default=1)
+            console.print("[bold red][!] audit_log is empty; attack canceled.[/bold red]")
+            _pause()
+            return
 
     elif scenario == "checkpoint-forgery":
-        if candidates.get("success") and candidates["total_cps"] > 0:
+        if candidates["total_cps"] > 0:
             suggested_cp = candidates["max_cp"]
             console.print(f"  [dim]Available checkpoints: #{candidates['min_cp']} to #{candidates['max_cp']}.[/dim]")
             target_cp = IntPrompt.ask("  Target checkpoint ID in chain_checkpoints", default=suggested_cp)
         else:
-            target_cp = IntPrompt.ask("  Target checkpoint ID in chain_checkpoints", default=1)
+            console.print("[bold red][!] No checkpoints are available; attack canceled.[/bold red]")
+            _pause()
+            return
 
     confirm = Confirm.ask(f"  [bold red]Proceed with out-of-band mutation?[/bold red]", default=True)
     if not confirm:
@@ -171,7 +214,7 @@ def action_attack_scenario(scenario: str, db_url: Optional[str] = None) -> None:
             scenario=scenario,
             sequence_id=target_seq,
             checkpoint_id=target_cp,
-            force=True,
+            force=False,
             snapshot_path=DEFAULT_SNAPSHOT_PATH,
             anchor_dir=DEFAULT_ANCHOR_DIR,
             db_url=db_url,
@@ -225,10 +268,8 @@ def run_adversary_tui(db_url: Optional[str] = None) -> None:
                 finally:
                     conn.close()
 
-            attack_active = (
-                os.path.exists(DEFAULT_SNAPSHOT_PATH)
-                or status_data.get("attack_active", False)
-            )
+            attack_active = status_data.get("attack_active", False)
+            recovery_available = os.path.exists(DEFAULT_SNAPSHOT_PATH)
 
             if attack_active:
                 scenario_name = status_data.get("active_scenario") or "Active Adversary Simulation"
@@ -250,6 +291,24 @@ def run_adversary_tui(db_url: Optional[str] = None) -> None:
                         box=box.ROUNDED,
                     )
                 )
+            elif recovery_available:
+                console.print(
+                    Panel(
+                        "[bold yellow]Recovery snapshot available, but the verifier found no cryptographic breach.[/bold yellow]\n"
+                        "[dim]The snapshot is kept for restoration; it is not used as attack evidence.[/dim]",
+                        border_style="yellow",
+                        box=box.ROUNDED,
+                    )
+                )
+            elif status_data.get("anchor_status") == "unknown" or status_data.get("checkpoint_status") == "unknown":
+                console.print(
+                    Panel(
+                        "[bold yellow]Integrity breach not detected; verification evidence is incomplete.[/bold yellow]\n"
+                        "[dim]Check the trusted public key and configured external anchor before presenting a clean result.[/dim]",
+                        border_style="yellow",
+                        box=box.ROUNDED,
+                    )
+                )
             else:
                 console.print("[bold green]System Status: Normal (Zero Tampering - All Checkpoints Signed & Valid)[/bold green]\n")
 
@@ -259,7 +318,7 @@ def run_adversary_tui(db_url: Optional[str] = None) -> None:
 
             menu.add_row("[1]", "Inspect Security Posture & Active Attack Diagnostics")
             menu.add_row("[2]", "Execute Attack: [bold yellow]dba-row-tamper[/bold yellow] (Mutate Historical Row via SQL)")
-            menu.add_row("[3]", "Execute Attack: [bold yellow]recompute-and-hide[/bold yellow] (Recalculate Forward Hashes)")
+            menu.add_row("[3]", "Execute Attack: [bold yellow]recompute-and-hide[/bold yellow] (Replace a business value, then recalculate hashes)")
             menu.add_row("[4]", "Execute Attack: [bold yellow]checkpoint-forgery[/bold yellow] (Corrupt Checkpoint Signature)")
             menu.add_row("[5]", "Execute Attack: [bold yellow]delete-audit-row[/bold yellow] (Delete Historical Row via SQL)")
             menu.add_row("[6]", "[bold green]Self-Healing Recovery (Restore Pristine State & Auto-Repair Signatures)[/bold green]")

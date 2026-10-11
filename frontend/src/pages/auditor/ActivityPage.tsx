@@ -7,10 +7,10 @@ export default function ActivityPage() {
     <div className="space-y-6">
       <PageHeader
         title="Activity & Risk"
-        description="Review suspicious activity flags and explore transaction concurrency behavior."
+        description="Review suspicious activity flags and record investigation decisions."
       />
       <RiskPanel />
-      <ConcurrencyLab />
+      {import.meta.env.DEV && import.meta.env.VITE_ENABLE_DIAGNOSTICS === 'true' && <ConcurrencyLab />}
     </div>
   );
 }

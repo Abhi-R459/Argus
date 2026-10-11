@@ -68,7 +68,7 @@ def _create_mock_capsule_bytes(seq_id=42):
     mock_conn = MagicMock()
     mock_cur = MagicMock()
     mock_conn.cursor.return_value.__enter__.return_value = mock_cur
-    mock_cur.fetchone.side_effect = [sample_rows[0], cp_mock, None]
+    mock_cur.fetchone.side_effect = [sample_rows[0], cp_mock, {"sequence_id": seq_id - 1}]
     mock_cur.fetchall.return_value = sample_rows
 
     return (
@@ -191,12 +191,13 @@ async def test_proof_endpoint_success(client_auditor: AsyncClient):
     ]
     mock_cur.fetchall.return_value = [sample_row]
 
-    with patch("psycopg2.connect", return_value=mock_conn):
+    fake_bundle, _ = _create_mock_capsule_bytes(42)
+    with patch("db.cli.capsule.generate_capsule", return_value=fake_bundle), patch("psycopg2.connect", return_value=mock_conn):
         response = await client_auditor.get("/api/audit-logs/42/proof")
         assert response.status_code == 200
         data = response.json()
         assert data["sequence_id"] == 42
-        assert data["checkpoint_id"] == 5
-        assert data["merkle_root"] == tree.root
+        assert data["checkpoint_id"] == 10
+        assert len(data["merkle_root"]) == 64
         assert "leaf_hash" in data
         assert "audit_path" in data

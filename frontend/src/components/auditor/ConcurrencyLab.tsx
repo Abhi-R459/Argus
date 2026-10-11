@@ -34,7 +34,7 @@ export default function ConcurrencyLab() {
     setStats({ success: 0, failed: 0, total: 0 });
 
     try {
-      const result = await runConcurrencyTest(workers, () => getToken());
+      const result = await runConcurrencyTest(workers, getToken);
       
       const mappedLogs: SimulationLog[] = result.logs.map((item, idx) => ({
         id: `${item.tx_id}-${idx}`,

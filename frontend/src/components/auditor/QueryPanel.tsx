@@ -9,7 +9,7 @@ export default function QueryPanel() {
 
   const { data, isLoading, isError, refetch } = useQuery<SystemMetrics>({
     queryKey: ['systemMetrics'],
-    queryFn: () => fetchSystemMetrics(() => getToken()),
+    queryFn: () => fetchSystemMetrics(getToken),
   });
 
   return (

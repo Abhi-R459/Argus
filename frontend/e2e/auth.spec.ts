@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 
 test.describe('Authentication & Route Protection', () => {
-  test('Landing page renders Argus branding and Clerk sign-in', async ({ page }) => {
+  test('Landing page renders Argus branding', async ({ page }) => {
     await page.goto('http://localhost:5173/');
     await page.waitForLoadState('networkidle');
 

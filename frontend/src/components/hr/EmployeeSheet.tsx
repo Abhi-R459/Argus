@@ -92,7 +92,7 @@ export function EmployeeSheet({
   // Query roles for the edit dropdown
   const { data: roles = [], isLoading: isRolesLoading } = useQuery<RoleItem[]>({
     queryKey: ['roles'],
-    queryFn: () => fetchRoles(() => getToken()),
+    queryFn: () => fetchRoles(getToken),
     staleTime: 300000,
     enabled: isOpen,
   });

@@ -1,4 +1,12 @@
 import pytest
+import os
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+# API tests use mocked sessions. Never import the app with deployment secrets.
+os.environ.setdefault("DATABASE_URL_HR_ADMIN", "postgresql+asyncpg://hr_admin@localhost/argus_test")
+os.environ.setdefault("DATABASE_URL_COMPLIANCE_AUDITOR", "postgresql+asyncpg://compliance_auditor@localhost/argus_test")
+os.environ["APP_ENV"] = "development"
 from httpx import AsyncClient, ASGITransport
 from typing import AsyncGenerator
 from unittest.mock import AsyncMock, MagicMock
@@ -7,6 +15,22 @@ from api.main import app
 from api.dependencies import get_db_session, get_current_user
 from api.middleware.clerk import verify_clerk_token
 from api.models.user import User
+from api.config import get_settings
+
+
+@pytest.fixture(autouse=True)
+def isolated_signing_key(tmp_path):
+    settings = get_settings()
+    previous = settings.SIGNING_PRIVATE_KEY_PATH
+    key = Ed25519PrivateKey.generate()
+    key_path = tmp_path / "signing_private_key.pem"
+    key_path.write_bytes(key.private_bytes(serialization.Encoding.PEM,
+        serialization.PrivateFormat.PKCS8, serialization.NoEncryption()))
+    settings.SIGNING_PRIVATE_KEY_PATH = str(key_path)
+    try:
+        yield
+    finally:
+        settings.SIGNING_PRIVATE_KEY_PATH = previous
 
 @pytest.fixture
 def mock_hr_user() -> User:

@@ -16,6 +16,9 @@ async def test_health_check():
 @pytest.mark.asyncio
 async def test_readiness_checks_both_database_roles(monkeypatch):
     session = AsyncMock()
+    result = MagicMock()
+    result.scalar_one.return_value = True
+    session.execute.return_value = result
 
     @asynccontextmanager
     async def session_context():

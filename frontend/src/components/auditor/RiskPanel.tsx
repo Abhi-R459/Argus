@@ -20,11 +20,11 @@ export default function RiskPanel() {
 
   const { data: flags = [], isLoading, isError, refetch } = useQuery<SuspiciousFlagItem[]>({
     queryKey: SUSPICIOUS_FLAGS_QUERY_KEY,
-    queryFn: () => fetchSuspiciousFlags(() => getToken()),
+    queryFn: () => fetchSuspiciousFlags(getToken),
   });
 
   const reviewMutation = useMutation({
-    mutationFn: (flagId: number) => reviewSuspiciousFlag(flagId, () => getToken()),
+    mutationFn: (flagId: number) => reviewSuspiciousFlag(flagId, getToken),
     onSuccess: async () => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: SUSPICIOUS_FLAGS_QUERY_KEY }),
@@ -34,7 +34,7 @@ export default function RiskPanel() {
   });
 
   const refreshMutation = useMutation({
-    mutationFn: () => refreshSuspiciousFlags(() => getToken()),
+    mutationFn: () => refreshSuspiciousFlags(getToken),
     onSuccess: async () => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: SUSPICIOUS_FLAGS_QUERY_KEY }),

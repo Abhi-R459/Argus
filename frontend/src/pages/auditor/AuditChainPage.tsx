@@ -22,6 +22,8 @@ import { LiveStreamBadge } from '../../components/common/LiveStreamBadge';
 import { SkeletonRows } from '../../components/common/SkeletonRows';
 import { EmptyState } from '../../components/common/EmptyState';
 import { CopyButton } from '../../components/common/CopyButton';
+import CheckpointSignatureEvidence from '../../components/auditor/CheckpointSignatureEvidence';
+import DeletedEntryEvidence from '../../components/auditor/DeletedEntryEvidence';
 import { useKeyboardNav } from '../../hooks/useKeyboardNav';
 import { formatRelativeTime, truncateHash } from '../../lib/format';
 import { getActionSemantic, getSeverityDotClass } from '../../lib/semantics';
@@ -467,11 +469,22 @@ export default function AuditChainPage() {
             title="Sync chain now"
             className="px-2.5 py-1 rounded-lg text-xs"
           />
+          <Button
+            variant="secondary"
+            size="sm"
+            portalTheme="auditor"
+            onClick={() => incident.refetch()}
+            disabled={incident.isLoading}
+            leftIcon={<ShieldCheck className="h-3.5 w-3.5" />}
+            className="text-xs"
+          >
+            Verify integrity
+          </Button>
         </div>
       </div>
 
       {/* Metric Telemetry Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3">
         <div className="bg-linear-surface-1 border border-linear-hairline rounded-lg p-3">
           <div className="flex items-center justify-between">
             <span className="text-[11px] text-linear-ink-muted font-medium">Blocks In Scope</span>
@@ -535,6 +548,22 @@ export default function AuditChainPage() {
 
         <div className="bg-linear-surface-1 border border-linear-hairline rounded-lg p-3">
           <div className="flex items-center justify-between">
+            <span className="text-[11px] text-linear-ink-muted font-medium">Checkpoint Signatures</span>
+            <ShieldCheck className={`w-3.5 h-3.5 ${incident.verificationChecks.checkpoint_signatures === 'pass' ? 'text-linear-success' : incident.verificationChecks.checkpoint_signatures === 'fail' ? 'text-status-warning' : 'text-linear-ink-muted'}`} />
+          </div>
+          <div className="mt-1 flex items-center space-x-2">
+            <span className={`w-2 h-2 rounded-full ${incident.verificationChecks.checkpoint_signatures === 'pass' ? 'bg-linear-success' : incident.verificationChecks.checkpoint_signatures === 'fail' ? 'bg-status-warning' : 'bg-linear-ink-muted'}`} />
+            <span className={`text-xs font-bold font-mono ${incident.verificationChecks.checkpoint_signatures === 'pass' ? 'text-linear-success' : incident.verificationChecks.checkpoint_signatures === 'fail' ? 'text-status-warning' : 'text-linear-ink-muted'}`}>
+              {incident.verificationChecks.checkpoint_signatures === 'pass' ? 'SIGNATURES VALID' : incident.verificationChecks.checkpoint_signatures === 'fail' ? 'SIGNATURE FAILED' : 'UNVERIFIED'}
+            </span>
+          </div>
+          <span className="text-[10px] text-linear-ink-muted font-mono block">
+            {incident.checkpointSignatureEvidence ? `Checkpoint #${incident.checkpointSignatureEvidence.checkpoint_id} · Seq #${incident.checkpointSignatureEvidence.sequence_id}` : 'Verify to inspect signed checkpoints'}
+          </span>
+        </div>
+
+        <div className="bg-linear-surface-1 border border-linear-hairline rounded-lg p-3">
+          <div className="flex items-center justify-between">
             <span className="text-[11px] text-linear-ink-muted font-medium">Navigation Window</span>
             <Hash className="w-3.5 h-3.5 text-amber-400" />
           </div>
@@ -546,6 +575,13 @@ export default function AuditChainPage() {
           </span>
         </div>
       </div>
+
+      {incident.checkpointSignatureEvidence && (
+        <CheckpointSignatureEvidence evidence={incident.checkpointSignatureEvidence} />
+      )}
+      {incident.deletedEntryEvidence && (
+        <DeletedEntryEvidence evidence={incident.deletedEntryEvidence} />
+      )}
 
       {/* Filter & Jump Toolbar */}
       <FilterBar activeFilters={activeFilters} onClearAll={handleClearAllFilters} portalTheme="auditor" className="relative z-30">
@@ -1091,12 +1127,13 @@ export default function AuditChainPage() {
                 </h4>
                 <div className="bg-linear-canvas border border-linear-hairline rounded-lg p-3">
                   <DiffViewer
-                    oldValue={selectedBlock.old_value}
+                    oldValue={selectedBlock.forensic_before_value ?? selectedBlock.old_value}
                     newValue={selectedBlock.new_value}
                     operation={selectedBlock.operation}
                     isTampered={incident.tamperedSeqId === selectedBlock.entry_id}
                     tamperDetails={incident.tamperedSeqId === selectedBlock.entry_id ? incident.details : undefined}
                     sequenceId={selectedBlock.entry_id}
+                    forensicComparison={selectedBlock.forensic_before_value != null}
                   />
                 </div>
               </div>

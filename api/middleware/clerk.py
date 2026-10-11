@@ -80,7 +80,7 @@ async def verify_clerk_token(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid token: missing authorized party claim.",
             )
-        if authorized_party and authorized_parties and authorized_party.rstrip("/") not in authorized_parties:
+        if authorized_party and (not isinstance(authorized_party, str) or (authorized_parties and authorized_party.rstrip("/") not in authorized_parties)):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid token: untrusted authorized party.",

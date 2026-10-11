@@ -1,30 +1,62 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '@clerk/clerk-react';
-import { Link } from 'react-router-dom';
 import {
   GitCompare, Play, AlertCircle, ShieldCheck,
-  TrendingDown, DollarSign, Clock, Sparkles,
-  RefreshCw, AlertTriangle
+  DollarSign, Clock, Sparkles,
+  RefreshCw, AlertTriangle, Search, ListChecks, X
 } from 'lucide-react';
 import {
   runCounterfactualSimulation,
+  fetchAuditLogs,
   fetchEmployees,
+  AuditLogItem,
   CounterfactualResult,
   EmployeeListItem,
 } from '../../services/auditService';
 import PageHeader from '../../components/common/PageHeader';
 import { formatINR } from '../../lib/format';
 
+const EVENTS_PER_PAGE = 50;
+
+function describeEvent(event: AuditLogItem): string {
+  const oldValue = event.forensic_before_value ?? event.old_value ?? {};
+  const newValue = event.new_value ?? {};
+  if (event.table_name === 'salary_history') {
+    const oldAmount = oldValue.amount;
+    const newAmount = newValue.amount;
+    if (oldAmount !== undefined && newAmount !== undefined) {
+      return `Amount ${formatINR(Number(oldAmount))} → ${formatINR(Number(newAmount))}`;
+    }
+    if (newAmount !== undefined) {
+      const effectiveDate = newValue.effective_date ? ` · effective ${String(newValue.effective_date)}` : '';
+      return `Salary recorded: ${formatINR(Number(newAmount))}${effectiveDate}`;
+    }
+  }
+
+  const safeFields = ['role_id', 'department_id', 'is_active'];
+  const changes = safeFields
+    .filter((field) => field in newValue && oldValue[field] !== newValue[field])
+    .map((field) => `${field.replace(/_/g, ' ')}: ${String(oldValue[field] ?? '—')} → ${String(newValue[field])}`);
+  return changes.length > 0 ? changes.join(' · ') : `${event.action} ${event.table_name} row #${event.row_id}`;
+}
+
 export default function CounterfactualPage() {
   const { getToken } = useAuth();
 
   // Inputs
   const [employeeId, setEmployeeId] = useState<number>(1);
-  const [skipSeqInput, setSkipSeqInput] = useState<string>('');
+  const [selectedSequenceIds, setSelectedSequenceIds] = useState<number[]>([]);
   const [asOfInput, setAsOfInput] = useState<string>('');
+  const [eventSearch, setEventSearch] = useState('');
   
   // State
   const [employees, setEmployees] = useState<EmployeeListItem[]>([]);
+  const [employeeEvents, setEmployeeEvents] = useState<AuditLogItem[]>([]);
+  const [eventPage, setEventPage] = useState(1);
+  const [eventPages, setEventPages] = useState(0);
+  const [eventTotal, setEventTotal] = useState(0);
+  const [isLoadingEvents, setIsLoadingEvents] = useState(false);
+  const [eventError, setEventError] = useState<string | null>(null);
   const [isSimulating, setIsSimulating] = useState(false);
   const [result, setResult] = useState<CounterfactualResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -34,7 +66,7 @@ export default function CounterfactualPage() {
     let isMounted = true;
     async function loadDirectory() {
       try {
-        const data = await fetchEmployees(getToken, 20);
+        const data = await fetchEmployees(getToken, 100);
         if (isMounted && data.items.length > 0) {
           setEmployees(data.items);
           setEmployeeId(data.items[0].employee_id);
@@ -47,26 +79,88 @@ export default function CounterfactualPage() {
     return () => { isMounted = false; };
   }, [getToken]);
 
+  // Load the selected employee's real audit events so users can choose rows
+  // directly instead of searching Audit Log and copying sequence numbers.
+  useEffect(() => {
+    let isMounted = true;
+    setEmployeeEvents([]);
+    setSelectedSequenceIds([]);
+    setEventPage(1);
+    setEventSearch('');
+    setResult(null);
+    setEventError(null);
+    setIsLoadingEvents(true);
+
+    fetchAuditLogs({ employee_id: employeeId, page: 1, limit: EVENTS_PER_PAGE }, getToken)
+      .then((data) => {
+        if (!isMounted) return;
+        setEmployeeEvents(data.items);
+        setEventPages(data.pages);
+        setEventTotal(data.total);
+      })
+      .catch((err: unknown) => {
+        if (!isMounted) return;
+        setEventError(err instanceof Error ? err.message : 'Could not load this employee’s audit events.');
+      })
+      .finally(() => {
+        if (isMounted) setIsLoadingEvents(false);
+      });
+
+    return () => { isMounted = false; };
+  }, [employeeId, getToken]);
+
+  const visibleEvents = useMemo(() => {
+    const query = eventSearch.trim().toLowerCase();
+    if (!query) return employeeEvents;
+    return employeeEvents.filter((event) =>
+      [
+        String(event.sequence_id),
+        event.action,
+        event.table_name,
+        String(event.row_id),
+        describeEvent(event),
+      ].some((value) => value.toLowerCase().includes(query)),
+    );
+  }, [employeeEvents, eventSearch]);
+
+  const actualSalary = Number(result?.actual_state?.salary ?? result?.blast_radius.salary_actual ?? 0);
+  const replaySalary = Number(result?.counterfactual_state?.salary ?? result?.blast_radius.salary_counterfactual ?? 0);
+  const salaryVariance = actualSalary - replaySalary;
+  const salaryVarianceAmount = Math.abs(salaryVariance);
+
+  const loadEarlierEvents = async () => {
+    const nextPage = eventPage + 1;
+    setIsLoadingEvents(true);
+    setEventError(null);
+    try {
+      const data = await fetchAuditLogs(
+        { employee_id: employeeId, page: nextPage, limit: EVENTS_PER_PAGE },
+        getToken,
+      );
+      setEmployeeEvents((current) => [...current, ...data.items]);
+      setEventPage(nextPage);
+      setEventPages(data.pages);
+      setEventTotal(data.total);
+    } catch (err: unknown) {
+      setEventError(err instanceof Error ? err.message : 'Could not load earlier audit events.');
+    } finally {
+      setIsLoadingEvents(false);
+    }
+  };
+
+  const toggleSequence = (sequenceId: number) => {
+    setSelectedSequenceIds((current) => current.includes(sequenceId)
+      ? current.filter((id) => id !== sequenceId)
+      : [...current, sequenceId].sort((a, b) => a - b));
+    setResult(null);
+  };
+
   const handleRunSimulation = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     setError(null);
 
-    if (!skipSeqInput.trim()) {
-      setError('Select at least one sequence ID from this employee’s audit history.');
-      return;
-    }
-
-    // Parse skip sequence IDs
-    const idTokens = skipSeqInput.split(',').map((value) => value.trim());
-    const invalidToken = idTokens.find((value) => !/^[1-9]\d*$/.test(value) || !Number.isSafeInteger(Number(value)));
-    if (invalidToken !== undefined) {
-      setError(`Sequence ID “${invalidToken}” is invalid. Enter positive whole numbers separated by commas.`);
-      return;
-    }
-    const parsedIds = [...new Set(idTokens.map(Number))];
-
-    if (parsedIds.length === 0) {
-      setError('Please provide at least one valid sequence ID to exclude.');
+    if (selectedSequenceIds.length === 0) {
+      setError('Choose at least one event from this employee’s audit history.');
       return;
     }
 
@@ -85,7 +179,7 @@ export default function CounterfactualPage() {
       const res = await runCounterfactualSimulation(
         {
           employee_id: Number(employeeId),
-          skip_sequence_ids: parsedIds,
+          skip_sequence_ids: selectedSequenceIds,
           as_of: formattedAsOf,
         },
         getToken,
@@ -122,7 +216,7 @@ export default function CounterfactualPage() {
       {/* Control Panel Card */}
       <div className="bg-linear-surface-1 border border-linear-hairline rounded-xl p-5 shadow-xs">
         <form onSubmit={handleRunSimulation} className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* Employee Selector */}
             <div>
               <label className="block text-xs font-semibold text-linear-ink-subtle uppercase tracking-wider mb-1.5">
@@ -151,23 +245,6 @@ export default function CounterfactualPage() {
               )}
             </div>
 
-            {/* Excluded Sequence IDs */}
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <label className="text-xs font-semibold text-linear-ink-subtle uppercase tracking-wider">
-                  Exclude Sequence IDs
-                </label>
-                <span className="text-[10px] text-linear-ink-muted">Comma-separated</span>
-              </div>
-              <input
-                type="text"
-                value={skipSeqInput}
-                onChange={(e) => setSkipSeqInput(e.target.value)}
-                placeholder="Sequence IDs from the audit log"
-                className="w-full text-sm font-mono bg-linear-surface-2 border border-linear-hairline rounded-lg px-3 py-2 text-linear-ink focus:outline-hidden focus:border-linear-primary"
-              />
-            </div>
-
             {/* As-Of Timestamp (Optional) */}
             <div>
               <div className="flex items-center justify-between mb-1.5">
@@ -185,16 +262,120 @@ export default function CounterfactualPage() {
             </div>
           </div>
 
+          {/* Employee-specific event picker */}
+          <section className="overflow-hidden rounded-lg border border-linear-hairline" aria-labelledby="counterfactual-event-picker-title">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-linear-hairline bg-linear-surface-2/70 px-3 py-2.5">
+              <div>
+                <h3 id="counterfactual-event-picker-title" className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-linear-ink">
+                  <ListChecks className="h-3.5 w-3.5 text-linear-primary" />
+                  Choose events to exclude
+                </h3>
+                <p className="mt-0.5 text-[11px] text-linear-ink-muted">
+                  {selectedSequenceIds.length} selected · showing {employeeEvents.length} of {eventTotal} events for Employee #{employeeId}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="relative">
+                  <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-linear-ink-muted" />
+                  <input
+                    type="search"
+                    value={eventSearch}
+                    onChange={(e) => setEventSearch(e.target.value)}
+                    placeholder="Find event"
+                    className="w-44 rounded-md border border-linear-hairline bg-linear-canvas py-1.5 pl-7 pr-2 text-xs text-linear-ink placeholder:text-linear-ink-muted focus:border-linear-primary focus:outline-hidden"
+                  />
+                </label>
+                {selectedSequenceIds.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => { setSelectedSequenceIds([]); setResult(null); }}
+                    className="inline-flex items-center gap-1 rounded-md px-2 py-1.5 text-[11px] text-linear-ink-muted hover:bg-linear-canvas hover:text-linear-ink"
+                  >
+                    <X className="h-3 w-3" /> Clear
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {eventError && (
+              <p role="alert" className="border-b border-status-danger/20 bg-status-danger/5 px-3 py-2 text-xs text-status-danger">{eventError}</p>
+            )}
+
+            <div className="max-h-72 overflow-auto">
+              {isLoadingEvents && employeeEvents.length === 0 ? (
+                <p className="px-3 py-8 text-center text-xs text-linear-ink-muted">Loading this employee’s audit events…</p>
+              ) : visibleEvents.length === 0 ? (
+                <p className="px-3 py-8 text-center text-xs text-linear-ink-muted">
+                  {employeeEvents.length === 0 ? 'No audit events are available for this employee.' : 'No events match your search.'}
+                </p>
+              ) : (
+                <table className="w-full min-w-[720px] text-left text-xs">
+                  <thead className="sticky top-0 z-10 bg-linear-surface-1 text-[10px] font-semibold uppercase tracking-wide text-linear-ink-muted">
+                    <tr>
+                      <th className="w-9 px-3 py-2"><span className="sr-only">Select</span></th>
+                      <th className="px-2 py-2">Sequence</th>
+                      <th className="px-2 py-2">Event</th>
+                      <th className="px-2 py-2">Change</th>
+                      <th className="px-2 py-2">Recorded</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-linear-hairline/70">
+                    {visibleEvents.map((event) => {
+                      const isSelected = selectedSequenceIds.includes(event.sequence_id);
+                      return (
+                        <tr
+                          key={event.sequence_id}
+                          className={isSelected ? 'bg-linear-primary/10' : 'hover:bg-linear-surface-2/60'}
+                        >
+                          <td className="px-3 py-2">
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => toggleSequence(event.sequence_id)}
+                              aria-label={`Exclude sequence ${event.sequence_id}`}
+                              className="h-4 w-4 accent-linear-primary"
+                            />
+                          </td>
+                          <td className="px-2 py-2 font-mono font-bold text-linear-primary">#{event.sequence_id}</td>
+                          <td className="px-2 py-2">
+                            <div className="flex flex-wrap items-center gap-1.5">
+                            <span className="font-semibold text-linear-ink">{event.action}</span>
+                            <span className="font-mono text-linear-ink-muted">{event.table_name} · row #{event.row_id}</span>
+                            </div>
+                          </td>
+                          <td className="max-w-[360px] truncate px-2 py-2 text-linear-ink-subtle" title={describeEvent(event)}>{describeEvent(event)}</td>
+                          <td className="whitespace-nowrap px-2 py-2 text-linear-ink-muted" title={new Date(event.created_at).toLocaleString()}>{new Date(event.created_at).toLocaleString()}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+
+            {eventPage < eventPages && (
+              <div className="border-t border-linear-hairline px-3 py-2 text-center">
+                <button
+                  type="button"
+                  onClick={loadEarlierEvents}
+                  disabled={isLoadingEvents}
+                  className="text-xs font-semibold text-linear-primary hover:underline disabled:opacity-50"
+                >
+                  {isLoadingEvents ? 'Loading…' : 'Load earlier events'}
+                </button>
+              </div>
+            )}
+          </section>
+
           {/* Guidance & Action */}
           <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-linear-hairline/60">
             <p className="text-xs text-linear-ink-muted">
-              IDs vary by database. Choose this employee’s event in the{' '}
-              <Link to="/auditor/log" className="text-linear-primary underline underline-offset-2">Audit Log</Link>.
+              Select one or more events above. The replay excludes them in memory and leaves the ledger unchanged.
             </p>
 
             <button
               type="submit"
-              disabled={isSimulating}
+              disabled={isSimulating || isLoadingEvents || selectedSequenceIds.length === 0}
               className="btn-press flex items-center gap-2 px-5 py-2 rounded-lg bg-linear-primary hover:bg-linear-primary/90 text-white text-sm font-semibold shadow-xs disabled:opacity-50 transition-colors duration-150"
             >
               {isSimulating ? (
@@ -231,27 +412,31 @@ export default function CounterfactualPage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <div className="bg-linear-surface-1 border border-linear-hairline rounded-xl p-4 shadow-xs">
               <div className="flex items-center justify-between text-xs text-linear-ink-subtle mb-1">
-                <span>Annual Salary Delta</span>
-                <TrendingDown className="w-4 h-4 text-amber-400" />
+                <span>Annual Salary Variance (Actual − Replay)</span>
+                <GitCompare className="w-4 h-4 text-amber-400" />
               </div>
               <div className="text-2xl font-bold text-amber-400 tracking-tight">
-                {formatINR(result.blast_radius.salary_overpaid_annual, true)}
+                {salaryVariance > 0 ? '+' : salaryVariance < 0 ? '−' : ''}{formatINR(salaryVarianceAmount, true)}
               </div>
               <p className="text-[11px] text-linear-ink-muted mt-1">
-                Actual ({formatINR(result.blast_radius.salary_actual)}) vs Replay ({formatINR(result.blast_radius.salary_counterfactual)})
+                {salaryVariance > 0
+                  ? `Actual salary is higher by ${formatINR(salaryVarianceAmount)} per year`
+                  : salaryVariance < 0
+                    ? `Replay salary is higher by ${formatINR(salaryVarianceAmount)} per year`
+                    : 'Actual and replay salary rates match'}
               </p>
             </div>
 
             <div className="bg-linear-surface-1 border border-linear-hairline rounded-xl p-4 shadow-xs">
               <div className="flex items-center justify-between text-xs text-linear-ink-subtle mb-1">
-                <span>Estimated Cumulative Salary-Rate Exposure</span>
+                <span>Estimated Cumulative Overpayment</span>
                 <DollarSign className="w-4 h-4 text-rose-400" />
               </div>
               <div className="text-2xl font-bold text-rose-400 tracking-tight">
                 {formatINR(result.blast_radius.salary_overpaid_cumulative, true)}
               </div>
               <p className="text-[11px] text-linear-ink-muted mt-1">
-                Time-weighted salary-rate difference; not a payroll payment total
+                Counts only periods when actual salary exceeds replay; not a payroll payment total
               </p>
             </div>
 
@@ -314,15 +499,19 @@ export default function CounterfactualPage() {
                       Compensation (Annual)
                     </td>
                     <td className="py-3 px-4 font-mono font-semibold text-linear-ink">
-                      {formatINR(Number(result.actual_state?.salary || 0), true)}
+                      {formatINR(actualSalary, true)}
                     </td>
                     <td className="py-3 px-4 font-mono font-semibold text-emerald-400">
-                      {formatINR(Number(result.counterfactual_state?.salary || 0), true)}
+                      {formatINR(replaySalary, true)}
                     </td>
                     <td className="py-3 px-4">
-                      {result.blast_radius.salary_overpaid_annual > 0 ? (
+                      {salaryVariance > 0 ? (
                         <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-rose-500/20 text-rose-300 border border-rose-500/30">
-                          − {formatINR(result.blast_radius.salary_overpaid_annual)} / yr
+                          Actual higher by {formatINR(salaryVarianceAmount)} / yr
+                        </span>
+                      ) : salaryVariance < 0 ? (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                          Replay higher by {formatINR(salaryVarianceAmount)} / yr
                         </span>
                       ) : (
                         <span className="text-xs text-linear-ink-muted">Identical</span>

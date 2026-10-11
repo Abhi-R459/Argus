@@ -66,7 +66,7 @@ async def test_concurrency_benchmark_diagnostic_path(client_auditor: AsyncClient
         worker_session.execute.return_value = result
         return worker_session
 
-    with patch("api.routers.audits.get_session_factory", return_value=MagicMock(side_effect=make_worker_session)):
+    with patch("api.routers.audits.get_session_factory", return_value=MagicMock(side_effect=make_worker_session)), patch.object(get_settings(), "ALLOW_CONCURRENCY_DIAGNOSTICS", True):
         response = await client_auditor.post(
             "/api/analytics/diagnostics/concurrency-benchmark",
             json={"workers": 2},
