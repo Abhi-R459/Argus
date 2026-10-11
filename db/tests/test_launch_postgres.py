@@ -24,7 +24,7 @@ def launch_database():
         pytest.fail("Refusing launch checks against an unconfirmed test database.")
     with psycopg2.connect(dsn) as conn, conn.cursor() as cursor:
         cursor.execute("SELECT version_num FROM alembic_version")
-        assert cursor.fetchone()[0] == "027_supabase_sessions"
+        assert cursor.fetchone()[0] == "030_definer_schema_usage"
         cursor.execute("INSERT INTO departments(name) VALUES ('Launch Check') RETURNING department_id")
         department = cursor.fetchone()[0]
         cursor.execute("INSERT INTO roles(title,department_id,salary_band_min,salary_band_max) VALUES ('Engineer',%s,1,1000000) RETURNING role_id", (department,))
@@ -44,6 +44,16 @@ def _runtime(role):
     return make_url(os.environ[name]).set(drivername="postgresql").render_as_string(hide_password=False)
 
 
+def test_runtime_request_budget_works_under_schema_lockdown(launch_database):
+    with psycopg2.connect(_runtime('hr_admin')) as conn, conn.cursor() as cursor:
+        cursor.execute("SELECT has_schema_privilege('public','USAGE')")
+        assert cursor.fetchone()[0] is True
+        cursor.execute("SELECT allowed,retry_after FROM argus_private.consume_request_budget(%s,'api',120)", (launch_database['actor'],))
+        allowed, retry_after = cursor.fetchone()
+        assert allowed is True and 1 <= retry_after <= 60
+        conn.rollback()
+
+
 def test_supabase_session_helper_revokes_logout_and_banned_users(launch_database):
     """Simulate Auth tables only in the explicitly disposable database."""
     user_id = '1ac1a96e-09fb-4dc8-a34a-cc2ac0dbe699'
@@ -53,11 +63,20 @@ def test_supabase_session_helper_revokes_logout_and_banned_users(launch_database
         cursor.execute("CREATE SCHEMA auth")
         cursor.execute("CREATE TABLE auth.users(id uuid PRIMARY KEY, banned_until timestamptz, deleted_at timestamptz, encrypted_password text)")
         cursor.execute("CREATE TABLE auth.sessions(id uuid PRIMARY KEY, user_id uuid, not_after timestamptz, refresh_token_hmac_key text)")
-        cursor.execute("GRANT USAGE ON SCHEMA auth TO argus_auth_reader")
         cursor.execute("GRANT SELECT(id,user_id,not_after) ON auth.sessions TO argus_auth_reader")
         cursor.execute("GRANT SELECT(id,banned_until,deleted_at) ON auth.users TO argus_auth_reader")
+        import importlib
+        cursor.execute(importlib.import_module('db.alembic.versions.028_bound_auth_session_check').SQL)
+        cursor.execute("SELECT has_schema_privilege('argus_auth_reader','auth','USAGE')")
+        assert cursor.fetchone()[0] is False
         cursor.execute("INSERT INTO auth.users(id) VALUES (%s)", (user_id,))
         cursor.execute("INSERT INTO auth.sessions(id,user_id) VALUES (%s,%s)", (session_id,user_id))
+        # Supabase Auth tables use managed RLS without policies for custom roles.
+        cursor.execute("ALTER TABLE auth.users ENABLE ROW LEVEL SECURITY")
+        cursor.execute("ALTER TABLE auth.sessions ENABLE ROW LEVEL SECURITY")
+        cursor.execute(importlib.import_module('db.alembic.versions.029_managed_auth_rls').SQL)
+        cursor.execute("SELECT has_function_privilege('hr_admin','argus_private.supabase_session_active(uuid,uuid)','EXECUTE'), has_table_privilege('hr_admin','auth.users','SELECT')")
+        assert cursor.fetchone() == (True, False)
         cursor.execute("SELECT rolcanlogin,rolsuper,rolbypassrls FROM pg_roles WHERE rolname='argus_auth_reader'")
         assert cursor.fetchone() == (False,False,False)
         cursor.execute("SELECT has_column_privilege('argus_auth_reader','auth.sessions','refresh_token_hmac_key','SELECT'), has_column_privilege('argus_auth_reader','auth.users','encrypted_password','SELECT')")
@@ -106,6 +125,9 @@ def test_session_migration_restores_restricted_migration_owner(launch_database):
     try:
         with psycopg2.connect(url.render_as_string(hide_password=False)) as conn, conn.cursor() as cursor:
             cursor.execute(migration_sql)
+            bound_sql = importlib.import_module('db.alembic.versions.028_bound_auth_session_check').SQL
+            bound_sql = bound_sql.replace('argus_auth_reader', 'argus_auth_reader_test').replace('supabase_session_active', 'supabase_session_active_test')
+            cursor.execute(bound_sql)
             cursor.execute("SELECT pg_has_role(current_user,'argus_audit_owner','USAGE'),pg_has_role(current_user,'argus_audit_owner','SET')")
             assert cursor.fetchone() == (False,False)
     finally:

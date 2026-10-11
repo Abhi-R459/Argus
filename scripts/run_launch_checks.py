@@ -30,6 +30,9 @@ def main():
         cursor.execute("SELECT count(*) FROM information_schema.tables WHERE table_schema='public'")
         if cursor.fetchone()[0]:
             raise RuntimeError('Launch checks require an empty disposable database.')
+        # Match the hosted schema lockdown; stock PostgreSQL otherwise masks
+        # missing USAGE grants for non-login SECURITY DEFINER owners.
+        cursor.execute('REVOKE USAGE ON SCHEMA public FROM PUBLIC')
         for role, name in [('hr_admin', 'DATABASE_URL_HR_ADMIN'), ('compliance_auditor', 'DATABASE_URL_COMPLIANCE_AUDITOR')]:
             runtime = make_url(env[name])
             if (runtime.username != role or runtime.database != expected

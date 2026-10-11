@@ -18,7 +18,9 @@ async def test_readiness_checks_both_database_roles(monkeypatch):
     session = AsyncMock()
     result = MagicMock()
     result.scalar_one.return_value = True
-    session.execute.return_value = result
+    absent_session = MagicMock()
+    absent_session.scalar_one.return_value = False
+    session.execute.side_effect = [result, absent_session, result]
 
     @asynccontextmanager
     async def session_context():
@@ -38,7 +40,24 @@ async def test_readiness_checks_both_database_roles(monkeypatch):
     assert response.status_code == 200
     assert response.json() == {"status": "ready"}
     assert requested_roles == ["hr_admin", "compliance_auditor"]
-    assert session.execute.await_count == 2
+    assert session.execute.await_count == 3
+
+
+@pytest.mark.asyncio
+async def test_readiness_fails_when_session_function_cannot_execute(monkeypatch):
+    session = AsyncMock()
+    ready_role = MagicMock()
+    ready_role.scalar_one.return_value = True
+    session.execute.side_effect = [ready_role, RuntimeError("managed Auth permission denied")]
+
+    @asynccontextmanager
+    async def session_context():
+        yield session
+
+    monkeypatch.setattr(health, "get_session_factory", lambda role: MagicMock(return_value=session_context()))
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        response = await ac.get("/api/health/ready")
+    assert response.status_code == 503
 
 
 @pytest.mark.asyncio

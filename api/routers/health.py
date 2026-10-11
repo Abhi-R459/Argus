@@ -24,6 +24,7 @@ async def readiness_check():
             async with session_factory() as session:
                 result = await session.execute(text("""
                     SELECT current_user = :role AND NOT rolsuper AND NOT rolbypassrls
+                      AND has_schema_privilege('argus_audit_owner','public','USAGE')
                       AND to_regprocedure('argus_private.consume_request_budget(integer,text,integer)') IS NOT NULL
                       AND to_regprocedure('argus_private.lock_checkpoint_boundary()') IS NOT NULL
                       AND to_regprocedure('argus_private.supabase_session_active(uuid,uuid)') IS NOT NULL
@@ -31,6 +32,16 @@ async def readiness_check():
                 """), {"role": role})
                 if not result.scalar_one():
                     raise RuntimeError("Runtime role or required schema is not ready")
+                if role == "hr_admin":
+                    # Execute the session check rather than only checking its
+                    # existence; managed Auth grants can differ from local PG.
+                    probe = await session.execute(text("""
+                        SELECT argus_private.supabase_session_active(
+                            '00000000-0000-0000-0000-000000000000'::uuid,
+                            '00000000-0000-0000-0000-000000000000'::uuid)
+                    """))
+                    if probe.scalar_one() is not False:
+                        raise RuntimeError("Session validation is not ready")
         return {"status": "ready"}
     except Exception as exc:
         logger.warning("API readiness check failed: %s", type(exc).__name__)

@@ -11,8 +11,10 @@ employee data.
    time recovery if available, private networking, and an administrator
    credential stored outside the source tree. For Supabase Free, use the shared
    pooler session URL on port 5432 from IPv4-only environments. This application
-   uses PostgreSQL's native protocol; it does not need Supabase Auth, the Data
-   API, or a Supabase API key.
+   uses PostgreSQL's native protocol for business data. This release also
+   requires Supabase Auth in the same project, its public publishable key,
+   and migrations through 030 for live session checks. The frontend has no direct
+   business-table access through the Supabase Data API.
 2. Configure the secrets and public-origin values listed below. Set
    `SIGNING_PRIVATE_KEY_FILE` to the mounted Ed25519 private key. Never commit
    `.env`, private keys, database dumps, or real personnel data.
@@ -31,7 +33,7 @@ employee data.
    For the Supabase Free project in this repository, set both
    `MIGRATIONS_DATABASE_URL` and `DATABASE_URL_MIGRATIONS` to the shared
    session-pooler URL using user `postgres.jdfakmmbydbnupndcytf`, database
-   `postgres`, port `5432`, and `?sslmode=require`. Use the exact host copied
+   `postgres`, port `5432`, and certificate/hostname-verified TLS. Use the exact host copied
    from Supabase Connect and percent-encode the password. Never put this URL in
    the API's runtime URL variables.
 
@@ -55,7 +57,8 @@ employee data.
    defaults. For a hosted database, set `COMPOSE_DATABASE_URL_HR_ADMIN` and
    `COMPOSE_DATABASE_URL_COMPLIANCE_AUDITOR` to full
    `postgresql+asyncpg://` URLs using the respective least-privilege role,
-   shared pooler host/port 5432, URL-encoded passwords, and `?sslmode=require`.
+   shared pooler host/port 5432, URL-encoded passwords, and
+   `?sslmode=verify-full&sslrootcert=/app/certificates/supabase-ca.crt`.
    Shared pooler usernames append the project ref, for example
    `hr_admin.jdfakmmbydbnupndcytf` and
    `compliance_auditor.jdfakmmbydbnupndcytf`.
@@ -73,11 +76,12 @@ employee data.
    `/api/health` is only process liveness and `/api/health/ready` is service
    readiness; neither endpoint verifies audit-chain integrity or external proof.
    The HR on-demand checkpoint endpoint (`POST /api/checkpoints/create`) is
-   available only in development/demo while it uses the local file signer. The
-   production API deliberately returns `503` until a managed signer is
-   integrated. Migration `023_hr_checkpoint_creation` grants the HR role only
-   the append-only database access needed by that route; applying the migration
-   does not enable signing in production or create an external anchor.
+   uses the mounted Ed25519 signer and fails closed if that key is missing or
+   invalid. Startup checks that its matching public key is present. Migration
+   `023_hr_checkpoint_creation` grants the HR role the append-only database
+   access needed by that route. The free launch persists signed checkpoints
+   in PostgreSQL with `ANCHOR_STORE=none`; an independent external witness is
+   not configured. The signer is inside the API's trust boundary.
 
 ## Backups
 
@@ -154,9 +158,13 @@ frontend origin in the Auth Site URL and its exact `/auth/callback` URL in the
 redirect allowlist; do not add wildcard preview domains.
 
 The API runtime database must be the same Supabase project that issues sessions.
-Migration 027 creates a private boolean session check owned by a non-login role
-with access only to session status and user ban/deletion columns. Business roles
-cannot read Auth passwords or tokens. A standalone PostgreSQL instance without
+Migrations 027-029 provide a private fixed-SQL boolean session check. On managed
+Auth tables with RLS, it is owned by the trusted migration administrator with
+existing RLS bypass; no Auth policy is changed. Only the HR runtime role can
+execute it, and it returns session/user status without exposing Auth records.
+Business roles cannot read Auth passwords or tokens or bypass RLS. Migration 030
+lets the non-login audit-function owner resolve its already-granted public tables.
+A standalone PostgreSQL instance without
 Supabase Auth deliberately fails real session checks closed. Local unit and
 isolated database tests mock identity verification instead of weakening production
 authentication. See `LOCAL_DEMO_SETUP.md`.

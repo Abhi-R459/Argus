@@ -3,9 +3,21 @@
 Updated 11 October 2026. The user requires free services only, with no card,
 paid upgrade, expiring trial or paid add-on. The application now uses Supabase
 Auth with Google OAuth. The existing Supabase Free project is at migration
-`027_supabase_sessions`. Google consent and its web client have been created;
-Google login is enabled in Supabase, Email login is disabled, and both approved accounts are saved in Google’s restricted access list. Public hosting is still pending. No live app URL is
-claimed in this handoff.
+`030_definer_schema_usage`. Google login is enabled in Supabase, Email login is
+disabled, and both approved accounts are saved in Google's restricted access
+list. The approved Render Free API and static site have been provisioned:
+
+| Resource | Actual assigned address / ID |
+|---|---|
+| Application | https://argus-frontend-0i6n.onrender.com |
+| API | https://argus-backend-u0i3.onrender.com |
+| API service | `srv-db5qfenavr4c739nd0q0` |
+| Static service | `srv-db5qfenavr4c739nd0o0` |
+| Blueprint | `exs-db5lc92d0e5s73fsbkt0` |
+
+The API stores its runtime secrets and two signing files only in its backend
+configuration. The frontend has public Auth configuration and the API address.
+Supabase Site URL and its one callback redirect match the actual frontend.
 
 ## Free deployment
 
@@ -17,7 +29,7 @@ the public repository source; deploy only after the exact release commit's CI
 passes. The public GitHub repository uses ordinary free Actions runners.
 
 The Render workspace was verified on Hobby with no card or pending charges and
-a **$0 build-pipeline spending limit**. Recheck before creating services. Do not
+a **$0 build-pipeline spending limit**. Recheck before changing services. Do not
 add billing, workers, cron services, disks, new databases, trials or paid custom
 domains. The observed shared quotas were 750 Free instance hours, 5 GB bandwidth,
 500 Starter build minutes, two custom domains and 25 services. With no payment
@@ -67,10 +79,20 @@ profiles are rechecked against the current email and role on every request;
 removing an email from its list removes its access. `user_metadata` never grants
 permissions. First approved sign-in provisions the application profile.
 
-Migration 027 exposes only a private boolean session check to the HR database
-pool. Its owner cannot log in and can read only session-status and user
-ban/deletion columns. Neither runtime business role can read Auth passwords,
-refresh tokens or credential tables. The legacy internal `clerk_user_id` column
+Migrations 027-029 expose only a private boolean session check to the HR database
+pool. Managed Auth tables deny custom roles through RLS and their schema USAGE
+cannot be granted by the project administrator. Migration 028 binds fixed SQL
+table references at creation; migration 029 uses the trusted `postgres`
+principal's existing RLS bypass for this one function. Its schema is not exposed
+through the Data API, PUBLIC execution is revoked, its search path is fixed,
+and its two UUID inputs return only a boolean. No managed Auth policy is changed.
+The trusted database administrator remains part of the security boundary.
+Neither runtime business role can read Auth passwords, refresh tokens or
+credential tables or bypass RLS. Migration 030 supplies the audit-function
+owner's missing schema USAGE without granting new table privileges.
+See [Supabase database functions](https://supabase.com/docs/guides/database/functions)
+and [PostgreSQL SQL function bodies](https://www.postgresql.org/docs/current/sql-createfunction.html).
+The legacy internal `clerk_user_id` column
 is retained to preserve audit references and now stores `supabase:<uuid>`;
 the API exposes it as `auth_user_id`. Clerk is unused by the deployed code.
 
@@ -83,8 +105,9 @@ external identity rather than weakening the deployed checks.
 
 The hosted project is `jdfakmmbydbnupndcytf`, region ap-south-1, on Free. Its
 business tables contain no employees, salary records, departments, roles,
-audit entries, checkpoints or active application users. Auth currently has no
-users. The disabled maintenance identity, chain singleton, migration history
+audit entries or checkpoints. Real approved sign-ins create and retain Auth
+accounts and application profiles; these are not demo data. The disabled
+maintenance identity, chain singleton, migration history
 and cryptographic configuration are intentional infrastructure.
 
 Local demo data was also emptied after a backup. Its recovery dump under
@@ -143,7 +166,7 @@ Set only public values on the static site, using Node 22 and
 ```text
 VITE_SUPABASE_URL=https://jdfakmmbydbnupndcytf.supabase.co
 VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_<public-key>
-VITE_API_URL=https://<actual-api-host>/api
+VITE_API_URL=https://argus-backend-u0i3.onrender.com/api
 VITE_ENABLE_DIAGNOSTICS=false
 VITE_API_TIMEOUT_MS=90000
 ```
@@ -157,21 +180,26 @@ rather than pretending the server session was revoked.
 
 ## Release checks and remaining work
 
-Local validation passed: **178 API tests**, **216 database unit tests** with
-44 opt-in/specialized skips, **27 browser tests**, and **eight isolated PostgreSQL
+Local validation passed: **179 API tests**, **216 database unit tests** with
+44 opt-in/specialized skips, **27 browser tests**, and **nine isolated PostgreSQL
 17 checks**. The fresh-database checks include session expiry/logout/ban/deletion,
-minimum Auth column grants, restricted migration-administrator permission
-restoration, signed writes and checkpoint verification. Frontend lint and the
+managed Auth RLS, revoked public-schema USAGE, minimum Auth column grants,
+restricted migration-administrator permission restoration, rate limiting,
+signed writes and checkpoint verification. Frontend lint and the
 strict launch build passed using the public Supabase configuration. Browser
 tests use mocked APIs and do not establish real Google login. The API image
-build and packaging checks passed; production keys/configuration and hosted database readiness also passed with a temporary test origin. Remote CI and live startup must use this updated release and the actual hosting origin.
+build and packaging checks passed. The first deployment of `a496a21` passed
+remote CI ([run 38149936635](https://github.com/Abhi-R459/Argus/actions/runs/38149936635))
+and all 15 public live checks. Real sign-in uncovered managed-schema permissions
+that are addressed by migrations 028-030 and reproduced by the updated isolated
+checks. The strengthened readiness route executes the session check and checks
+the audit owner's schema access rather than only checking function existence.
 
-Before announcing availability, provision the free Render services and
-secret files, and set exact Auth redirects/CORS. Verify the exact commit's CI.
-Then run the read-only deployment check:
+For every subsequent release, verify the exact commit's CI, manually deploy the
+Free services, then run the read-only deployment check:
 
 ```text
-python scripts/check_live_deployment.py --frontend-origin https://<frontend-host> --api-origin https://<api-host>
+python scripts/check_live_deployment.py --frontend-origin https://argus-frontend-0i6n.onrender.com --api-origin https://argus-backend-u0i3.onrender.com
 ```
 
 It checks HTTPS, readiness, frontend routes/security headers, anonymous and
