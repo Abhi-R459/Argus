@@ -302,12 +302,19 @@ export async function fetchAuditLogs(
   filters: AuditLogFilters,
   getToken: () => Promise<string | null>,
 ): Promise<AuditLogPage> {
+  const nationalId = filters.national_id_search?.trim();
+  if (nationalId) {
+    return fetchWithAuth('/audit-logs/search', {
+      method: 'POST',
+      body: JSON.stringify({ ...filters, national_id_search: nationalId }),
+    }, getToken);
+  }
+
   const params = new URLSearchParams();
   if (filters.actor_id)   params.set('actor_id',   String(filters.actor_id));
   if (filters.action)     params.set('action',      filters.action);
   if (filters.table_name) params.set('table_name',  filters.table_name);
   if (filters.severity)   params.set('severity',    filters.severity);
-  if (filters.national_id_search) params.set('national_id_search', filters.national_id_search);
   if (filters.sequence_id !== undefined && filters.sequence_id !== null) {
     params.set('sequence_id', String(filters.sequence_id));
   }

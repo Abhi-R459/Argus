@@ -1,3 +1,5 @@
+import ssl
+
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from sqlalchemy.engine import make_url
 from .config import get_settings
@@ -18,18 +20,23 @@ def runtime_engine_options(database_url: str, settings) -> dict:
             raise ValueError("Specify only one of ssl or sslmode in a runtime URL.")
         mode = url.query["sslmode"]
         url = url.difference_update_query(["sslmode"]).update_query_dict({"ssl": mode})
+    connect_args = {
+        "timeout": 10,
+        "command_timeout": settings.DB_STATEMENT_TIMEOUT_MS / 1000,
+        "server_settings": {
+            "statement_timeout": str(settings.DB_STATEMENT_TIMEOUT_MS),
+            "lock_timeout": str(settings.DB_LOCK_TIMEOUT_MS),
+            "idle_in_transaction_session_timeout": "60000",
+        },
+    }
+    if url.query.get("ssl") in {"require", "verify-ca", "verify-full"}:
+        # Always verify the hostname and certificate. Driver 'require' mode
+        # otherwise encrypts without authenticating the database server.
+        connect_args["ssl"] = ssl.create_default_context(cafile=url.query.get("sslrootcert"))
+        url = url.difference_update_query(["ssl", "sslrootcert"])
     return {
         "url": url,
-        "connect_args": {
-            "timeout": 10,
-            "command_timeout": settings.DB_STATEMENT_TIMEOUT_MS / 1000,
-            # Use direct PostgreSQL or the Supabase session pooler (port 5432).
-            "server_settings": {
-                "statement_timeout": str(settings.DB_STATEMENT_TIMEOUT_MS),
-                "lock_timeout": str(settings.DB_LOCK_TIMEOUT_MS),
-                "idle_in_transaction_session_timeout": "60000",
-            },
-        },
+        "connect_args": connect_args,
     }
 
 

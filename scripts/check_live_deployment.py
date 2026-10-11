@@ -31,8 +31,8 @@ def https_origin(value):
     return value.rstrip("/")
 
 
-def request(opener, url, timeout, method="GET", headers=None):
-    req = Request(url, method=method, headers={"User-Agent": "Argus-Launch-Check/1.0", **(headers or {})})
+def request(opener, url, timeout, method="GET", headers=None, data=None):
+    req = Request(url, method=method, data=data, headers={"User-Agent": "Argus-Launch-Check/1.0", **(headers or {})})
     try:
         response = opener.open(req, timeout=timeout)
     except HTTPError as exc:
@@ -99,6 +99,9 @@ def main(argv=None):
         for path in ("/api/employees", "/api/audit-logs", "/api/auth/me"):
             check("Anonymous access denied for " + path,
                   protected_response(*request(opener, args.api_origin + path, args.timeout)))
+        check("Anonymous private search denied", protected_response(*request(
+            opener, args.api_origin + "/api/audit-logs/search", args.timeout,
+            method="POST", headers={"Content-Type": "application/json"}, data=b"{}")))
         check("Invalid authentication token denied", protected_response(*request(
             opener, args.api_origin + "/api/auth/me", args.timeout,
             headers={"Authorization": "Bearer argus-launch-check-invalid-token"})))

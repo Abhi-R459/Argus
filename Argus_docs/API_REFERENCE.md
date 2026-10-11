@@ -40,7 +40,8 @@ Argus enforces strict Role-Based Access Control (RBAC):
 - `POST /api/checkpoints/create`: HR-admin-only action that signs all audit events since the previous checkpoint, returns the checkpoint ID, sequence boundary, Merkle root, leaf count, sealed-entry count, signature status, and `external_anchor_created: false`, and records the requesting HR admin. Requires migration `023_hr_checkpoint_creation` and a configured development/demo signing key. It does not create an external anchor; production currently returns `503` until a managed signer is available. Returns `409` if there are no pending events or a concurrent checkpoint already sealed the current boundary.
 
 ### 3. Audit, Compliance & Forensics (Compliance Auditor)
-- `GET /api/audit-logs`: Query tamper-evident audit logs with keyset pagination, action/table/severity filters, and server-side HMAC blind index lookups.
+- `GET /api/audit-logs`: Query tamper-evident audit logs with keyset pagination and action/table/severity filters. National identifiers are rejected in URL query parameters.
+- `POST /api/audit-logs/search`: Perform a restricted, rate-limited blind-index search. Put `national_id_search` and any audit-log filters in the JSON request body so identifiers do not appear in request URLs.
 - `GET /api/audit-logs/chain`: Keyset-paginated live audit chain blocks for deep block inspection.
 - `GET /api/audit-logs/export`: Download a digitally signed JSON artifact containing the full evidence chain.
 - `GET /api/audit-logs/export-pack`: Stream portable, air-gapped `.arguspack` evidence zip archives embedding zero-dependency pure-Python RFC 8032 verifiers.

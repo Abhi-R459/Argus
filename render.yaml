@@ -38,7 +38,7 @@ services:
       - key: AUDIT_CONTEXT_SECRET
         sync: false
       - key: AUDIT_CONTEXT_KEY_ID
-        value: v1
+        sync: false
       - key: SIGNING_PRIVATE_KEY_PATH
         value: "/etc/secrets/verifier_private_key.pem"
       - key: CHECKPOINT_PUBLIC_KEYS_DIR

@@ -77,7 +77,7 @@ async def test_blind_search_filter_applied(client_auditor: AsyncClient, mock_db_
     mock_db_session.execute.return_value = mock_exec
     mock_db_session.scalar.return_value = 1
 
-    response = await client_auditor.get(f"/api/audit-logs?national_id_search={raw_nid}")
+    response = await client_auditor.post("/api/audit-logs/search", json={"national_id_search": raw_nid})
     assert response.status_code == 200
     data = response.json()
     assert data["total"] == 1
@@ -100,18 +100,18 @@ async def test_blind_search_rate_limiting(client_auditor: AsyncClient, mock_db_s
 
     # Execute exactly 10 requests - all must succeed with 200 OK
     for i in range(10):
-        resp = await client_auditor.get(f"/api/audit-logs?national_id_search=111-22-{i:04d}")
+        resp = await client_auditor.post("/api/audit-logs/search", json={"national_id_search": f"111-22-{i:04d}"})
         assert resp.status_code == 200, f"Request {i+1} should succeed under rate limit"
 
     # 11th request must be rejected with HTTP 429 Too Many Requests
-    resp_blocked = await client_auditor.get("/api/audit-logs?national_id_search=111-22-9999")
+    resp_blocked = await client_auditor.post("/api/audit-logs/search", json={"national_id_search": "111-22-9999"})
     assert resp_blocked.status_code == 429
     assert "Rate limit exceeded" in resp_blocked.json()["detail"]
     assert "Retry-After" in resp_blocked.headers
 
     # Resetting the limiter immediately restores access
     rate_limiter.reset()
-    resp_restored = await client_auditor.get("/api/audit-logs?national_id_search=111-22-9999")
+    resp_restored = await client_auditor.post("/api/audit-logs/search", json={"national_id_search": "111-22-9999"})
     assert resp_restored.status_code == 200
 
 
@@ -123,7 +123,7 @@ async def test_audit_the_auditor_security_telemetry(client_auditor: AsyncClient,
     mock_db_session.scalar.return_value = 0
 
     search_id = "555-66-7777"
-    response = await client_auditor.get(f"/api/audit-logs?national_id_search={search_id}")
+    response = await client_auditor.post("/api/audit-logs/search", json={"national_id_search": search_id})
     assert response.status_code == 200
 
     # Fetch security telemetry events endpoint
@@ -153,7 +153,7 @@ async def test_blind_search_empty_match(client_auditor: AsyncClient, mock_db_ses
     mock_db_session.execute.return_value = mock_exec
     mock_db_session.scalar.return_value = 0
 
-    response = await client_auditor.get("/api/audit-logs?national_id_search=000-00-0000")
+    response = await client_auditor.post("/api/audit-logs/search", json={"national_id_search": "000-00-0000"})
     assert response.status_code == 200
     data = response.json()
     assert data["total"] == 0
@@ -167,15 +167,59 @@ async def test_blind_search_fails_closed_without_unique_audit_salt(
     from unittest.mock import patch
 
     with patch("api.routers.audits.get_settings", return_value=SimpleNamespace(AUDIT_SALT="short", APP_ENV="development")):
-        response = await client_auditor.get("/api/audit-logs?national_id_search=123-45-6789")
+        response = await client_auditor.post("/api/audit-logs/search", json={"national_id_search": "123-45-6789"})
 
     assert response.status_code == 503
 
 
 async def test_blind_search_hr_forbidden(client_hr: AsyncClient):
     """Assert hr_admin cannot search audit logs by blind index."""
-    response = await client_hr.get("/api/audit-logs?national_id_search=123-45-6789")
+    response = await client_hr.post("/api/audit-logs/search", json={"national_id_search": "123-45-6789"})
     assert response.status_code == 403
+
+
+@pytest.mark.parametrize("method", ["get", "post"])
+async def test_identifier_query_parameters_are_rejected(client_auditor, mock_db_session, method):
+    identifier = "PRIVATE-IDENTIFIER-123"
+    path = "/api/audit-logs" if method == "get" else "/api/audit-logs/search"
+    options = {} if method == "get" else {"json": {"national_id_search": identifier}}
+    response = await getattr(client_auditor, method)(path, params={"national_id_search": identifier}, **options)
+    assert response.status_code == 400
+    assert identifier not in response.text
+    mock_db_session.execute.assert_not_awaited()
+
+
+@pytest.mark.parametrize("payload", [
+    {"national_id_search": ""},
+    {"national_id_search": "   "},
+    {"national_id_search": "PRIVATE-IDENTIFIER-" * 20},
+    {"national_id_search": "PRIVATE-IDENTIFIER-123", "limit": 101},
+    {"national_id_search": "PRIVATE-IDENTIFIER-123", "unexpected": "PRIVATE-IDENTIFIER-123"},
+])
+async def test_private_search_validation_rejects_invalid_bodies(client_auditor, mock_db_session, payload):
+    response = await client_auditor.post("/api/audit-logs/search", json=payload)
+    assert response.status_code == 422
+    assert "PRIVATE-IDENTIFIER" not in response.text
+    mock_db_session.execute.assert_not_awaited()
+
+
+@pytest.mark.parametrize('payload', [{}, {"national_id_search": "PRIVATE-IDENTIFIER-123"}])
+async def test_private_search_denies_anonymous_access(client_unauth, payload):
+    response = await client_unauth.post("/api/audit-logs/search", json=payload)
+    assert response.status_code == 401
+
+
+async def test_private_search_does_not_log_the_identifier(client_auditor, mock_db_session, caplog):
+    import logging
+
+    mock_db_session.scalar.return_value = 0
+    mock_db_session.execute.return_value.all.return_value = []
+    identifier = "PRIVATE-IDENTIFIER-123"
+    with caplog.at_level(logging.INFO, logger="uvicorn.error.argus.requests"):
+        response = await client_auditor.post("/api/audit-logs/search", json={"national_id_search": identifier})
+    assert response.status_code == 200
+    assert identifier not in caplog.text
+    assert "path=/api/audit-logs/search" in caplog.text
 
 
 async def test_unfiltered_audit_logs_regression(client_auditor: AsyncClient, mock_db_session: AsyncMock):

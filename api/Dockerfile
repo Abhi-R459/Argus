@@ -17,6 +17,7 @@ RUN useradd --create-home --uid 10001 argus \
     && chown argus:argus /app/anchor
 COPY --chown=argus:argus api/ ./api/
 COPY --chown=argus:argus db/ ./db/
+COPY --chown=argus:argus certificates/ ./certificates/
 COPY --chown=argus:argus alembic.ini ./alembic.ini
 
 USER argus

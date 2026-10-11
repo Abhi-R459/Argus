@@ -156,6 +156,7 @@ export async function mockArgusApi(page: Page): Promise<void> {
         response = chainEntries;
         break;
       case '/audit-logs':
+      case '/audit-logs/search':
         response = {
           items: [{ sequence_id: 142, table_name: 'salary_history', row_id: 1001,
             employee_id: 1001, action: 'UPDATE', actor_user_id: 101,

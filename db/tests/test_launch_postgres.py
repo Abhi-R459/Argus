@@ -9,6 +9,7 @@ import pytest
 from sqlalchemy.engine import make_url
 
 from db.crypto.actor_context import create_actor_context
+from db.cli import actor_context_keys
 from db.crypto.pii import encrypt_pii, set_employee_audit_context
 
 
@@ -41,6 +42,49 @@ def launch_database():
 def _runtime(role):
     name = "DATABASE_URL_HR_ADMIN" if role == "hr_admin" else "DATABASE_URL_COMPLIANCE_AUDITOR"
     return make_url(os.environ[name]).set(drivername="postgresql").render_as_string(hide_password=False)
+
+
+@pytest.mark.parametrize('own_grant', [False, True])
+def test_actor_key_rotation_restores_restricted_administrator_membership(launch_database, monkeypatch, own_grant):
+    import sys
+
+    dsn = os.environ['ARGUS_TEST_DATABASE_URL']
+    original_key = os.environ.get('AUDIT_CONTEXT_KEY_ID', 'v1')
+    rotation_key = 'rotation-own' if own_grant else 'rotation-admin'
+    with psycopg2.connect(dsn) as conn, conn.cursor() as cursor:
+        cursor.execute("SELECT current_setting('server_version_num')::integer")
+        if cursor.fetchone()[0] < 160000:
+            pytest.skip('PostgreSQL 16+ membership options are required.')
+        cursor.execute("CREATE ROLE launch_key_admin LOGIN CREATEROLE NOSUPERUSER PASSWORD 'isolated-key-admin-only'")
+        cursor.execute("GRANT argus_audit_owner TO launch_key_admin WITH ADMIN TRUE, INHERIT FALSE, SET FALSE")
+    try:
+        url = make_url(dsn).set(username='launch_key_admin', password='isolated-key-admin-only', drivername='postgresql')
+        if own_grant:
+            with psycopg2.connect(url.render_as_string(hide_password=False)) as conn, conn.cursor() as cursor:
+                cursor.execute("GRANT argus_audit_owner TO CURRENT_USER WITH ADMIN TRUE, INHERIT FALSE, SET FALSE")
+        with psycopg2.connect(dsn) as conn, conn.cursor() as cursor:
+            cursor.execute("SELECT grantor, admin_option, inherit_option, set_option FROM pg_auth_members WHERE roleid='argus_audit_owner'::regrole AND member='launch_key_admin'::regrole ORDER BY grantor")
+            original_grants = cursor.fetchall()
+        monkeypatch.setenv('DATABASE_URL_MIGRATIONS', url.render_as_string(hide_password=False))
+        monkeypatch.setenv('AUDIT_CONTEXT_KEY_ID', rotation_key)
+        monkeypatch.setenv('AUDIT_CONTEXT_SECRET', 'ab' * 32)
+        monkeypatch.setattr(sys, 'argv', ['actor_context_keys', 'add', '--key-id', rotation_key])
+        assert actor_context_keys.main() == 0
+        monkeypatch.setattr(sys, 'argv', ['actor_context_keys', 'disable', '--key-id', rotation_key])
+        assert actor_context_keys.main() == 0
+        monkeypatch.setattr(sys, 'argv', ['actor_context_keys', 'disable', '--key-id', original_key])
+        with pytest.raises(ValueError, match='last enabled'):
+            actor_context_keys.main()
+        with psycopg2.connect(dsn) as conn, conn.cursor() as cursor:
+            cursor.execute("SELECT grantor, admin_option, inherit_option, set_option FROM pg_auth_members WHERE roleid='argus_audit_owner'::regrole AND member='launch_key_admin'::regrole ORDER BY grantor")
+            assert cursor.fetchall() == original_grants
+            cursor.execute("SELECT pg_has_role('launch_key_admin','argus_audit_owner','SET'), pg_has_role('hr_admin','argus_audit_owner','MEMBER'), pg_has_role('compliance_auditor','argus_audit_owner','MEMBER')")
+            assert cursor.fetchone() == (False, False, False)
+            cursor.execute("SELECT count(*) FROM argus_private.actor_context_keys WHERE enabled AND key_id=%s", (original_key,))
+            assert cursor.fetchone()[0] == 1
+    finally:
+        with psycopg2.connect(dsn) as conn, conn.cursor() as cursor:
+            cursor.execute('DROP ROLE launch_key_admin')
 
 
 def test_rls_keeps_runtime_reads_and_auditor_pii_isolation(launch_database):

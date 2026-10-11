@@ -10,6 +10,23 @@ from datetime import datetime
 
 # ─── Audit Log ────────────────────────────────────────────────────────────────
 
+class AuditLogSearchRequest(BaseModel):
+    """Keep the national identifier and associated search filters out of URLs."""
+
+    national_id_search: str = Field(min_length=1, max_length=255)
+    actor_id: Optional[int] = None
+    action: Optional[str] = Field(default=None, max_length=255)
+    table_name: Optional[str] = Field(default=None, max_length=255)
+    severity: Optional[str] = Field(default=None, max_length=255)
+    sequence_id: Optional[int] = None
+    employee_id: Optional[int] = None
+    page: int = Field(default=1, ge=1)
+    limit: int = Field(default=20, ge=1, le=100)
+    before_sequence_id: Optional[int] = Field(default=None, ge=1)
+
+    model_config = {"extra": "forbid", "str_strip_whitespace": True}
+
+
 class AuditLogItem(BaseModel):
     """One row from GET /api/audit-logs.
 

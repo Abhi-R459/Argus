@@ -32,8 +32,10 @@ def test_public_check_rejects_unsafe_origins(origin):
 
 @pytest.mark.parametrize("leak", [False, True])
 def test_public_check_detects_anonymous_employee_leak(monkeypatch, capsys, leak):
-    def fetch(opener, url, timeout, method="GET", headers=None):
-        assert method in {"GET", "OPTIONS"}
+    def fetch(opener, url, timeout, method="GET", headers=None, data=None):
+        assert method in {"GET", "OPTIONS", "POST"}
+        if method == "POST":
+            assert url.endswith("/api/audit-logs/search") and data == b"{}"
         if method == "OPTIONS":
             status, out_headers, body = response(200, b"")
             if headers["Origin"] == "https://app.example.com":

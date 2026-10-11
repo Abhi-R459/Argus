@@ -52,10 +52,20 @@ async def test_body_limit_applies_to_chunked_requests():
     assert response.status_code == 413
 
 
-def test_sslmode_is_translated_for_asyncpg():
-    options = runtime_engine_options("postgresql+asyncpg://hr_admin@db/app?sslmode=require", get_settings())
-    assert options["url"].query == {"ssl": "require"}
+@pytest.mark.parametrize('mode', ['require', 'verify-ca', 'verify-full'])
+def test_database_tls_authenticates_the_server(mode):
+    import ssl
+    options = runtime_engine_options(f"postgresql+asyncpg://hr_admin@db/app?sslmode={mode}", get_settings())
+    context = options["connect_args"]["ssl"]
+    assert context.verify_mode == ssl.CERT_REQUIRED
+    assert context.check_hostname
+    assert not options["url"].query
     assert options["connect_args"]["server_settings"]["statement_timeout"] == "30000"
+
+
+def test_missing_database_ca_fails_closed(tmp_path):
+    with pytest.raises(FileNotFoundError):
+        runtime_engine_options(f"postgresql+asyncpg://hr_admin@db/app?sslmode=verify-full&sslrootcert={tmp_path / 'missing.crt'}", get_settings())
 
 
 def test_production_export_never_generates_a_replacement_key(tmp_path, monkeypatch):
@@ -117,7 +127,7 @@ async def test_blind_index_budget_is_checked_before_reserving_business_connectio
     monkeypatch.setattr(audits, 'consume_request_budget', denied)
     business_connection = MagicMock()
     app.dependency_overrides[get_db_session] = business_connection
-    response = await client_auditor.get('/api/audit-logs?national_id_search=budget-check')
+    response = await client_auditor.post('/api/audit-logs/search', json={'national_id_search': 'budget-check'})
     assert response.status_code == 429
     business_connection.assert_not_called()
 

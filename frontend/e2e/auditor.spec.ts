@@ -99,6 +99,22 @@ test.describe('Compliance Auditor Portal E2E', () => {
     await chainRequest;
   });
 
+  test('National ID searches stay out of request URLs', async ({ page }) => {
+    const identifier = 'PRIVATE-IDENTIFIER-123';
+    const requestUrls: string[] = [];
+    page.on('request', (request) => requestUrls.push(request.url()));
+    await page.goto('http://localhost:5173/auditor/log');
+    await expect(page.getByRole('heading', { name: 'Audit Log' })).toBeVisible();
+    const searchRequest = page.waitForRequest((request) =>
+      new URL(request.url()).pathname.endsWith('/audit-logs/search') && request.method() === 'POST'
+    );
+    await page.locator('#audit-log-blind-id-filter').fill(identifier);
+    const request = await searchRequest;
+    expect(request.postDataJSON().national_id_search).toBe(identifier);
+    expect(requestUrls.every((url) => !url.includes(identifier) && !url.includes('national_id_search'))).toBeTruthy();
+    expect(new URL(page.url()).search).not.toContain(identifier);
+  });
+
   test('Auditor risk refresh failure is visible and flags stay unreviewed', async ({ page }) => {
     await page.route('**/api/suspicious-activity/refresh', (route) =>
       route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ detail: 'Already running' }) })

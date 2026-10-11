@@ -46,6 +46,7 @@ from ..models.user import User
 from ..models.security_audit_event import SecurityAuditEvent
 from ..models.suspicious_activity_review import SuspiciousActivityReview
 from ..schemas.audit import (
+    AuditLogSearchRequest,
     AuditLogItem,
     VerificationResult,
     SuspiciousFlagItem,
@@ -243,14 +244,19 @@ _auditor_only = [Depends(require_role(["compliance_auditor"]))]
 
 
 async def _blind_index_request_budget(
-    national_id_search: Optional[str] = Query(None, max_length=255),
+    filters: AuditLogSearchRequest,
     current_user: User = Depends(get_current_user),
 ):
     settings = get_settings()
-    if settings.APP_ENV != "development" and national_id_search and national_id_search.strip():
+    if settings.APP_ENV != "development":
         # Charge before get_db_session reserves a connection. This avoids
         # waiting for a second connection while the same small pool is full.
         await consume_request_budget(current_user, "blind_index", settings.BLIND_INDEX_RATE_LIMIT_PER_MINUTE)
+
+
+async def _reject_sensitive_search_url(request: Request):
+    if "national_id_search" in request.query_params:
+        raise HTTPException(status_code=400, detail="Submit national ID searches to POST /api/audit-logs/search in the JSON body.")
 
 
 # ─── GET /api/audit-logs ──────────────────────────────────────────────────────
@@ -258,7 +264,7 @@ async def _blind_index_request_budget(
 @router.get(
     "/audit-logs",
     response_model=PaginatedResponse[AuditLogItem],
-    dependencies=_auditor_only + [Depends(_blind_index_request_budget)],
+    dependencies=_auditor_only + [Depends(_reject_sensitive_search_url)],
 )
 async def list_audit_logs(
     request: Request = None,
@@ -266,7 +272,7 @@ async def list_audit_logs(
     action: Optional[str] = Query(None, description="INSERT | UPDATE | DELETE"),
     table_name: Optional[str] = Query(None, description="Filter by table name"),
     severity: Optional[str] = Query(None, description="INFO | WARNING | CRITICAL"),
-    national_id_search: Optional[str] = Query(None, max_length=255, description="Search by National ID via blind index"),
+    national_id_search: Optional[str] = Query(None, max_length=255, deprecated=True, description="Rejected legacy URL parameter; use POST /api/audit-logs/search instead"),
     sequence_id: Optional[int] = Query(None, description="Filter by exact sequence_id"),
     employee_id: Optional[int] = Query(None, description="Filter by employee_id"),
     page: int = Query(1, ge=1),
@@ -459,6 +465,24 @@ async def list_audit_logs(
         pages=pages,
         next_cursor=next_cursor,
         has_more=has_more,
+    )
+
+
+@router.post(
+    "/audit-logs/search",
+    response_model=PaginatedResponse[AuditLogItem],
+    dependencies=_auditor_only + [Depends(_reject_sensitive_search_url), Depends(_blind_index_request_budget)],
+)
+async def search_audit_logs(
+    filters: AuditLogSearchRequest,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session, scope="function"),
+):
+    """Search by a sensitive identifier without putting it in an access-log URL."""
+    return await list_audit_logs(
+        request=request, current_user=current_user, session=session,
+        **filters.model_dump(),
     )
 
 

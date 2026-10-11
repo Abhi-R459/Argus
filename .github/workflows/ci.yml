@@ -59,6 +59,23 @@ jobs:
         DATABASE_URL_HR_ADMIN: postgresql+asyncpg://hr_admin:hr-test-only@localhost:5432/argus_test
         DATABASE_URL_COMPLIANCE_AUDITOR: postgresql+asyncpg://compliance_auditor:audit-test-only@localhost:5432/argus_test
       run: python scripts/run_launch_checks.py
+    - name: Validate deployment image without secrets
+      run: |
+        docker build -f api/Dockerfile -t argus-ci .
+        docker run --rm -i --entrypoint python argus-ci - <<'PY'
+        import os
+        import ssl
+        from pathlib import Path
+        assert os.getuid() == 10001
+        context = ssl.create_default_context(cafile='/app/certificates/supabase-ca.crt')
+        assert context.check_hostname and context.verify_mode == ssl.CERT_REQUIRED
+        for path in ('.env', '.env.production', 'keys', 'api/tests', 'db/tests', 'db/bench'):
+            assert not Path('/app', path).exists(), path
+        from api.middleware.request_safety import RequestSafetyMiddleware
+        from db.crypto.actor_context import create_actor_context
+        from db.cli.actor_context_keys import main
+        print('Non-root deployment image includes its public CA and excludes secrets and test data.')
+        PY
 
   test-frontend:
     runs-on: ubuntu-latest

@@ -27,6 +27,20 @@ def main() -> int:
     connection = psycopg2.connect(database_url)
     try:
         with connection.cursor() as cursor:
+            cursor.execute("SELECT current_setting('server_version_num')::integer")
+            modern_membership = cursor.fetchone()[0] >= 160000
+            permission = "SET" if modern_membership else "MEMBER"
+            cursor.execute("SELECT pg_has_role(CURRENT_USER, 'argus_audit_owner', %s)", (permission,))
+            temporary_membership = not cursor.fetchone()[0]
+            original_grant = None
+            if temporary_membership:
+                if modern_membership:
+                    cursor.execute("SELECT admin_option, inherit_option, set_option FROM pg_auth_members WHERE roleid='argus_audit_owner'::regrole AND member=CURRENT_USER::regrole AND grantor=CURRENT_USER::regrole")
+                    original_grant = cursor.fetchone()
+                    cursor.execute("GRANT argus_audit_owner TO CURRENT_USER WITH INHERIT FALSE, SET TRUE")
+                else:
+                    cursor.execute("GRANT argus_audit_owner TO CURRENT_USER")
+            cursor.execute("SET LOCAL ROLE argus_audit_owner")
             if args.action == "add":
                 key_id = os.environ.get("AUDIT_CONTEXT_KEY_ID", "")
                 secret = parse_context_secret(os.environ.get("AUDIT_CONTEXT_SECRET", ""))
@@ -60,6 +74,14 @@ def main() -> int:
                 )
                 if cursor.rowcount != 1:
                     raise ValueError("The requested enabled key ID was not found.")
+            cursor.execute("RESET ROLE")
+            if temporary_membership:
+                if original_grant is not None:
+                    flags = ["TRUE" if value else "FALSE" for value in original_grant]
+                    cursor.execute("GRANT argus_audit_owner TO CURRENT_USER WITH ADMIN " + flags[0] + ", INHERIT " + flags[1] + ", SET " + flags[2])
+                else:
+                    suffix = " GRANTED BY CURRENT_USER" if modern_membership else ""
+                    cursor.execute("REVOKE argus_audit_owner FROM CURRENT_USER" + suffix)
         connection.commit()
     except Exception:
         connection.rollback()
