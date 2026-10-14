@@ -321,6 +321,15 @@ def test_real_api_bootstrap_employee_and_checkpoint(launch_database, tmp_path, m
                 from db.cli.verify_capsule import verify_capsule
                 valid, message, _ = verify_capsule(capsule.content, trusted_public_key_pem=(tmp_path / 'public_key.pem').read_text())
                 assert valid, message
+                import io, json, zipfile
+                bundle = await client.get('/api/audit-logs/export-pack')
+                assert bundle.status_code == 200, bundle.text
+                with zipfile.ZipFile(io.BytesIO(bundle.content)) as archive:
+                    exported_checkpoints = json.loads(archive.read('checkpoints.json'))
+                exported = next(cp for cp in exported_checkpoints if cp['checkpoint_id'] == checkpoint.json()['checkpoint_id'])
+                assert exported['merkle_root'] == root
+                key.public_key().verify(bytes.fromhex(exported['signature_hex']),
+                    f"{exported['checkpoint_hash']}:{exported['merkle_root']}".encode())
         finally:
             app.dependency_overrides.clear()
             await dispose_engines()

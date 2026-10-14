@@ -209,23 +209,27 @@ async def generate_evidence_bundle(session: AsyncSession) -> bytes:
 
     # Query checkpoints
     checkpoints = []
-    try:
-        cp_res = await session.execute(
-            text("SELECT sequence_id, checkpoint_hash, signature, created_at FROM chain_checkpoints ORDER BY sequence_id ASC")
-        )
-        for cp_row in cp_res.all():
-            if hasattr(cp_row, "_mock_return_value") or (hasattr(cp_row, "__class__") and "Mock" in cp_row.__class__.__name__):
-                continue
-            sig_val = cp_row[2]
-            sig_hex = sig_val.hex() if isinstance(sig_val, (bytes, bytearray)) else (str(sig_val) if sig_val else "")
-            checkpoints.append({
-                "sequence_id": cp_row[0],
-                "checkpoint_hash": cp_row[1],
-                "signature_hex": sig_hex,
-                "created_at": str(cp_row[3]) if cp_row[3] else None,
-            })
-    except Exception:
-        checkpoints = []
+    cp_res = await session.execute(text(
+        "SELECT sequence_id, checkpoint_hash, signature, created_at, "
+        "checkpoint_id, key_id, merkle_root, merkle_leaf_count "
+        "FROM chain_checkpoints ORDER BY sequence_id ASC LIMIT 10001"
+    ))
+    checkpoint_rows = cp_res.all()
+    if len(checkpoint_rows) > 10000:
+        raise HTTPException(status_code=413, detail="Too many checkpoints for an interactive export. Use the offline evidence export tools.")
+    for cp_row in checkpoint_rows:
+        sig_val = cp_row[2]
+        sig_hex = bytes(sig_val).hex() if sig_val else ""
+        checkpoints.append({
+            "sequence_id": cp_row[0],
+            "checkpoint_hash": cp_row[1],
+            "signature_hex": sig_hex,
+            "created_at": str(cp_row[3]) if cp_row[3] else None,
+            "checkpoint_id": cp_row[4],
+            "key_id": cp_row[5],
+            "merkle_root": cp_row[6],
+            "merkle_leaf_count": cp_row[7],
+        })
 
     # Sign events hash
     private_key = get_or_create_signing_key()

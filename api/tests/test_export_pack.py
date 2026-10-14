@@ -145,6 +145,40 @@ async def test_export_pack_hr_forbidden(client_hr: AsyncClient):
     assert response.status_code == 403
 
 
+async def test_export_pack_preserves_signed_merkle_checkpoint_metadata(client_auditor, mock_db_session, monkeypatch):
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    from db.cli.signer import verify_signature
+
+    key = Ed25519PrivateKey.generate()
+    checkpoint_hash, root = 'a' * 64, 'b' * 64
+    signature = key.sign(f'{checkpoint_hash}:{root}'.encode())
+    monkeypatch.setattr('api.services.export.get_or_create_signing_key', lambda: key)
+    events, checkpoints = MagicMock(), MagicMock()
+    events.all.return_value = []
+    checkpoints.all.return_value = [(5, checkpoint_hash, memoryview(signature),
+        datetime.now(timezone.utc), 2, 'local:ed25519:v1', root, 5)]
+    mock_db_session.execute.side_effect = [events, checkpoints]
+    response = await client_auditor.get('/api/audit-logs/export-pack')
+    assert response.status_code == 200
+    with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+        checkpoint, = json.loads(archive.read('checkpoints.json'))
+    assert checkpoint['checkpoint_id'] == 2
+    assert checkpoint['key_id'] == 'local:ed25519:v1'
+    assert checkpoint['merkle_leaf_count'] == 5
+    assert verify_signature(key.public_key(), checkpoint['checkpoint_hash'],
+        bytes.fromhex(checkpoint['signature_hex']), merkle_root=checkpoint['merkle_root'])
+
+
+async def test_export_pack_does_not_silently_omit_unavailable_checkpoints(client_auditor, mock_db_session):
+    from sqlalchemy.exc import DBAPIError
+    events = MagicMock()
+    events.all.return_value = []
+    mock_db_session.execute.side_effect = [events, DBAPIError('private-sql', {}, Exception('private-details'))]
+    response = await client_auditor.get('/api/audit-logs/export-pack')
+    assert response.status_code == 503
+    assert 'private' not in response.text
+
+
 async def test_export_pack_unauth_unauthorized(client_unauth: AsyncClient):
     """Assert unauthenticated request cannot download the .arguspack bundle."""
     response = await client_unauth.get("/api/audit-logs/export-pack")

@@ -86,7 +86,7 @@ export default function ExportControl() {
           <p className="text-sm text-linear-ink-subtle leading-relaxed">
             {format === 'arguspack'
               ? 'Download a .arguspack archive with a standalone verifier and detached Ed25519 signature. Verify authenticity with a public key obtained through a trusted channel.'
-              : 'Download a signed JSON file containing the audit hash chain and checkpoint signatures. Verify authenticity with a public key obtained through a trusted channel.'}
+              : 'Download a signed JSON file containing audit events and their hash links. Verify authenticity with a public key obtained through a trusted channel.'}
           </p>
         </div>
 
