@@ -142,6 +142,13 @@ async def validation_error_handler(request, exc):
 @app.exception_handler(DBAPIError)
 @app.exception_handler(DatabasePoolTimeout)
 async def database_error_handler(request, exc):
+    # asyncpg exposes the PostgreSQL SQLSTATE on SQLAlchemy's adapted error.
+    # Never return the driver message or SQL parameters, which may contain PII.
+    sqlstate = getattr(getattr(exc, "orig", None), "sqlstate", None)
+    if sqlstate == "P0002":
+        return JSONResponse(status_code=422, content={"detail": "Salary cannot decrease by more than 30% from the current amount."})
+    if sqlstate == "P0003":
+        return JSONResponse(status_code=403, content={"detail": "You cannot change your own salary."})
     logger.warning("Database request failed (%s)", type(exc).__name__)
     return JSONResponse(status_code=503, content={"detail": "The database is temporarily unavailable. Please try again."})
 

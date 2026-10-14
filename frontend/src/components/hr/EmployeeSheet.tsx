@@ -50,7 +50,10 @@ export interface EmployeeSheetProps {
 const profileSchema = z.object({
   full_name: z.string().min(2, 'Name must be at least 2 characters').max(255).optional().or(z.literal('')),
   email: z.string().email('Invalid email address').optional().or(z.literal('')),
-  role_id: z.coerce.number().int().positive('Please select a valid role').optional().or(z.nan()),
+  role_id: z.preprocess(
+    (value) => value === '' ? undefined : value,
+    z.coerce.number().int().positive('Please select a valid role').optional(),
+  ),
   contact_info: z.string().max(500).optional(),
 });
 
@@ -468,7 +471,7 @@ export function EmployeeSheet({
                 <div>
                   <h5 className="text-xs font-semibold text-rose-950">Deactivate Workforce Personnel</h5>
                   <p className="text-[11px] text-rose-700/90 mt-0.5 leading-relaxed">
-                    Revokes credentials and writes an immutable cryptographic event to the audit ledger.
+                    Marks this personnel record inactive and records the change in the audit ledger.
                   </p>
                 </div>
                 <Button
@@ -555,17 +558,17 @@ export function EmployeeSheet({
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1.5 flex items-center justify-between">
                 <span>Contact information</span>
-                <span className="text-[11px] text-amber-700 font-normal">Stored without encryption</span>
+                <span className="text-[11px] text-emerald-700 font-normal">Encrypted at rest</span>
               </label>
               <textarea
                 {...registerProfile('contact_info')}
                 rows={3}
-                placeholder="Enter contact details (currently stored without encryption; leave blank to retain current)..."
+                placeholder="Enter contact details (leave blank to retain current)..."
                 className="w-full px-3.5 py-2 bg-slate-50/60 hover:bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 focus:bg-white focus:outline-none focus:ring-4 focus:ring-portal-primary/20 focus:border-slate-900 transition-all shadow-2xs"
               />
               <p className="mt-1.5 text-[11px] text-slate-500 flex items-center gap-1">
                 <Lock className="w-3 h-3 text-emerald-600 shrink-0" />
-              Contact details are currently stored without encryption. Do not enter real personal data.
+              Contact details are encrypted before storage. Leave blank to retain the existing details.
               </p>
               {profileErrors.contact_info && (
                 <p className="mt-1 text-xs text-rose-600 font-medium">{profileErrors.contact_info.message}</p>
@@ -579,7 +582,7 @@ export function EmployeeSheet({
               size="sm"
               portalTheme="hr"
               onClick={() => handleTabChange('overview')}
-              disabled={isProfileSubmitting}
+              disabled={isProfileSubmitting || updateProfileMutation.isPending}
             >
               Cancel
             </Button>
@@ -588,8 +591,8 @@ export function EmployeeSheet({
               variant="primary"
               size="sm"
               portalTheme="hr"
-              disabled={isProfileSubmitting || !isProfileDirty}
-              loading={isProfileSubmitting}
+              disabled={isProfileSubmitting || updateProfileMutation.isPending || !isProfileDirty}
+              loading={isProfileSubmitting || updateProfileMutation.isPending}
               className="bg-slate-900 hover:bg-slate-800 text-white font-medium shadow-xs"
             >
               Save Profile Changes
@@ -619,7 +622,7 @@ export function EmployeeSheet({
               <span className="text-xs text-slate-500">per annum</span>
             </div>
             <p className="text-[11px] text-slate-500">
-              Validated against role benchmarks for <span className="font-semibold text-slate-900">{currentEmployee.role_title}</span>.
+              Current position: <span className="font-semibold text-slate-900">{currentEmployee.role_title}</span>. Decreases above 30% are blocked by the database.
             </p>
           </div>
 
@@ -665,7 +668,7 @@ export function EmployeeSheet({
           <div className="p-3.5 rounded-xl bg-emerald-50/70 border border-emerald-200/80 text-xs text-slate-700 space-y-1">
             <span className="font-semibold flex items-center gap-1.5 text-emerald-800 text-[11px]">
               <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-              Automated Checkpoint Trigger
+              Automatic Audit Event
             </span>
             <p className="text-slate-600 text-[11px] leading-relaxed">
               Recording this adjustment creates an immutable row in <code className="font-mono text-slate-900 bg-white/70 px-1 py-0.5 rounded">salary_history</code> and triggers an automatic SHA-256 block in <code className="font-mono text-slate-900 bg-white/70 px-1 py-0.5 rounded">audit_log</code>.
@@ -678,7 +681,7 @@ export function EmployeeSheet({
               size="sm"
               portalTheme="hr"
               onClick={() => handleTabChange('overview')}
-              disabled={isSalarySubmitting}
+              disabled={isSalarySubmitting || updateSalaryMutation.isPending}
             >
               Cancel
             </Button>
@@ -687,8 +690,8 @@ export function EmployeeSheet({
               variant="accent"
               size="sm"
               portalTheme="hr"
-              disabled={isSalarySubmitting}
-              loading={isSalarySubmitting}
+              disabled={isSalarySubmitting || updateSalaryMutation.isPending}
+              loading={isSalarySubmitting || updateSalaryMutation.isPending}
             >
               Record Salary Adjustment
             </Button>
@@ -710,7 +713,7 @@ export function EmployeeSheet({
               </div>
             </div>
             <p className="text-xs text-slate-600 leading-relaxed">
-              Are you sure you want to deactivate <strong className="text-slate-900">{currentEmployee.full_name}</strong> (#{currentEmployee.employee_id})? Their active system access will be terminated immediately.
+              Are you sure you want to deactivate <strong className="text-slate-900">{currentEmployee.full_name}</strong> (#{currentEmployee.employee_id})? The personnel record will be marked inactive and its audit history retained. This does not revoke a sign-in account.
             </p>
             <div className="flex items-center justify-end gap-2.5 pt-2">
               <Button

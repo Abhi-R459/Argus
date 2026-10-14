@@ -99,6 +99,29 @@ test.describe('HR Admin Portal E2E', () => {
     await expect(page.getByRole('button', { name: 'Create checkpoint now' })).toBeVisible();
   });
 
+  test('profile edits can keep the current role and retain blank contact details', async ({ page }) => {
+    let submitted: Record<string, unknown> | undefined;
+    await page.route('**/api/employees/1001', async (route) => {
+      submitted = route.request().postDataJSON();
+      await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ employee_id: 1001 }) });
+    });
+    await page.goto('http://localhost:5173/hr/employees');
+    await page.getByRole('button', { name: 'Edit profile for Maya Rao' }).first().click();
+    await page.getByPlaceholder('Full Name', { exact: true }).fill('Maya Rao Updated');
+    await page.getByRole('button', { name: 'Save Profile Changes' }).click();
+    await expect(page.getByText('Profile updated and cryptographically hashed into audit trail.')).toBeVisible();
+    expect(submitted).toEqual({ full_name: 'Maya Rao Updated' });
+  });
+
+  test('registration states sensitive-field encryption accurately', async ({ page }) => {
+    await page.goto('http://localhost:5173/hr/employees');
+    await page.getByRole('button', { name: 'Add Personnel' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Register Personnel' });
+    await expect(dialog.getByText('Encrypted at rest', { exact: true })).toHaveCount(2);
+    await expect(dialog.getByText('Encryption not configured')).toHaveCount(0);
+    await expect(dialog.getByText(/Names and work email addresses remain plaintext/)).toBeVisible();
+  });
+
   test('HR can bootstrap a department and job role without demo data', async ({ page }) => {
     const departments: { department_id: number; name: string }[] = [];
     await page.route('**/api/departments', async (route) => {
