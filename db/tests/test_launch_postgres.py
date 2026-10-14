@@ -284,6 +284,23 @@ def test_real_api_bootstrap_employee_and_checkpoint(launch_database, tmp_path, m
                 salary = await client.post(f'/api/employees/{employee_id}/salary', json={
                     'amount': '600000', 'effective_date': '2020-02-01'})
                 assert salary.status_code in (200, 201), salary.text
+                rejected_salary = await client.post(f'/api/employees/{employee_id}/salary', json={
+                    'amount': '100000', 'effective_date': '2020-03-01'})
+                assert rejected_salary.status_code == 422, rejected_salary.text
+                profile = await client.patch(f'/api/employees/{employee_id}', json={
+                    'full_name': 'API Test Person Updated'})
+                assert profile.status_code == 200, profile.text
+                deactivated = await client.delete(f'/api/employees/{employee_id}')
+                assert deactivated.status_code == 200, deactivated.text
+                assert deactivated.json()['is_active'] is False
+                with psycopg2.connect(os.environ['ARGUS_TEST_DATABASE_URL']) as conn, conn.cursor() as cursor:
+                    cursor.execute('SELECT is_active FROM employees WHERE employee_id=%s', (employee_id,))
+                    assert cursor.fetchone()[0] is False
+                    cursor.execute("SELECT new_value->>'national_id_blind_index' FROM audit_log WHERE employee_id=%s AND table_name='employees' ORDER BY sequence_id", (employee_id,))
+                    blind_indexes = [row[0] for row in cursor.fetchall()]
+                    assert len(blind_indexes) >= 3
+                    assert blind_indexes[0] is not None
+                    assert len(set(blind_indexes)) == 1
                 checkpoint = await client.post('/api/checkpoints/create')
                 assert checkpoint.status_code == 200, checkpoint.text
                 assert checkpoint.json()['entries_sealed'] >= 3

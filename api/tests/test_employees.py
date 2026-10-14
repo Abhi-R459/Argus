@@ -4,6 +4,37 @@ from unittest.mock import AsyncMock
 
 pytestmark = pytest.mark.asyncio
 
+
+@pytest.mark.parametrize('valid_envelope', [True, False])
+async def test_deactivation_prepares_encrypted_audit_context_before_changing_state(client_hr, mock_db_session, valid_envelope):
+    import base64
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock, patch
+    from db.crypto.pii import encrypt_pii
+
+    key = base64.urlsafe_b64encode(b'0123456789abcdef0123456789abcdef').decode('ascii')
+    employee = SimpleNamespace(employee_id=7, is_active=True,
+        national_id_encrypted=encrypt_pii('QA-NATIONAL-ID', 'national_id', key) if valid_envelope else b'legacy-plaintext')
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = employee
+    mock_db_session.execute.side_effect = [result, MagicMock()]
+    with patch('api.routers.employees.get_settings', return_value=SimpleNamespace(
+        PII_ENCRYPTION_KEY=key, AUDIT_SALT='test-salt-is-at-least-thirty-two-bytes',
+        BLIND_INDEX_ITERATIONS=1000, BLIND_INDEX_MODE='pbkdf2',
+    )):
+        response = await client_hr.delete('/api/employees/7')
+    if valid_envelope:
+        assert response.status_code == 200, response.text
+        assert employee.is_active is False
+        statement = mock_db_session.execute.call_args_list[1]
+        assert 'argus.employee_national_id_blind_index' in str(statement.args[0])
+        assert len(statement.args[1]['blind_index']) == 64
+        mock_db_session.flush.assert_awaited_once()
+    else:
+        assert response.status_code == 409
+        assert employee.is_active is True
+        mock_db_session.flush.assert_not_awaited()
+
 async def test_list_employees_hr(client_hr: AsyncClient, mock_db_session: AsyncMock):
     from unittest.mock import MagicMock
     mock_result = MagicMock()

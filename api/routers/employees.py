@@ -491,6 +491,25 @@ async def deactivate_employee(
             detail=f"Employee with id {employee_id} not found.",
         )
 
+    # Soft deletion is still an employee UPDATE: the audit trigger requires
+    # the same transaction-local salt and blind index as a profile edit.
+    settings = get_settings()
+    try:
+        national_id = decrypt_pii(
+            bytes(employee.national_id_encrypted), "national_id", settings.PII_ENCRYPTION_KEY,
+        )
+        await _set_employee_pii_audit_context(session, national_id, settings)
+    except LegacyPlaintextPiiError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Employee PII encryption migration is required before this record can be deactivated.",
+        ) from exc
+    except (InvalidPiiEnvelope, TypeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Employee PII encryption is not configured correctly.",
+        ) from exc
+
     employee.is_active = False
     await session.flush()
 
