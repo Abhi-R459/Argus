@@ -11,7 +11,7 @@ import {
   ShieldCheck,
   Building2,
 } from 'lucide-react';
-import { fetchWithAuth } from '../lib/api';
+import { fetchWithAuth, ApiError } from '../lib/api';
 import { fetchDepartments, type DepartmentItem } from '../services/auditService';
 import { DataTable } from './common/DataTable';
 import { FilterBar, type ActiveFilterItem } from './common/FilterBar';
@@ -55,7 +55,7 @@ export default function EmployeeTable() {
   const limit = 12;
 
   // Query employees with server-side filters
-  const { data, isLoading, isError, isFetching } = useQuery<PaginatedResponse>({
+  const { data, isLoading, isError, isFetching, error, refetch } = useQuery<PaginatedResponse>({
     queryKey: ['employees', page, debouncedSearch, selectedDept, selectedStatus],
     queryFn: () => {
       const searchParam = debouncedSearch ? `&search=${encodeURIComponent(debouncedSearch)}` : '';
@@ -297,8 +297,11 @@ export default function EmployeeTable() {
           <DataTable.Body portalTheme="hr">
             {isError ? (
               <tr>
-                <td colSpan={5} className="py-12 text-center text-xs text-rose-600 font-mono">
-                  Failed to query employee directory from database engine.
+                <td colSpan={5} className="py-12 text-center text-xs text-rose-600">
+                  <p role="alert">{error instanceof ApiError ? error.message : 'The employee directory could not be loaded. Please try again.'}</p>
+                  <Button variant="secondary" size="sm" portalTheme="hr" className="mt-3" disabled={isFetching} onClick={() => { void refetch(); }}>
+                    Retry directory
+                  </Button>
                 </td>
               </tr>
             ) : items.length === 0 ? (

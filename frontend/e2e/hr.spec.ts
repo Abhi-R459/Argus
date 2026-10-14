@@ -122,6 +122,23 @@ test.describe('HR Admin Portal E2E', () => {
     await expect(dialog.getByText(/Names and work email addresses remain plaintext/)).toBeVisible();
   });
 
+  test('employee directory can recover from a failed request without changing filters', async ({ page }) => {
+    let unavailable = true;
+    await page.route('**/api/employees?**', async (route) => {
+      if (unavailable) {
+        await route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ detail: 'Service is starting. Please retry.' }) });
+      } else {
+        await route.fallback();
+      }
+    });
+    await page.goto('http://localhost:5173/hr/employees');
+    await expect(page.getByRole('alert')).toHaveText('Service is starting. Please retry.', { timeout: 20000 });
+    unavailable = false;
+    await page.getByRole('button', { name: 'Retry directory', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Inspect record details for Maya Rao' }).first()).toBeVisible();
+    await expect(page.getByRole('alert')).toHaveCount(0);
+  });
+
   test('HR can bootstrap a department and job role without demo data', async ({ page }) => {
     const departments: { department_id: number; name: string }[] = [];
     await page.route('**/api/departments', async (route) => {

@@ -338,14 +338,14 @@ export default function ForensicEvidencePage() {
               Air-Gapped Standalone Verification Instructions
             </div>
             <p className="text-xs text-linear-ink-subtle">
-              Every <code className="text-blue-300">.arguscap</code> archive is completely self-contained with its own embedded zero-dependency verifier script. It requires only standard Python 3.10+ (no pip install required):
+              Extract the verifier script from the .arguscap archive and obtain the production public key through a trusted channel. Use Python 3.10+ with the independently trusted key; the key inside the archive alone does not establish authenticity:
             </p>
             <div className="p-3 rounded-lg bg-black/60 border border-white/10 font-mono text-xs text-emerald-400 flex items-center justify-between">
-              <span>python verify_capsule.py proof_seq{proof.sequence_id}.arguscap</span>
+              <span>python verify_capsule.py proof_seq{proof.sequence_id}.arguscap --trusted-public-key trusted_public_key.pem</span>
               <button
                 onClick={() =>
                   copyToClipboard(
-                    `python verify_capsule.py proof_seq${proof.sequence_id}.arguscap`,
+                    `python verify_capsule.py proof_seq${proof.sequence_id}.arguscap --trusted-public-key trusted_public_key.pem`,
                     'cli',
                   )
                 }
