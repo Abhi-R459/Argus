@@ -39,6 +39,7 @@ export default function OrganizationSetup() {
           <input className={field} value={departmentName} onChange={(event) => setDepartmentName(event.target.value)} required minLength={2} maxLength={255} /></label>
         <Button type="submit" disabled={departmentMutation.isPending} portalTheme="hr">Create department</Button>
       </form>
+      {departmentMutation.error && <p role="alert" className="text-sm text-red-700">Department: {departmentMutation.error.message}</p>}
       {departments.isError && <p role="alert" className="text-sm text-red-700">Departments could not be loaded. <button type="button" className="underline" onClick={() => void departments.refetch()}>Retry</button></p>}
       <form onSubmit={submitRole} className="grid gap-3 sm:grid-cols-2">
         <label className="text-sm text-slate-700">Job title<input name="title" className={field} required minLength={2} maxLength={255} /></label>
@@ -50,7 +51,7 @@ export default function OrganizationSetup() {
         <div><Button type="submit" disabled={roleMutation.isPending || !departments.data?.length} portalTheme="hr">Create job role</Button></div>
       </form>
       {message && <p role="status" className="text-sm text-emerald-700">{message}</p>}
-      {(departmentMutation.error || roleMutation.error) && <p role="alert" className="text-sm text-red-700">{(departmentMutation.error || roleMutation.error)?.message}</p>}
+      {roleMutation.error && <p role="alert" className="text-sm text-red-700">Job role: {roleMutation.error.message}</p>}
     </section>
   );
 }

@@ -185,6 +185,29 @@ test.describe('HR Admin Portal E2E', () => {
     await expect(page.getByText(/No external anchor was created/)).toBeVisible();
   });
 
+  test('a department error cannot hide a later job-role validation error', async ({ page }) => {
+    await page.route('**/api/departments', async (route) => {
+      if (route.request().method() === 'POST') {
+        await route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ detail: 'Department already exists.' }) });
+      } else { await route.fallback(); }
+    });
+    await page.route('**/api/roles', async (route) => {
+      if (route.request().method() === 'POST') {
+        await route.fulfill({ status: 422, contentType: 'application/json', body: JSON.stringify({ detail: 'Maximum salary must exceed minimum.' }) });
+      } else { await route.fallback(); }
+    });
+    await page.goto('http://localhost:5173/hr/settings');
+    await page.getByLabel('Department name').fill('Engineering');
+    await page.getByRole('button', { name: 'Create department', exact: true }).click();
+    await expect(page.getByRole('alert').filter({ hasText: 'Department: Department already exists.' })).toBeVisible();
+    await page.getByLabel('Job title').fill('Engineer');
+    await page.getByLabel('Department', { exact: true }).selectOption({ index: 1 });
+    await page.getByLabel('Minimum annual salary (₹)').fill('900000');
+    await page.getByLabel('Maximum annual salary (₹)').fill('400000');
+    await page.getByRole('button', { name: 'Create job role', exact: true }).click();
+    await expect(page.getByRole('alert').filter({ hasText: 'Job role: Maximum salary must exceed minimum.' })).toBeVisible();
+  });
+
   test('HR mobile navigation opens and closes after route change', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('http://localhost:5173/hr/dashboard');
