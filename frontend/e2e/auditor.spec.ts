@@ -111,9 +111,19 @@ test.describe('Compliance Auditor Portal E2E', () => {
     expect(new URL(page.url()).search).not.toContain(identifier);
   });
 
+  test('Auditor risk refresh explains contention with the background detector', async ({ page }) => {
+    await page.route('**/api/suspicious-activity/refresh', (route) =>
+      route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ detail: 'Suspicious-activity detection is already running.' }) })
+    );
+    await page.goto('/auditor/activity');
+    await page.getByRole('button', { name: 'Refresh detections (Run risk detection and reload flags)' }).click();
+    await expect(page.getByRole('alert')).toContainText('Risk detection is already running. Wait a moment, then refresh again.');
+    await expect(page.getByRole('button', { name: 'Mark Safe', exact: true })).toBeVisible();
+  });
+
   test('Auditor risk refresh failure is visible and flags stay unreviewed', async ({ page }) => {
     await page.route('**/api/suspicious-activity/refresh', (route) =>
-      route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ detail: 'Already running' }) })
+      route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ detail: 'Detection unavailable' }) })
     );
     await page.goto('http://localhost:5173/auditor/activity');
     await expect(page.getByRole('heading', { name: 'Flagged Events' })).toBeVisible();

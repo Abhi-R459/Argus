@@ -12,6 +12,7 @@ import {
 } from '../../services/auditService';
 import Button from '../common/Button';
 import RefreshButton from '../common/RefreshButton';
+import { ApiError } from '../../lib/api';
 
 export default function RiskPanel() {
   const { getToken } = useAuth();
@@ -109,7 +110,9 @@ export default function RiskPanel() {
             {(refreshMutation.isError || reviewMutation.isError) && (
               <span className="text-xs text-status-warning" role="alert">
                 {refreshMutation.isError
-                  ? 'Risk detection failed. Existing flags are unchanged.'
+                  ? refreshMutation.error instanceof ApiError && refreshMutation.error.status === 409
+                    ? 'Risk detection is already running. Wait a moment, then refresh again. Existing flags are unchanged.'
+                    : 'Risk detection failed. Existing flags are unchanged.'
                   : 'The review could not be saved. Try again.'}
               </span>
             )}

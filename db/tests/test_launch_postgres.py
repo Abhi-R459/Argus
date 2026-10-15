@@ -346,6 +346,14 @@ def test_real_api_bootstrap_employee_and_checkpoint(launch_database, tmp_path, m
                 assert all(row['email'] != 'api-test@example.com' for row in directory.json()['items'])
                 assert (await client.post('/api/checkpoints/create')).status_code == 403
                 assert (await client.post('/api/employees/batch', json={'employees': batch_rows})).status_code == 403
+                refreshed = await client.post('/api/suspicious-activity/refresh')
+                assert refreshed.status_code == 200, refreshed.text
+                # Interactive refresh must report contention with another detector.
+                with psycopg2.connect(os.environ['ARGUS_TEST_DATABASE_URL']) as lock_conn, lock_conn.cursor() as cursor:
+                    from api.routers.audits import SUSPICIOUS_ACTIVITY_REFRESH_LOCK_KEY
+                    cursor.execute('SELECT pg_advisory_xact_lock(%s)', (SUSPICIOUS_ACTIVITY_REFRESH_LOCK_KEY,))
+                    busy_refresh = await client.post('/api/suspicious-activity/refresh')
+                    assert busy_refresh.status_code == 409, busy_refresh.text
                 capsule = await client.get(f"/api/audit-logs/{checkpoint.json()['sequence_id']}/capsule")
                 assert capsule.status_code == 200, capsule.text
                 from db.cli.verify_capsule import verify_capsule
