@@ -4,7 +4,8 @@ import base64
 import json
 from unittest.mock import patch
 
-from api.services.remote_anchor import compare_manifest, fetch_manifest
+from api.services.remote_anchor import _NoRedirect, AnchorUnavailable, compare_manifest, fetch_manifest
+import pytest
 
 
 def _checkpoint(checkpoint_id=1, sequence_id=5):
@@ -55,5 +56,14 @@ def test_private_manifest_fetch_uses_only_read_scope(monkeypatch):
         assert timeout == 8
         return Response()
 
-    with patch("api.services.remote_anchor.urllib.request.urlopen", side_effect=open_request):
+    class Opener:
+        def open(self, request, timeout):
+            return open_request(request, timeout)
+
+    with patch("api.services.remote_anchor.urllib.request.build_opener", return_value=Opener()):
         assert fetch_manifest("example/anchors", "read-only-secret") == manifest
+
+
+def test_private_manifest_never_redirects_a_read_token():
+    with pytest.raises(AnchorUnavailable, match="redirected unexpectedly"):
+        _NoRedirect().redirect_request(None, None, 302, "Found", {}, "https://other.example/")

@@ -30,6 +30,13 @@ class AnchorUnavailable(Exception):
     """The remote record could not be read or safely interpreted."""
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Never forward the repository token to a redirected host."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise AnchorUnavailable("The private anchor endpoint redirected unexpectedly.")
+
+
 @dataclass(frozen=True)
 class AnchorComparison:
     status: str  # pass | unknown | fail
@@ -62,7 +69,7 @@ def fetch_manifest(repo: str, token: str, branch: str = "main") -> dict[str, Any
         },
     )
     try:
-        with urllib.request.urlopen(request, timeout=8) as response:
+        with urllib.request.build_opener(_NoRedirect()).open(request, timeout=8) as response:
             raw = response.read(_MAX_RESPONSE_BYTES + 1)
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
         raise AnchorUnavailable("The private anchor repository could not be read.") from exc
