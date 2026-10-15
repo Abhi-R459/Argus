@@ -207,10 +207,12 @@ export default function EmployeeForm({ isOpen = true, onClose }: EmployeeFormPro
             {/* Row 2: Role Selection & Hire Date */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                <label htmlFor="employee-role" className="block text-xs font-semibold text-slate-700 mb-1.5">
                   Assigned role & department
                 </label>
                 <select
+                  id="employee-role"
+                  disabled={isRolesLoading || !roles.length}
                   {...register('role_id')}
                   className={`w-full px-3.5 py-2 bg-slate-50/60 hover:bg-slate-50 border rounded-xl text-sm text-slate-900 focus:bg-white focus:outline-none focus:ring-4 focus:ring-portal-primary/20 focus:border-slate-900 transition-[color,background-color,border-color,box-shadow] duration-150 ease-out shadow-2xs cursor-pointer ${
                     errors.role_id ? 'border-rose-400 focus:border-rose-500 focus:ring-rose-500/10' : 'border-slate-200'
@@ -223,6 +225,7 @@ export default function EmployeeForm({ isOpen = true, onClose }: EmployeeFormPro
                     </option>
                   ))}
                 </select>
+                {!isRolesLoading && !roles.length && <p className="mt-2 text-xs text-slate-600">Create a department and job role using “Departments & roles” in the directory first.</p>}
                 {errors.role_id && (
                   <p className="mt-1 text-xs text-rose-600 font-medium">{errors.role_id.message}</p>
                 )}

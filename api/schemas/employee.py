@@ -1,4 +1,4 @@
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
 from datetime import date
 from decimal import Decimal
 from typing import Optional
@@ -23,13 +23,24 @@ class EmployeeCreate(BaseModel):
     national_id: str = Field(..., max_length=255)  # plaintext, encrypted before storage
     contact_info: str = Field(..., max_length=500)
     date_hired: date
-    salary: Decimal = Field(..., gt=0)
+    salary: Decimal = Field(..., gt=0, max_digits=12, decimal_places=2)
 
 class EmployeeUpdate(BaseModel):
     full_name: Optional[str] = Field(None, max_length=255)
     email: Optional[EmailStr] = None
     role_id: Optional[int] = None
     contact_info: Optional[str] = Field(None, max_length=500)
+
+
+class EmployeeBatchCreate(BaseModel):
+    employees: list[EmployeeCreate] = Field(min_length=1, max_length=20)
+
+    @model_validator(mode="after")
+    def distinct_emails(self):
+        emails = [str(employee.email).casefold() for employee in self.employees]
+        if len(set(emails)) != len(emails):
+            raise ValueError("Each employee in a batch must have a different email.")
+        return self
 
 class EmployeeCreateResponse(BaseModel):
     employee_id: int

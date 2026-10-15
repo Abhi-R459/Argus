@@ -152,6 +152,10 @@ test.describe('HR Admin Portal E2E', () => {
     });
     let submittedRole: unknown;
     await page.route('**/api/roles', async (route) => {
+      if (route.request().method() === 'GET') {
+        await route.fulfill({ contentType: 'application/json', body: JSON.stringify([]) });
+        return;
+      }
       submittedRole = route.request().postDataJSON();
       await route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({ role_id: 9 }) });
     });
@@ -159,13 +163,16 @@ test.describe('HR Admin Portal E2E', () => {
     await expect(page.getByRole('button', { name: 'Create job role' })).toBeDisabled();
     await page.getByLabel('Department name').fill('Operations');
     await page.getByRole('button', { name: 'Create department', exact: true }).click();
-    await expect(page.getByText('Department created.', { exact: true })).toBeVisible();
+    await expect(page.getByText('Department created and selected for the next job role.', { exact: true })).toBeVisible();
+    await expect(page.getByLabel('Department', { exact: true })).toHaveValue('42');
     await page.getByLabel('Job title').fill('Operations Analyst');
     await page.getByLabel('Department', { exact: true }).selectOption('42');
     await page.getByLabel('Minimum annual salary (₹)').fill('400000');
     await page.getByLabel('Maximum annual salary (₹)').fill('800000');
     await page.getByRole('button', { name: 'Create job role' }).click();
     await expect(page.getByText('Job role created. You can now add employees with this role.')).toBeVisible();
+    await expect(page.getByLabel('Job title')).toHaveValue('');
+    await expect(page.getByLabel('Department', { exact: true })).toHaveValue('42');
     expect(submittedRole).toMatchObject({ title: 'Operations Analyst', department_id: 42,
       salary_band_min: '400000', salary_band_max: '800000' });
   });
@@ -205,7 +212,7 @@ test.describe('HR Admin Portal E2E', () => {
     await page.getByLabel('Minimum annual salary (₹)').fill('900000');
     await page.getByLabel('Maximum annual salary (₹)').fill('400000');
     await page.getByRole('button', { name: 'Create job role', exact: true }).click();
-    await expect(page.getByRole('alert').filter({ hasText: 'Job role: Maximum salary must exceed minimum.' })).toBeVisible();
+    await expect(page.getByRole('alert').filter({ hasText: 'Maximum salary must be greater than or equal to minimum salary.' })).toBeVisible();
   });
 
   test('HR mobile navigation opens and closes after route change', async ({ page }) => {

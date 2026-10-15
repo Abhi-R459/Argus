@@ -34,7 +34,7 @@ from ..models.salary_history import SalaryHistory
 from ..models.directory_view import EmployeeDirectoryView
 from ..models.security_audit_event import SecurityAuditEvent
 from ..schemas.employee import (
-    EmployeeListItem, EmployeeCreate, EmployeeUpdate,
+    EmployeeListItem, EmployeeCreate, EmployeeUpdate, EmployeeBatchCreate,
     EmployeeCreateResponse, EmployeeUpdateResponse, EmployeeDeactivateResponse,
 )
 from ..schemas.salary import SalaryCreate, SalaryCreateResponse
@@ -329,7 +329,7 @@ async def create_employee(
 
     # Check for duplicate email
     email_result = await session.execute(
-        select(Employee).where(Employee.email == data.email)
+        select(Employee).where(func.lower(Employee.email) == str(data.email).lower())
     )
     if email_result.scalar_one_or_none() is not None:
         raise HTTPException(
@@ -380,6 +380,40 @@ async def create_employee(
         date_hired=new_employee.date_hired,
         is_active=new_employee.is_active,
     )
+
+
+@router.post(
+    "/batch",
+    response_model=list[EmployeeCreateResponse],
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_role(["hr_admin"]))],
+)
+async def create_employee_batch(
+    data: EmployeeBatchCreate,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session, scope="function"),
+):
+    """Create up to 20 employees atomically, using the normal encrypted HR path.
+
+    The session dependency commits only after every employee succeeds. An error
+    rolls back this entire batch, including salary and trigger-generated audit rows.
+    """
+    created = []
+    try:
+        for index, employee in enumerate(data.employees, start=1):
+            try:
+                created.append(await create_employee(employee, current_user, session))
+            except HTTPException as exc:
+                raise HTTPException(
+                    status_code=exc.status_code,
+                    detail=f"Batch row {index}: {exc.detail} No employees were added from this batch.",
+                ) from exc
+    except IntegrityError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="An employee conflicts with an existing record. No employees were added from this batch.",
+        ) from exc
+    return created
 
 
 @router.patch(

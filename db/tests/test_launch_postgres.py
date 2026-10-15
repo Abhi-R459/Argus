@@ -301,6 +301,35 @@ def test_real_api_bootstrap_employee_and_checkpoint(launch_database, tmp_path, m
                     assert len(blind_indexes) >= 3
                     assert blind_indexes[0] is not None
                     assert len(set(blind_indexes)) == 1
+                batch_template = {'full_name': 'Batch QA Employee',
+                    'role_id': role.json()['role_id'], 'contact_info': 'Fictional batch QA contact',
+                    'date_hired': '2020-01-01', 'salary': '500000'}
+                batch_rows = [{**batch_template, 'email': f'batch-qa-{index}@example.com',
+                    'national_id': f'batch-national-id-{index}'} for index in range(2)]
+                batch = await client.post('/api/employees/batch', json={'employees': batch_rows})
+                assert batch.status_code == 201, batch.text
+                assert len(batch.json()) == 2
+                # A later row failure must undo earlier employee, salary AND audit inserts.
+                bad_rows = [{**batch_rows[0], 'email': 'must-rollback@example.com'},
+                    {**batch_rows[1], 'email': 'bad-role@example.com', 'role_id': 2147483647}]
+                rejected_batch = await client.post('/api/employees/batch', json={'employees': bad_rows})
+                assert rejected_batch.status_code == 422, rejected_batch.text
+                with psycopg2.connect(os.environ['ARGUS_TEST_DATABASE_URL']) as conn, conn.cursor() as cursor:
+                    cursor.execute("SELECT count(*) FROM employees WHERE email IN ('must-rollback@example.com','bad-role@example.com')")
+                    assert cursor.fetchone()[0] == 0
+                    batch_ids = [row['employee_id'] for row in batch.json()]
+                    cursor.execute('SELECT employee_id, national_id_encrypted, contact_info_encrypted FROM employees WHERE employee_id = ANY(%s)', (batch_ids,))
+                    stored = cursor.fetchall()
+                    assert len(stored) == 2
+                    from db.crypto.pii import decrypt_pii
+                    for stored_id, national, contact in stored:
+                        source = batch_rows[batch_ids.index(stored_id)]
+                        assert decrypt_pii(bytes(national), 'national_id', get_settings().PII_ENCRYPTION_KEY) == source['national_id']
+                        assert decrypt_pii(bytes(contact), 'contact_info', get_settings().PII_ENCRYPTION_KEY) == source['contact_info']
+                    cursor.execute("SELECT new_value->>'national_id_blind_index' FROM audit_log WHERE employee_id = ANY(%s) AND table_name='employees'", (batch_ids,))
+                    assert len(set(row[0] for row in cursor.fetchall())) == 2
+                    cursor.execute("SELECT count(*) FROM audit_log WHERE new_value->>'email' = 'must-rollback@example.com'")
+                    assert cursor.fetchone()[0] == 0
                 checkpoint = await client.post('/api/checkpoints/create')
                 assert checkpoint.status_code == 200, checkpoint.text
                 assert checkpoint.json()['entries_sealed'] >= 3
@@ -316,6 +345,7 @@ def test_real_api_bootstrap_employee_and_checkpoint(launch_database, tmp_path, m
                 assert directory.status_code == 200, directory.text
                 assert all(row['email'] != 'api-test@example.com' for row in directory.json()['items'])
                 assert (await client.post('/api/checkpoints/create')).status_code == 403
+                assert (await client.post('/api/employees/batch', json={'employees': batch_rows})).status_code == 403
                 capsule = await client.get(f"/api/audit-logs/{checkpoint.json()['sequence_id']}/capsule")
                 assert capsule.status_code == 200, capsule.text
                 from db.cli.verify_capsule import verify_capsule
