@@ -75,6 +75,7 @@ async def _set_employee_pii_audit_context(
 
 @router.get("", response_model=PaginatedResponse[EmployeeListItem])
 async def list_employees(
+    employee_id: Optional[int] = Query(None, ge=1, le=2147483647, description="Match one exact employee ID"),
     search: Optional[str] = Query(None, description="Filter by name or email"),
     department: Optional[str] = Query(None, description="Filter by department name"),
     is_active: Optional[bool] = Query(None, description="Filter by active status"),
@@ -121,6 +122,8 @@ async def list_employees(
                     .join(Role, Employee.role_id == Role.role_id)
                     .join(Department, Role.department_id == Department.department_id)
                 )
+                if employee_id is not None:
+                    query = query.where(Employee.employee_id == employee_id)
                 if search:
                     clean_search = search.strip().lstrip("#").upper().replace("EMP-", "").strip()
                     pattern = f"%{search}%"
@@ -188,6 +191,8 @@ async def list_employees(
             EmployeeDirectoryView.is_active,
         )
 
+        if employee_id is not None:
+            query = query.where(EmployeeDirectoryView.employee_id == employee_id)
         if search:
             clean_search = search.strip().lstrip("#").upper().replace("EMP-", "").strip()
             pattern = f"%{search}%"
@@ -254,6 +259,9 @@ async def list_employees(
         .join(Role, Employee.role_id == Role.role_id)
         .join(Department, Role.department_id == Department.department_id)
     )
+
+    if employee_id is not None:
+        query = query.where(Employee.employee_id == employee_id)
 
     # Search filter
     if search:

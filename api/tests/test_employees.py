@@ -5,6 +5,24 @@ from unittest.mock import AsyncMock
 pytestmark = pytest.mark.asyncio
 
 
+@pytest.mark.parametrize('role', ['hr_admin', 'compliance_auditor'])
+async def test_exact_employee_filter_is_an_id_predicate_not_a_text_search(client_hr, mock_hr_user, mock_db_session, role):
+    mock_hr_user.role = role
+    response = await client_hr.get('/api/employees?employee_id=101&limit=1')
+    assert response.status_code == 200, response.text
+    query = mock_db_session.execute.call_args.args[0]
+    compiled = query.compile()
+    assert 'employee_id =' in str(compiled)
+    assert 101 in compiled.params.values()
+    assert 'ILIKE' not in str(compiled).upper()
+
+
+@pytest.mark.parametrize('invalid_id', ['0', '-1', '2147483648'])
+async def test_exact_employee_filter_validates_database_id_range(client_hr, invalid_id):
+    response = await client_hr.get(f'/api/employees?employee_id={invalid_id}')
+    assert response.status_code == 422
+
+
 @pytest.mark.parametrize('valid_envelope', [True, False])
 async def test_deactivation_prepares_encrypted_audit_context_before_changing_state(client_hr, mock_db_session, valid_envelope):
     import base64

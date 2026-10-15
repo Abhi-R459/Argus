@@ -611,12 +611,14 @@ export async function fetchEmployees(
   department?: string,
   isActive?: boolean,
   includePii: boolean = false,
+  employeeId?: number,
 ): Promise<{ items: EmployeeListItem[]; total: number; page: number; pages: number }> {
   const searchParam = search ? `&search=${encodeURIComponent(search)}` : '';
   const deptParam = department && department !== 'all' ? `&department=${encodeURIComponent(department)}` : '';
   const statusParam = isActive !== undefined ? `&is_active=${isActive}` : '';
   const piiParam = `&include_pii=${includePii}`;
-  return fetchWithAuth(`/employees?limit=${limit}&page=${page}${searchParam}${deptParam}${statusParam}${piiParam}`, {}, getToken);
+  const idParam = employeeId !== undefined ? `&employee_id=${employeeId}` : '';
+  return fetchWithAuth(`/employees?limit=${limit}&page=${page}${searchParam}${deptParam}${statusParam}${piiParam}${idParam}`, {}, getToken);
 }
 
 export interface UserProfile {

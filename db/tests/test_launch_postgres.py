@@ -309,6 +309,10 @@ def test_real_api_bootstrap_employee_and_checkpoint(launch_database, tmp_path, m
                 batch = await client.post('/api/employees/batch', json={'employees': batch_rows})
                 assert batch.status_code == 201, batch.text
                 assert len(batch.json()) == 2
+                exact_directory = await client.get(f"/api/employees?employee_id={batch.json()[-1]['employee_id']}&limit=1")
+                assert exact_directory.status_code == 200, exact_directory.text
+                assert exact_directory.json()['total'] == 1
+                assert exact_directory.json()['items'][0]['employee_id'] == batch.json()[-1]['employee_id']
                 # A later row failure must undo earlier employee, salary AND audit inserts.
                 bad_rows = [{**batch_rows[0], 'email': 'must-rollback@example.com'},
                     {**batch_rows[1], 'email': 'bad-role@example.com', 'role_id': 2147483647}]
@@ -344,6 +348,11 @@ def test_real_api_bootstrap_employee_and_checkpoint(launch_database, tmp_path, m
                 directory = await client.get('/api/employees')
                 assert directory.status_code == 200, directory.text
                 assert all(row['email'] != 'api-test@example.com' for row in directory.json()['items'])
+                exact_redacted = await client.get(f'/api/employees?employee_id={employee_id}&limit=1')
+                assert exact_redacted.status_code == 200, exact_redacted.text
+                assert exact_redacted.json()['total'] == 1
+                assert exact_redacted.json()['items'][0]['employee_id'] == employee_id
+                assert exact_redacted.json()['items'][0]['pii_redacted'] is True
                 assert (await client.post('/api/checkpoints/create')).status_code == 403
                 assert (await client.post('/api/employees/batch', json={'employees': batch_rows})).status_code == 403
                 refreshed = await client.post('/api/suspicious-activity/refresh')

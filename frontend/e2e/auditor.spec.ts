@@ -224,6 +224,29 @@ test.describe('Compliance Auditor Portal E2E', () => {
     await expect(page.getByRole('checkbox', { name: 'Exclude sequence 142', exact: true })).toBeVisible();
   });
 
+  for (const liveRecordAvailable of [true, false]) {
+    test(`time travel compares an exact employee outside the first 100: available=${liveRecordAvailable}`, async ({ page }) => {
+      const employee = { employee_id: 101, full_name: 'QA Current Name', email: 'qa101@example.com',
+        role_title: 'Analyst', department_name: 'Compliance', salary: 975000,
+        date_hired: '2024-01-01T00:00:00', is_active: true, pii_redacted: false };
+      let exactRequests = 0;
+      await page.route('**/api/employees?**', async (route) => {
+        const url = new URL(route.request().url());
+        const exact = url.searchParams.get('employee_id') === '101';
+        if (exact) { exactRequests++; expect(url.searchParams.has('search')).toBe(false); }
+        const items = exact ? liveRecordAvailable ? [employee] : [] : Array.from({ length: 100 }, (_, index) => ({ ...employee, employee_id: index + 1 }));
+        await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items, total: exact ? items.length : 101, page: 1, pages: exact ? 1 : 2 }) });
+      });
+      await page.route('**/api/employees/101/time-travel?**', (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ ...employee,
+        full_name: 'QA Historical Name', role_title: 'Lead', as_of: '2026-10-15T00:00:00Z', sequence_id: 207 }) }));
+      await page.goto('/auditor/time-travel?emp_id=101&as_of=2026-10-15T00%3A00%3A00Z&seq=207');
+      await expect(page.getByRole('heading', { name: 'State Reconstructed Successfully' })).toBeVisible();
+      await expect(page.getByText(liveRecordAvailable ? 'Past Delta Detected' : 'Live comparison unavailable', { exact: true })).toBeVisible();
+      await expect(page.getByText('Matches Live State', { exact: true })).toHaveCount(0);
+      expect(exactRequests).toBeGreaterThan(0);
+    });
+  }
+
   test('Counterfactual can select personnel beyond the preloaded directory by ID', async ({ page }) => {
     await page.goto('http://localhost:5173/auditor/counterfactual');
     await expect(page.getByRole('combobox')).toHaveValue('1001');

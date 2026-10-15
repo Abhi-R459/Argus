@@ -198,7 +198,7 @@ export default function TimeTravelView() {
   // ── Fetch Targeted Details for Currently Selected Employee ───────────────────
   const { data: selectedEmpData } = useQuery({
     queryKey: ['employeeDetail', parsedEmpId, revealPii],
-    queryFn: () => fetchEmployees(getToken, 1, String(parsedEmpId), 1, undefined, undefined, revealPii),
+    queryFn: () => fetchEmployees(getToken, 1, undefined, 1, undefined, undefined, revealPii, parsedEmpId),
     enabled: isValidEmpId,
     staleTime: 60000,
   });
@@ -1181,7 +1181,11 @@ export default function TimeTravelView() {
                     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-mono font-medium bg-amber-500/15 text-amber-300 border border-amber-500/30">
                       <TrendingUp className="w-3 h-3" /> Past Delta Detected
                     </span>
-                  ) : record.pii_redacted ? (
+                  ) : !selectedEmployee ? (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-mono font-medium bg-slate-500/15 text-slate-300 border border-slate-500/30">
+                      Live comparison unavailable
+                    </span>
+                  ) : record.pii_redacted || selectedEmployee.pii_redacted ? (
                     <span
                       title="Sensitive fields are hidden, so this comparison is partial."
                       className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-mono font-medium bg-slate-500/15 text-slate-300 border border-slate-500/30"
