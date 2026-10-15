@@ -147,14 +147,16 @@ export default function AnchorStatus({ data }: AnchorStatusProps) {
         </div>
       </div>
 
-      {/* Multi-Witness Quorum Telemetry (RFC 9162 / NOVEL-010) */}
+      {/* Multi-witness telemetry is separate from a single private anchor. */}
       {data.witness_report && (
         <div className="border-t border-linear-hairline pt-3.5 space-y-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-2">
               <ShieldCheck className="w-3.5 h-3.5 text-linear-primary" />
               <p className="text-xs text-linear-ink font-semibold">
-                Witness quorum <span className="font-mono text-linear-ink-subtle">· RFC 9162</span>
+                {data.witness_report.deployment_mode === 'private_repository'
+                  ? 'Independent witness quorum'
+                  : <>Witness quorum <span className="font-mono text-linear-ink-subtle">· RFC 9162</span></>}
               </p>
             </div>
             <span
@@ -187,7 +189,7 @@ export default function AnchorStatus({ data }: AnchorStatusProps) {
               : data.witness_report.message ?? 'Witness quorum is not verified.'}
           </p>
 
-          {data.witness_report.independent_trust_domains === false && (
+          {data.witness_report.independent_trust_domains === false && data.witness_report.deployment_mode !== 'private_repository' && (
             <p className="rounded-md border border-linear-hairline bg-linear-surface-2 px-2.5 py-2 text-[10px] text-linear-ink-muted">
               Reference implementation: witnesses run in-process and do not represent independent trust domains.
             </p>

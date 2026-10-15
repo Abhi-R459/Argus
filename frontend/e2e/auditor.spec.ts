@@ -145,7 +145,7 @@ test.describe('Compliance Auditor Portal E2E', () => {
           last_verified_sequence_id: 142,
           tampered_sequence_id: null,
           details: 'Checkpoint signatures are unavailable.',
-          verification_checks: { hash_chain: 'pass', external_anchor: 'pass', checkpoint_signatures: 'unknown' },
+          verification_checks: { hash_chain: 'pass', checkpoint_binding: 'pass', external_anchor: 'pass', checkpoint_signatures: 'unknown' },
         }),
       })
     );
@@ -153,7 +153,7 @@ test.describe('Compliance Auditor Portal E2E', () => {
 
     await page.getByRole('button', { name: 'Run Verification' }).click();
     await expect(page.getByText('Verification Incomplete')).toBeVisible();
-    await expect(page.getByText('2/3 verified')).toBeVisible();
+    await expect(page.getByText('3/4 verified')).toBeVisible();
     await expect(page.getByText('Tampering Detected')).toHaveCount(0);
   });
 

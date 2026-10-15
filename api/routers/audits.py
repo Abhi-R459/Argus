@@ -37,6 +37,13 @@ from ..services.blind_index import (
     audit_logger,
 )
 from ..services.request_budget import consume_request_budget
+from ..services.checkpoint_binding import verify_checkpoint_bindings
+from ..services.remote_anchor import (
+    AnchorUnavailable,
+    checkpoint_row as remote_checkpoint_row,
+    compare_manifest,
+    fetch_manifest,
+)
 from ..models.audit_log import AuditLog
 from ..models.department import Department
 from ..models.employee import Employee
@@ -230,7 +237,7 @@ SUSPICIOUS_ACTIVITY_REFRESH_LOCK_KEY = 280375465843
 
 def _verification_status_from_checks(checks: dict[str, str]) -> str:
     """Return a conservative aggregate status for checks actually performed."""
-    required = ("hash_chain", "external_anchor", "checkpoint_signatures")
+    required = ("hash_chain", "checkpoint_binding", "external_anchor", "checkpoint_signatures")
     values = [checks.get(name, "unknown") for name in required]
     if "fail" in values:
         return "tampered"
@@ -569,20 +576,32 @@ async def run_verification(
             from db.cli.hash_verifier import verify_chain
             conn = psycopg2.connect(db_url, connect_timeout=2, options=_sync_timeout_options())
             try:
+                conn.set_session(isolation_level="REPEATABLE READ", readonly=True)
                 res = verify_chain(conn)
                 tampered_seq = None
                 checkpoint_signature_evidence = None
                 deleted_entry_evidence = None
                 checks = {
                     "hash_chain": "pass" if res.is_valid and res.total_entries > 0 else "fail" if not res.is_valid else "unknown",
+                    "checkpoint_binding": "unknown",
                     "external_anchor": "unknown",
                     "checkpoint_signatures": "unknown",
                 }
                 evidence_errors = []
 
-                # The API can currently read the local file adapter only. Do
-                # not label local storage as an independently queried remote
-                # anchor, and require a record for the latest checkpoint.
+                if res.is_valid:
+                    try:
+                        binding = verify_checkpoint_bindings(conn)
+                        checks["checkpoint_binding"] = binding.status
+                        if binding.status != "pass":
+                            evidence_errors.append(binding.detail)
+                        if binding.status == "fail":
+                            tampered_seq = binding.sequence_id
+                    except Exception:
+                        evidence_errors.append("Checkpoint commitments could not be compared to audit events.")
+
+                # Local files are useful in development; production reads the
+                # separately held private repository with a read-only token.
                 settings = get_settings()
                 configured_path = Path(settings.ANCHOR_FILE_PATH)
                 anchor_directory = (
@@ -622,6 +641,30 @@ async def run_verification(
                             )
                     else:
                         evidence_errors.append("No checkpoint is available for local anchor comparison.")
+                elif settings.ANCHOR_STORE == "github_repo":
+                    try:
+                        with conn.cursor() as cur:
+                            cur.execute(
+                                "SELECT checkpoint_id, sequence_id, checkpoint_hash, merkle_root, "
+                                "signature, key_id FROM chain_checkpoints ORDER BY sequence_id"
+                            )
+                            anchor_rows = [remote_checkpoint_row(*row) for row in cur.fetchall()]
+                        manifest = fetch_manifest(
+                            settings.GITHUB_ANCHOR_REPOSITORY,
+                            settings.GITHUB_ANCHOR_TOKEN,
+                            settings.GITHUB_ANCHOR_BRANCH,
+                        )
+                        comparison = compare_manifest(
+                            anchor_rows, manifest,
+                            minimum_sequence=settings.GITHUB_ANCHOR_MIN_SEQUENCE,
+                        )
+                        checks["external_anchor"] = comparison.status
+                        if comparison.status != "pass":
+                            evidence_errors.append(comparison.detail)
+                        if comparison.status == "fail":
+                            tampered_seq = comparison.anchored_sequence or None
+                    except AnchorUnavailable as exc:
+                        evidence_errors.append(str(exc))
                 else:
                     evidence_errors.append(
                         "The configured anchor provider has no independent read-back verifier."
@@ -763,7 +806,7 @@ async def run_verification(
                 # or causes the verifier to report a breach by itself.
                 if res.is_valid and any(
                     checks.get(name) == "fail"
-                    for name in ("external_anchor", "checkpoint_signatures")
+                    for name in ("checkpoint_binding", "external_anchor", "checkpoint_signatures")
                 ):
                     forensic_snapshot = _load_local_attack_snapshot()
                     try:
@@ -802,6 +845,7 @@ async def run_verification(
             details="Verification engine failure: unable to connect to or verify the database.",
             verification_checks={
                 "hash_chain": "unknown",
+                "checkpoint_binding": "unknown",
                 "external_anchor": "unknown",
                 "checkpoint_signatures": "unknown",
             },
@@ -845,7 +889,10 @@ async def run_verification(
         )
     overall_status = _verification_status_from_checks(checks)
     if overall_status == "tampered":
-        last_verified = res.last_sequence_id if res.last_sequence_id >= 0 else 0
+        last_verified = (
+            max(0, tampered_seq - 1) if tampered_seq is not None
+            else res.last_sequence_id if res.last_sequence_id >= 0 else 0
+        )
         return VerificationResult(
             status="tampered",
             entries_scanned=res.total_entries,
@@ -860,10 +907,15 @@ async def run_verification(
 
     last_verified = res.last_sequence_id if res.last_sequence_id >= 0 else 0
     if overall_status == "intact":
-        details = f"Hash-chain continuity, configured local anchor record, and checkpoint signatures verified across {res.total_entries} entries."
+        anchor_description = (
+            "private GitHub anchor record" if get_settings().ANCHOR_STORE == "github_repo"
+            else "configured local anchor record"
+        )
+        details = f"Hash-chain continuity, checkpoint event commitments, {anchor_description}, and checkpoint signatures verified across {res.total_entries} entries."
     else:
         check_labels = {
             "hash_chain": "audit hash chain",
+            "checkpoint_binding": "checkpoint event commitments",
             "external_anchor": "configured anchor record comparison",
             "checkpoint_signatures": "checkpoint signatures",
         }
@@ -1505,9 +1557,58 @@ async def get_anchor_status(
                         anchor_record_time = None
         except (OSError, json.JSONDecodeError, TypeError):
             status_str = "MISSING"
+    elif store_type == "github_repo":
+        try:
+            checkpoints_result = await session.execute(
+                text(
+                    "SELECT checkpoint_id, sequence_id, checkpoint_hash, merkle_root, "
+                    "signature, key_id FROM chain_checkpoints ORDER BY sequence_id"
+                )
+            )
+            anchor_rows = [remote_checkpoint_row(*row) for row in checkpoints_result.all()]
+            manifest = await asyncio.to_thread(
+                fetch_manifest,
+                settings.GITHUB_ANCHOR_REPOSITORY,
+                settings.GITHUB_ANCHOR_TOKEN,
+                settings.GITHUB_ANCHOR_BRANCH,
+            )
+            comparison = compare_manifest(
+                anchor_rows, manifest,
+                minimum_sequence=settings.GITHUB_ANCHOR_MIN_SEQUENCE,
+            )
+            if comparison.anchored_sequence:
+                delta = max(0, tail_seq - comparison.anchored_sequence)
+            status_str = (
+                "MISMATCH" if comparison.status == "fail"
+                else "UNVERIFIED" if comparison.status == "unknown"
+                else "STALE" if delta > settings.CHECKPOINT_INTERVAL * 2
+                else "ANCHORED"
+            )
+            if comparison.anchored_at:
+                anchor_record_time = datetime.fromisoformat(
+                    comparison.anchored_at.replace("Z", "+00:00")
+                )
+        except (AnchorUnavailable, ValueError, TypeError):
+            status_str = "UNVERIFIED"
     elif store_type != "local_file":
         status_str = "UNVERIFIED"
     # Multi-witness quorum telemetry (NOVEL-010)
+    if store_type == "github_repo":
+        return AnchorInfo(
+            status=status_str,
+            anchor_store=store_type,
+            anchor_location=location,
+            last_anchored=anchor_record_time if status_str in ("ANCHORED", "STALE") else chk_time,
+            anchor_hash=f"sha256:{chk_hash}" if not chk_hash.startswith("sha256:") else chk_hash,
+            entries_since_anchor=delta,
+            witness_report=WitnessReport(
+                quorum_satisfied=False,
+                verification_status="unknown",
+                message="A single private external anchor is configured; no multi-witness quorum is configured.",
+                deployment_mode="private_repository",
+                independent_trust_domains=False,
+            ),
+        )
     witness_report = None
     try:
         from db.cli.anchor_store import MultiWitnessAnchorStore

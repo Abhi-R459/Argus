@@ -126,6 +126,7 @@ export async function mockArgusApi(page: Page): Promise<void> {
           details: 'Chain walks successfully across 142 entries. Tail hash matches the anchor store.',
           verification_checks: {
             hash_chain: 'pass',
+            checkpoint_binding: 'pass',
             external_anchor: 'pass',
             checkpoint_signatures: 'pass',
           },

@@ -80,8 +80,9 @@ employee data.
    invalid. Startup checks that its matching public key is present. Migration
    `023_hr_checkpoint_creation` grants the HR role the append-only database
    access needed by that route. The free launch persists signed checkpoints
-   in PostgreSQL with `ANCHOR_STORE=none`; an independent external witness is
-   not configured. The signer is inside the API's trust boundary.
+   in PostgreSQL. Set `ANCHOR_STORE=github_repo` only after publishing and
+   configuring the private, read-only external record described below. The
+   signer remains inside the API's trust boundary.
 
 ## Backups
 
@@ -174,3 +175,43 @@ operator boundary. Anyone with that credential can alter database objects and
 bypass application audit controls; do not describe the system as resistant to
 database-owner compromise. Use a separately controlled signing key and
 independent external anchor/witnesses to make subsequent changes detectable.
+
+### Private checkpoint anchor on the free deployment
+
+The free Argus deployment keeps a sanitized `anchors.json` in a separate,
+**private** GitHub repository. It contains only checkpoint identifiers,
+sequences, hashes, Merkle roots, signatures, and key IDs. The API receives a
+fine-grained GitHub token restricted to **that repository** with **Contents:
+Read** permission. It cannot publish or rewrite anchors. Do not place the
+token in source control, a frontend setting, a browser log, or an evidence
+pack. Keep the repository private; a public commit reveals audit timing and
+checkpoint metadata even without personnel records.
+
+The operator publishes a new anchor after creating a signed checkpoint:
+
+1. Export a fresh `.arguspack` as the auditor. Save it outside the GitHub
+   repository; the pack contains personnel evidence and must stay private.
+2. With the trusted production public key available, run
+   `python scripts/prepare_private_anchor.py --bundle <pack> --output <private-repo>/anchors.json`.
+   The command verifies the pack, checks every checkpoint against its audit
+   events and the trusted signer, refuses changes to previously published
+   records, and writes only the allowlisted checkpoint fields.
+3. Review the diff of `anchors.json`, commit, and push it to the private
+   repository. Then run the auditor's verification again. New checkpoints
+   remain **UNVERIFIED** until this publication succeeds; a changed prior
+   checkpoint is **MISMATCH**. Keep the evidence pack out of Git.
+
+In Render's **backend-only** environment, set `ANCHOR_STORE=github_repo`,
+`GITHUB_ANCHOR_REPOSITORY=OWNER/REPOSITORY`, `GITHUB_ANCHOR_BRANCH=main`,
+`GITHUB_ANCHOR_TOKEN` to the read-only credential, and
+`GITHUB_ANCHOR_MIN_SEQUENCE` to the first published sequence. The minimum
+pins the launch baseline against truncation. Review token expiry and rotate
+before expiration. The external read requires GitHub availability; if it
+fails, Argus reports **UNVERIFIED**, not an intact chain.
+
+The private repository is a second storage location outside the database,
+not an immutable witness or multi-party quorum. The repository owner can
+rewrite its history, and the API still holds the signing key. A customer
+requiring independent custody, immutable retention, or stronger adversarial
+guarantees needs separate operators and infrastructure beyond this free
+single-operator setup.

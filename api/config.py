@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Literal
 from urllib.parse import parse_qs, urlsplit
 
-from pydantic import model_validator
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from cryptography.hazmat.primitives.serialization import load_pem_public_key, load_pem_private_key
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -28,7 +28,9 @@ class Settings(BaseSettings):
     ANCHOR_STORE: str = "local_file"
     ANCHOR_FILE_PATH: str = "./anchor/chain_anchor.log"
     GITHUB_ANCHOR_REPOSITORY: str = ""
-    GITHUB_ANCHOR_TOKEN: str = ""
+    GITHUB_ANCHOR_TOKEN: str = Field(default="", repr=False)
+    GITHUB_ANCHOR_BRANCH: str = "main"
+    GITHUB_ANCHOR_MIN_SEQUENCE: int = 0
     CHECKPOINT_INTERVAL: int = 25
     AUDIT_SALT: str = ""
     AUDIT_CONTEXT_SECRET: str = ""
@@ -80,6 +82,16 @@ class Settings(BaseSettings):
 
         if missing:
             raise ValueError("Production configuration is missing: " + ", ".join(missing))
+
+        if self.ANCHOR_STORE == "github_repo":
+            if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", self.GITHUB_ANCHOR_REPOSITORY):
+                raise ValueError("GITHUB_ANCHOR_REPOSITORY must be owner/repository.")
+            if not self.GITHUB_ANCHOR_TOKEN.strip():
+                raise ValueError("GITHUB_ANCHOR_TOKEN is required for a private anchor repository.")
+            if not re.fullmatch(r"[A-Za-z0-9_./-]+", self.GITHUB_ANCHOR_BRANCH) or ".." in self.GITHUB_ANCHOR_BRANCH:
+                raise ValueError("GITHUB_ANCHOR_BRANCH is invalid.")
+            if self.GITHUB_ANCHOR_MIN_SEQUENCE < 1:
+                raise ValueError("GITHUB_ANCHOR_MIN_SEQUENCE must pin a published checkpoint sequence.")
 
         if not re.fullmatch(r"https://[a-z0-9]{20}\.supabase\.co", self.SUPABASE_URL):
             raise ValueError("SUPABASE_URL must be the exact HTTPS Supabase project URL.")

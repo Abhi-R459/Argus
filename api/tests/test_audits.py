@@ -7,11 +7,13 @@ def test_verification_status_never_treats_unknown_checks_as_intact():
 
     required_checks = {
         "hash_chain": "pass",
+        "checkpoint_binding": "pass",
         "external_anchor": "pass",
         "checkpoint_signatures": "pass",
     }
     assert _verification_status_from_checks(required_checks) == "intact"
     assert _verification_status_from_checks({**required_checks, "checkpoint_signatures": "unknown"}) == "unknown"
+    assert _verification_status_from_checks({**required_checks, "checkpoint_binding": "fail"}) == "tampered"
     assert _verification_status_from_checks({**required_checks, "external_anchor": "fail"}) == "tampered"
 
 

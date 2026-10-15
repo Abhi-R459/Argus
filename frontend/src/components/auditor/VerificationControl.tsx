@@ -53,6 +53,7 @@ export default function VerificationControl({ onResult }: VerificationControlPro
   };
   const checkRows = [
     { key: 'hash_chain', label: 'Audit hash chain' },
+    { key: 'checkpoint_binding', label: 'Checkpoint event commitments' },
     { key: 'external_anchor', label: 'Configured anchor record comparison' },
     { key: 'checkpoint_signatures', label: 'Checkpoint signatures' },
   ];
@@ -116,7 +117,7 @@ export default function VerificationControl({ onResult }: VerificationControlPro
             <div className="text-center">
               <p className="text-sm text-linear-ink font-medium">Run Chain Verification</p>
               <p className="text-xs text-linear-ink-subtle mt-1 max-w-xs">
-                Walks the full audit hash chain and checks the latest local anchor record.
+                Walks the full audit chain and compares checkpoint commitments, signatures, and the configured anchor.
               </p>
             </div>
             <Button
@@ -256,7 +257,7 @@ export default function VerificationControl({ onResult }: VerificationControlPro
               </div>
 
               <p className="text-[11px] text-linear-ink-subtle leading-relaxed">
-                This result covers the hash-chain walk, the configured anchor record, and signed checkpoints. A local file anchor is not an independent external trust domain. Merkle proofs are verified separately when generated.
+                This result covers the hash-chain walk, checkpoint contents and signatures, and the configured anchor. A local file anchor is not an independent external trust domain. Merkle proofs are verified separately when generated.
               </p>
 
               <div className="space-y-1.5 bg-linear-surface-2 p-2.5 rounded-xl border border-linear-hairline">
