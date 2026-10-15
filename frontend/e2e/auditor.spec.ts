@@ -214,6 +214,22 @@ test.describe('Compliance Auditor Portal E2E', () => {
     await expect(page.getByRole('checkbox', { name: 'Exclude sequence 142', exact: true })).toBeVisible();
   });
 
+  test('Counterfactual can select personnel beyond the preloaded directory by ID', async ({ page }) => {
+    await page.goto('http://localhost:5173/auditor/counterfactual');
+    await expect(page.getByRole('combobox')).toHaveValue('1001');
+    await page.getByLabel('Employee ID', { exact: true }).fill('9001');
+    const requested = page.waitForRequest((request) => {
+      const url = new URL(request.url());
+      return url.pathname.endsWith('/audit-logs') && url.searchParams.get('employee_id') === '9001';
+    });
+    await page.getByRole('button', { name: 'Use employee ID', exact: true }).click();
+    await requested;
+    await expect(page.getByRole('combobox')).toHaveValue('9001');
+    await expect(page.getByText(/events for Employee #9001/)).toBeVisible();
+    await page.getByLabel('Employee ID', { exact: true }).fill('0');
+    await expect(page.getByRole('button', { name: 'Use employee ID', exact: true })).toBeDisabled();
+  });
+
   test('Counterfactual replay requires a selected audit event before calling the API', async ({ page }) => {
     let simulationRequests = 0;
     page.on('request', (request) => {

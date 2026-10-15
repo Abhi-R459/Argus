@@ -45,6 +45,7 @@ export default function CounterfactualPage() {
 
   // Inputs
   const [employeeId, setEmployeeId] = useState<number>(1);
+  const [manualEmployeeId, setManualEmployeeId] = useState('');
   const [selectedSequenceIds, setSelectedSequenceIds] = useState<number[]>([]);
   const [asOfInput, setAsOfInput] = useState<string>('');
   const [eventSearch, setEventSearch] = useState('');
@@ -219,30 +220,40 @@ export default function CounterfactualPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* Employee Selector */}
             <div>
-              <label className="block text-xs font-semibold text-linear-ink-subtle uppercase tracking-wider mb-1.5">
+              <label htmlFor="counterfactual-personnel" className="block text-xs font-semibold text-linear-ink-subtle uppercase tracking-wider mb-1.5">
                 Target Personnel
               </label>
-              {employees.length > 0 ? (
+              {employees.length > 0 && (
                 <select
+                  id="counterfactual-personnel"
                   value={employeeId}
                   onChange={(e) => setEmployeeId(Number(e.target.value))}
                   className="w-full text-sm bg-linear-surface-2 border border-linear-hairline rounded-lg px-3 py-2 text-linear-ink focus:outline-hidden focus:border-linear-primary"
                 >
+                  {!employees.some((emp) => emp.employee_id === employeeId) && <option value={employeeId}>Employee #{employeeId} — selected by ID</option>}
                   {employees.map((emp) => (
                     <option key={emp.employee_id} value={emp.employee_id}>
                       #{emp.employee_id} — {emp.full_name} ({emp.role_title || 'Employee'})
                     </option>
                   ))}
                 </select>
-              ) : (
+              )}
+              <div className="mt-3 flex flex-wrap items-end gap-2">
+                <label className="grow text-xs text-linear-ink-muted">Employee ID
                 <input
                   type="number"
-                  value={employeeId}
-                  onChange={(e) => setEmployeeId(Number(e.target.value))}
+                  min="1" step="1"
+                  value={manualEmployeeId}
+                  onChange={(e) => setManualEmployeeId(e.target.value)}
                   placeholder="Employee ID (e.g. 42)"
                   className="w-full text-sm bg-linear-surface-2 border border-linear-hairline rounded-lg px-3 py-2 text-linear-ink focus:outline-hidden focus:border-linear-primary"
                 />
-              )}
+                </label>
+                <button type="button" className="rounded-lg border border-linear-hairline px-3 py-2 text-xs text-linear-ink disabled:opacity-40"
+                  disabled={!Number.isSafeInteger(Number(manualEmployeeId)) || Number(manualEmployeeId) <= 0}
+                  onClick={() => setEmployeeId(Number(manualEmployeeId))}>Use employee ID</button>
+              </div>
+              <p className="mt-2 text-xs text-linear-ink-muted">The quick list shows the first 100 employees. Enter any employee ID to investigate records outside that list.</p>
             </div>
 
             {/* As-Of Timestamp (Optional) */}
