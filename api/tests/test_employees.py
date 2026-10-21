@@ -31,7 +31,8 @@ async def test_deactivation_prepares_encrypted_audit_context_before_changing_sta
     from db.crypto.pii import encrypt_pii
 
     key = base64.urlsafe_b64encode(b'0123456789abcdef0123456789abcdef').decode('ascii')
-    employee = SimpleNamespace(employee_id=7, is_active=True,
+    employee = SimpleNamespace(employee_id=7, full_name='Test Employee', email='employee@example.test',
+        role_id=1, is_active=True, contact_info_encrypted=encrypt_pii('Contact', 'contact_info', key),
         national_id_encrypted=encrypt_pii('QA-NATIONAL-ID', 'national_id', key) if valid_envelope else b'legacy-plaintext')
     result = MagicMock()
     result.scalar_one_or_none.return_value = employee
@@ -197,7 +198,7 @@ async def test_create_employee_hr(client_hr: AsyncClient, mock_db_session: Async
         response = await client_hr.post("/api/employees", json=payload)
 
     assert response.status_code == 201, response.text
-    assert mock_db_session.add.call_count == 2
+    assert mock_db_session.add.call_count == 3
 
 
 async def test_create_employee_encrypts_sensitive_fields(client_hr: AsyncClient, mock_db_session: AsyncMock):

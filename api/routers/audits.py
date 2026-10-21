@@ -23,7 +23,7 @@ from pathlib import Path
 from urllib.parse import quote, unquote
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
-from sqlalchemy import select, func, text, or_, and_, desc, case
+from sqlalchemy import select, func, text, or_, and_, desc, case, literal
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import get_settings
@@ -1403,7 +1403,9 @@ async def get_audit_chain(
             AuditLog.table_name,
             AuditLog.action,
             User.email.label("actor_email"),
-            User.role.label("actor_role"),
+            # The users.role column is a legacy account default. With a
+            # request-selected role it cannot prove the role of a past event.
+            literal("unknown").label("actor_role"),
             AuditLog.actor_user_id,
             AuditLog.created_at,
             AuditLog.severity,
@@ -1883,7 +1885,7 @@ async def get_system_metrics(
         )
 
     settings = get_settings()
-    check_results["auth_enforced"] = bool(settings.SUPABASE_URL and settings.SUPABASE_PUBLISHABLE_KEY)
+    check_results["auth_enforced"] = bool(settings.CLERK_JWT_KEY and settings.CLERK_SECRET_KEY and settings.CLERK_ISSUER)
     security_checks = {name: result is True for name, result in check_results.items()}
     security_check_details = {
         name: ("pass" if result is True else "fail" if result is False else "unknown")

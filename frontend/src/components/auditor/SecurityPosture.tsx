@@ -133,7 +133,7 @@ export default function SecurityPosture() {
             <div>
               <p className="text-sm font-semibold text-linear-ink">Application authentication</p>
               <p className="text-xs text-linear-ink-muted mt-0.5">
-                Supabase session verification is configured for server-side request validation.
+                Clerk session verification is configured for server-side request validation.
               </p>
             </div>
             <span className={`shrink-0 rounded border px-2 py-0.5 text-[10px] font-mono uppercase ${

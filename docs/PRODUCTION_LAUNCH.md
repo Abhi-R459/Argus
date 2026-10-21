@@ -1,5 +1,9 @@
 # Argus launch handoff
 
+> **Current release:** The Clerk and `arguss.in` migration is tracked in
+> [Clerk production release and rollback](CLERK_PRODUCTION_RELEASE.md).
+> This page records the earlier Supabase Auth launch and its dated observations.
+
 Updated 21 October 2026. The user requires free services only, with no card,
 paid upgrade, expiring trial or paid add-on. The application now uses Supabase
 Auth with Google OAuth. Migration `031_checkpoint_schedule_settings` adds the
@@ -40,14 +44,13 @@ for the observed feature matrix and limitations.
 
 ## Free deployment
 
-Deploy the reviewed `codex/production-launch` branch using `render.yaml`: one
-Render Free Docker API, one Render static site, and the existing Supabase Free
-project. The repository's default `dev` branch must not be used: its old
-Blueprint selected paid compute and a disk. Automatic deploys are disabled for
-the public repository source; deploy only after the exact release commit's CI
-passes. Blueprint Auto Sync is also set to **No** in Render, so future YAML
-changes require a deliberate manual sync. The public GitHub repository uses
-ordinary free Actions runners.
+Deploy both production Render services from `main` using `render.yaml`: one
+Render Docker API, one Render static site, and the existing Supabase PostgreSQL
+project. Do not use `dev` or preview branches for production. Automatic deploys
+remain disabled; deploy only after CI passes for the exact `main` commit and the
+controlled production migration workflow succeeds. Blueprint Auto Sync is set
+to **No**, so future YAML changes require a deliberate manual sync. The public
+GitHub repository uses ordinary free Actions runners.
 
 The Render workspace was verified on Hobby with no card or pending charges and
 a **$0 build-pipeline spending limit**. Recheck before changing services. Do not
@@ -56,7 +59,8 @@ domains. The observed shared quotas were 750 Free instance hours, 5 GB bandwidth
 500 Starter build minutes, two custom domains and 25 services. With no payment
 method, quota exhaustion stops service/builds rather than authorizing charges.
 Provider terms and quotas can change; free forever and uninterrupted service
-are not guaranteed.
+are not guaranteed. The quoted plan and quota figures are dated observations,
+not a current account or billing check.
 
 Render Free sleeps after 15 minutes idle and may take about a minute to wake.
 The frontend allows a bounded 90-second API request and never automatically
@@ -71,53 +75,33 @@ References: [Render Free](https://render.com/docs/free),
 [Render secret files](https://render.com/docs/configure-environment-variables),
 [Supabase pricing](https://supabase.com/pricing), and
 [Supabase backups](https://supabase.com/docs/guides/platform/backups).
-Vercel Hobby restricts commercial use, so Render static hosting is the default.
+Render static hosting is the production frontend.
 
 ## Authentication
 
-Google OAuth uses Supabase's free project callback:
-`https://jdfakmmbydbnupndcytf.supabase.co/auth/v1/callback`.
-A purchased domain and custom Supabase Auth domain are unnecessary. Request only
-openid, email and profile; no paid Google Cloud API is needed. Store the Google
-client secret only in Supabase's Google provider settings. Keep nonce checks
-and email confirmation enabled, anonymous login and manual linking disabled,
-and disable unused Email login once Google is enabled. Use the actual frontend
-HTTPS origin for the Auth Site URL and its exact `/auth/callback` address in the
-redirect allowlist. Never use wildcard preview domains.
+Clerk is the only authentication provider. Each signed-in account with a
+verified primary email may choose either the HR or Auditor workspace in the UI
+and switch later. The selection is a browser-session preference, not a durable
+privilege grant. The API validates the Clerk JWT, checks the current Clerk
+session and account state, then routes each request through the matching
+PostgreSQL login. HR access is intentionally available to any signed-in account
+because that is the approved product policy; protect access to the app and its
+production data accordingly.
 
-Google Audience remains in **Testing** with only the two real approved accounts
-permitted. These are launch accounts, not disposable demo accounts. The app is
-ready for that restricted audience; wider Google access has not been published.
+The `users` table remains the application identity store. Migration 034 links a
+Clerk subject to a stable existing Argus user by verified email, preserving user
+IDs and audit references. New accounts are provisioned by the app at first
+sign-in. No one needs to open Supabase or edit user records to select a role.
+Migration 035 stores encrypted preimages for the supported HR undo actions.
+Apply both through the controlled **Argus production migrations** GitHub
+workflow; the migration administrator is a one-off credential and is not part
+of the API runtime.
 
-The API derives permissions from its separate server-side email lists. It
-validates the access token with Supabase Auth, then checks current verified
-Google identity, user ban/deletion state and the signed session ID against
-`auth.sessions`. Logout revokes access immediately. Existing application
-profiles are rechecked against the current email and role on every request;
-removing an email from its list removes its access. `user_metadata` never grants
-permissions. First approved sign-in provisions the application profile.
-
-Migrations 027-029 expose only a private boolean session check to the HR database
-pool. Managed Auth tables deny custom roles through RLS and their schema USAGE
-cannot be granted by the project administrator. Migration 028 binds fixed SQL
-table references at creation; migration 029 uses the trusted `postgres`
-principal's existing RLS bypass for this one function. Its schema is not exposed
-through the Data API, PUBLIC execution is revoked, its search path is fixed,
-and its two UUID inputs return only a boolean. No managed Auth policy is changed.
-The trusted database administrator remains part of the security boundary.
-Neither runtime business role can read Auth passwords, refresh tokens or
-credential tables or bypass RLS. Migration 030 supplies the audit-function
-owner's missing schema USAGE without granting new table privileges.
-See [Supabase database functions](https://supabase.com/docs/guides/database/functions)
-and [PostgreSQL SQL function bodies](https://www.postgresql.org/docs/current/sql-createfunction.html).
-The legacy internal `clerk_user_id` column
-is retained to preserve audit references and now stores `supabase:<uuid>`;
-the API exposes it as `auth_user_id`. Clerk is unused by the deployed code.
-
-A standalone PostgreSQL database has no Supabase Auth sessions and deliberately
-fails real session checks closed. Real login requires connecting the API to the
-same Supabase project as Auth. Unit/browser/isolated PostgreSQL tests mock
-external identity rather than weakening the deployed checks.
+A standalone PostgreSQL database cannot verify live Clerk sessions; the API
+fails closed if Clerk configuration or session verification is unavailable.
+Unit, browser and isolated PostgreSQL tests mock external identity rather than
+weakening production checks. The Supabase Data API is not used for sign-in or
+business-table access.
 
 ## Data and database security
 
@@ -148,8 +132,8 @@ RLS-bypass roles. Auditor employee reads use a masked view. The security advisor
 has one informational notice: the private request-budget table has no RLS
 policy because direct access is intentionally denied; only its restricted
 function can use it. The advisor also reports disabled leaked-password
-protection; Email/password login is disabled and this application accepts Google
-sign-in only. No paid password-protection upgrade was enabled. See the
+protection; password authentication is disabled in Clerk and the application
+requires a verified primary email. See the
 [private-table notice](https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy)
 and [password-protection guidance](https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection).
 
@@ -165,100 +149,84 @@ rejected with Supabase SSL enforcement enabled. Do not use transaction port
 ## API secrets and configuration
 
 Use `.env.production.example` and `render.yaml`; templates cannot be deployed
-unchanged. Add the two runtime database URLs, PII key, audit salt and actor
-assertion secret to Render's secret environment. Preserve the matching installed
-actor key ID `production-20261011`; the old hosted v1 actor key is disabled.
-Never replace only one side of an actor-key configuration. Back up encryption
-and signing keys separately from the database.
+unchanged. Keep the HR and Auditor PostgreSQL runtime URLs, PII key, audit salt,
+actor assertion secret, and signing material in Render's restricted environment.
+Preserve the matching installed actor key ID `production-20261011`; never
+replace only one side of an actor-key configuration. Back up encryption and
+signing keys separately from the database.
+
+The API requires Clerk's production `CLERK_SECRET_KEY`, `CLERK_JWT_KEY` public
+PEM, `CLERK_ISSUER`, and the exact `CLERK_AUTHORIZED_PARTIES` origin. The
+account owner has entered the secret key directly in Render. Never copy any
+secret into source control or chat. Keep the migration administrator in the
+GitHub `production` environment as `DATABASE_URL_MIGRATIONS`, separate from
+both API database URLs.
 
 Mount the restricted production `verifier_private_key.pem` and matching
-`public_key.pem` as Render secret files at `/etc/secrets`. No private key is
-in Git or the image. The API requires its expected public key to match and will
-not silently generate a replacement key. Retain historical trusted public keys
-when rotating. Set exact frontend HTTPS `CORS_ORIGINS`, keep demo switching and
-concurrency diagnostics disabled, and use the configured small connection pools.
-Apply migrations through a separate administrator before deploying code; workers
-do not run migrations at startup.
+`public_key.pem` as Render secret files at `/etc/secrets`. No private key is in
+Git or the image. The API requires its expected public key to match and will not
+silently generate a replacement key. Retain historical trusted public keys
+when rotating. Set exact frontend HTTPS `CORS_ORIGINS`, keep concurrency
+diagnostics disabled, and use the configured small connection pools. The
+controlled GitHub migration workflow applies additive schema changes before
+API deployment; services do not run migrations at startup.
 
 The checked-in Blueprint defaults to `ANCHOR_STORE=none`, while the 21 October
 live auditor view reported a configured private GitHub anchor. Confirm the
 effective Render value and anchor repository without copying credentials into
-this document. At the 08:40 observation, the latest two entries had not been
-externally anchored; a later checkpoint or publication may change that state.
-Independent witness verification was unknown. Signed checkpoints persist in
-PostgreSQL. The signing key
-resides with the API; API compromise can use it. A complete rollback of both
-business data and checkpoints requires independently retained evidence to
-detect. No KMS, HSM or independent witness has been configured for this free
-launch. The application supports one organization; shared multi-customer hosting
-requires explicit tenant isolation first.
+this document. Independent witness verification was not established by that
+historical observation. The signing key resides with the API; API compromise
+can use it. No KMS, HSM or independent witness has been configured for this
+launch. The application supports one organization; shared multi-customer
+hosting requires explicit tenant isolation first.
 
 ## Frontend configuration
 
-Set only public values on the static site, using Node 22 and
+Set only public values on the Render static site, using Node 22 and
 `npm run build:production`:
 
 ```text
-VITE_SUPABASE_URL=https://jdfakmmbydbnupndcytf.supabase.co
-VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_<public-key>
+VITE_CLERK_PUBLISHABLE_KEY=pk_live_<production-publishable-key>
 VITE_API_URL=https://argus-backend-u0i3.onrender.com/api
 VITE_ENABLE_DIAGNOSTICS=false
 VITE_API_TIMEOUT_MS=90000
 ```
 
-Read the actual API/frontend hostnames from Render after provisioning rather
-than inventing them. Every `VITE_` value is publicly visible. Never add Google
-client secrets, Supabase secret/service-role keys, database passwords, encryption
-keys or signing keys. The client uses PKCE and a single shared token refresh;
-account changes get separate workspace caches. Failed sign-out asks for retry
-rather than pretending the server session was revoked.
+Every `VITE_` value is public. Never add Clerk secret keys, database passwords,
+encryption keys or signing keys to frontend configuration. Configure `arguss.in`
+as the production app origin in Clerk, CORS, and authorized parties. Keep the
+backend URL on its existing Render hostname.
 
 ## Release checks and remaining work
 
-Local validation passed: **179 API tests**, **216 database unit tests** with
-44 opt-in/specialized skips, **27 browser tests**, and **nine isolated PostgreSQL
-17 checks**. The fresh-database checks include session expiry/logout/ban/deletion,
-managed Auth RLS, revoked public-schema USAGE, minimum Auth column grants,
-restricted migration-administrator permission restoration, rate limiting,
-signed writes and checkpoint verification. Frontend lint and the
-strict launch build passed using the public Supabase configuration. Browser
-tests use mocked APIs and do not establish real Google login. The API image
-build and packaging checks passed. The first deployment of `a496a21` passed
-remote CI ([run 38149936635](https://github.com/Abhi-R459/Argus/actions/runs/38149936635))
-and all 15 public live checks. Real sign-in uncovered managed-schema permissions
-that are addressed by migrations 028-030 and reproduced by the updated isolated
-checks. The strengthened readiness route executes the session check and checks
-the audit owner's schema access rather than only checking function existence.
+The older Google/Supabase launch and test counts above are historical evidence;
+they do not verify this Clerk release. For the current release, run CI on the
+exact `main` commit, run the **Argus production migrations** GitHub workflow,
+then manually deploy the API and frontend Render services from `main`. Deploy
+the API after migrations and readiness succeed, then deploy the frontend.
+Follow [the Clerk production release and rollback runbook](CLERK_PRODUCTION_RELEASE.md)
+for the ordered provider setup, checks and rollback procedure.
 
-The 11 October release `2f1dd71` passed CI and all 15 public checks at that
-time. Both approved Google roles loaded their portals, and sign-outs revoked
-their server sessions. The auditor exported and verified an empty-ledger
-`.arguspack` against the separately retained production public key. Those are
-historical launch checks: production later accumulated synthetic QA activity,
-as recorded in the 21 October audit. The 21 October acceptance pass separately
-verified the privacy remediation and successful counterfactual replay; its
-limitations are listed in the functional audit.
-
-For every subsequent release, verify the exact commit's CI, manually deploy the
-Free services, then run the read-only deployment check:
+The read-only deployment check is:
 
 ```text
-python scripts/check_live_deployment.py --frontend-origin https://argus-frontend-0i6n.onrender.com --api-origin https://argus-backend-u0i3.onrender.com
+python scripts/check_live_deployment.py --frontend-origin https://arguss.in --api-origin https://argus-backend-u0i3.onrender.com
 ```
 
 It checks HTTPS, readiness, frontend routes/security headers, anonymous and
 invalid-token rejection, CORS and disabled API documentation without business
-writes. Repeat real-account role and sign-out checks after authentication changes.
-Synthetic workflow/load tests belong
-in an isolated staging database; production audit history must be preserved once
-real usage begins. HR Settings can create the initial department and job role
-without demo data.
+writes. Separately verify sign-in, first-time workspace selection, switching
+between HR and Auditor, HR undo using a newly created synthetic record, auditor
+read-only views and signed audit verification. Do not exercise a data rollback
+on real personnel records. Do not report a successful launch until these live
+checks pass.
 
-Establish independent backups and a restore/key-recovery rehearsal, readiness
-and deployment-failure alerts, access reviews, retention and an employee privacy
-notice. There is no paid backup/PITR or automatic free-host uptime guarantee.
-Evidence exports are capped at 50,000 events and checkpoints at 10,000 events;
-size real workloads in staging before exceeding the free deployment's capacity.
+Continue to establish independent backups and a restore/key-recovery rehearsal,
+readiness and deployment-failure alerts, access reviews, retention and an
+employee privacy notice. There is no paid backup/PITR or automatic free-host
+uptime guarantee. Evidence exports are capped at 50,000 events and checkpoints
+at 10,000 events; size real workloads in staging before exceeding the free
+deployment's capacity.
 
 ## Pending optional domain
 

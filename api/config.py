@@ -19,8 +19,10 @@ class Settings(BaseSettings):
     DATABASE_URL_MIGRATIONS: str = ""
     DATABASE_URL_HR_ADMIN: str
     DATABASE_URL_COMPLIANCE_AUDITOR: str
-    SUPABASE_URL: str = ""
-    SUPABASE_PUBLISHABLE_KEY: str = ""
+    CLERK_JWT_KEY: str = Field(default="", repr=False)
+    CLERK_SECRET_KEY: str = Field(default="", repr=False)
+    CLERK_ISSUER: str = ""
+    CLERK_AUTHORIZED_PARTIES: str = ""
     SIGNING_PRIVATE_KEY_PATH: str = "./keys/verifier_private_key.pem"
     CHECKPOINT_PUBLIC_KEYS_DIR: str = "./keys"
     WITNESS_PUBLIC_KEYS_DIR: str = "./trusted-witness-keys"
@@ -39,10 +41,7 @@ class Settings(BaseSettings):
     BLIND_INDEX_MODE: str = "pbkdf2"  # "pbkdf2" or "hmac"
     BLIND_INDEX_RATE_LIMIT_PER_MINUTE: int = 10
     PII_ENCRYPTION_KEY: str = ""
-    ALLOW_DEMO_ROLE_SWITCH: bool = False
     ALLOW_CONCURRENCY_DIAGNOSTICS: bool = False
-    HR_ADMIN_EMAILS: str = ""
-    COMPLIANCE_AUDITOR_EMAILS: str = ""
     SUSPICIOUS_ACTIVITY_REFRESH_SECONDS: int = 30
     INTEGRITY_MONITOR_ENABLED: bool = False
     INTEGRITY_MONITOR_INTERVAL_SECONDS: int = Field(default=300, ge=60, le=3600)
@@ -82,10 +81,6 @@ class Settings(BaseSettings):
 
         missing = []
         for name, value in (
-            ("SUPABASE_URL", self.SUPABASE_URL),
-            ("SUPABASE_PUBLISHABLE_KEY", self.SUPABASE_PUBLISHABLE_KEY),
-            ("HR_ADMIN_EMAILS", self.HR_ADMIN_EMAILS),
-            ("COMPLIANCE_AUDITOR_EMAILS", self.COMPLIANCE_AUDITOR_EMAILS),
             ("PII_ENCRYPTION_KEY", self.PII_ENCRYPTION_KEY),
             ("AUDIT_SALT", self.AUDIT_SALT),
             ("AUDIT_CONTEXT_SECRET", self.AUDIT_CONTEXT_SECRET),
@@ -95,6 +90,22 @@ class Settings(BaseSettings):
 
         if missing:
             raise ValueError("Production configuration is missing: " + ", ".join(missing))
+
+        for name, value in (
+            ("CLERK_JWT_KEY", self.CLERK_JWT_KEY),
+            ("CLERK_SECRET_KEY", self.CLERK_SECRET_KEY),
+            ("CLERK_ISSUER", self.CLERK_ISSUER),
+            ("CLERK_AUTHORIZED_PARTIES", self.CLERK_AUTHORIZED_PARTIES),
+        ):
+            if not value.strip():
+                raise ValueError(name + " is required with Clerk authentication.")
+        if self.APP_ENV == "production" and not self.CLERK_SECRET_KEY.startswith("sk_live_"):
+            raise ValueError("CLERK_SECRET_KEY must be a Clerk production secret key.")
+        if not self.CLERK_ISSUER.startswith("https://"):
+            raise ValueError("CLERK_ISSUER must be HTTPS.")
+        parties = [value.strip() for value in self.CLERK_AUTHORIZED_PARTIES.split(",") if value.strip()]
+        if not parties or any(not self._is_https_origin(value) for value in parties):
+            raise ValueError("CLERK_AUTHORIZED_PARTIES must contain exact HTTPS origins.")
 
         if self.ANCHOR_STORE == "github_repo":
             if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", self.GITHUB_ANCHOR_REPOSITORY):
@@ -106,10 +117,6 @@ class Settings(BaseSettings):
             if self.GITHUB_ANCHOR_MIN_SEQUENCE < 1:
                 raise ValueError("GITHUB_ANCHOR_MIN_SEQUENCE must pin a published checkpoint sequence.")
 
-        if not re.fullmatch(r"https://[a-z0-9]{20}\.supabase\.co", self.SUPABASE_URL):
-            raise ValueError("SUPABASE_URL must be the exact HTTPS Supabase project URL.")
-        if not re.fullmatch(r"sb_publishable_[A-Za-z0-9_-]+", self.SUPABASE_PUBLISHABLE_KEY):
-            raise ValueError("SUPABASE_PUBLISHABLE_KEY must be a public publishable key.")
 
         origins = [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]
         if not origins or any(
@@ -141,8 +148,6 @@ class Settings(BaseSettings):
         except ValueError as exc:
             raise ValueError("Production cryptographic configuration is invalid.") from exc
 
-        if self.ALLOW_DEMO_ROLE_SWITCH:
-            raise ValueError("ALLOW_DEMO_ROLE_SWITCH must remain disabled in production.")
         if self.ALLOW_CONCURRENCY_DIAGNOSTICS:
             raise ValueError("ALLOW_CONCURRENCY_DIAGNOSTICS must remain disabled in production.")
         if self.DB_POOL_SIZE < 1 or self.DB_MAX_OVERFLOW < 0:
@@ -152,10 +157,6 @@ class Settings(BaseSettings):
         if not 1024 <= self.MAX_REQUEST_BODY_BYTES <= 10485760:
             raise ValueError("MAX_REQUEST_BODY_BYTES must be between 1 KiB and 10 MiB.")
 
-        hr_emails = {v.strip().lower() for v in self.HR_ADMIN_EMAILS.split(",") if v.strip()}
-        auditor_emails = {v.strip().lower() for v in self.COMPLIANCE_AUDITOR_EMAILS.split(",") if v.strip()}
-        if hr_emails & auditor_emails:
-            raise ValueError("HR and auditor provisioning allowlists must not overlap.")
         if not 1 <= self.BLIND_INDEX_RATE_LIMIT_PER_MINUTE <= 300:
             raise ValueError("BLIND_INDEX_RATE_LIMIT_PER_MINUTE must be between 1 and 300.")
 

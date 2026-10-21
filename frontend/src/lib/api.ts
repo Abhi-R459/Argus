@@ -1,3 +1,5 @@
+import { readWorkspaceRole } from './workspaceRole';
+
 export const API_BASE_URL = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
 const configuredTimeout = Number(import.meta.env.VITE_API_TIMEOUT_MS || 30_000);
 const API_TIMEOUT_MS = Number.isInteger(configuredTimeout) && configuredTimeout >= 1_000 && configuredTimeout <= 120_000
@@ -26,7 +28,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * A wrapper around fetch that attaches the Supabase access token.
+ * A wrapper around fetch that attaches the Clerk session token.
  * Use this inside a React component context where `getToken` from `useAuth()` is available.
  */
 export async function authenticatedFetch(
@@ -45,6 +47,9 @@ export async function authenticatedFetch(
     headers.set('Authorization', `Bearer ${token}`);
   }
   
+  const selectedRole = readWorkspaceRole();
+  if (selectedRole) headers.set('X-Argus-Role', selectedRole);
+
   // Default to JSON if not explicitly set
   if (!headers.has('Content-Type') && options.body && typeof options.body === 'string') {
     headers.set('Content-Type', 'application/json');

@@ -24,7 +24,7 @@ def launch_database():
         pytest.fail("Refusing launch checks against an unconfirmed test database.")
     with psycopg2.connect(dsn) as conn, conn.cursor() as cursor:
         cursor.execute("SELECT version_num FROM alembic_version")
-        assert cursor.fetchone()[0] == "030_definer_schema_usage"
+        assert cursor.fetchone()[0] == "035_hr_undo_actions"
         cursor.execute("INSERT INTO departments(name) VALUES ('Launch Check') RETURNING department_id")
         department = cursor.fetchone()[0]
         cursor.execute("INSERT INTO roles(title,department_id,salary_band_min,salary_band_max) VALUES ('Engineer',%s,1,1000000) RETURNING role_id", (department,))
@@ -244,13 +244,13 @@ def test_request_budgets_are_atomic_across_connections(launch_database):
 
 
 def test_real_api_bootstrap_employee_and_checkpoint(launch_database, tmp_path, monkeypatch):
-    """Use actual SQL roles and triggers; only external Auth verification is replaced."""
+    """Use actual SQL roles and triggers; only external Clerk verification is replaced."""
     import asyncio
     from cryptography.hazmat.primitives import serialization
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
     from httpx import AsyncClient, ASGITransport
     from api.main import app
-    from api.middleware.supabase_auth import verify_supabase_token
+    from api.middleware.clerk_auth import verify_clerk_token
     from api.config import get_settings
     from api.database import init_engines, dispose_engines
 
@@ -262,12 +262,12 @@ def test_real_api_bootstrap_employee_and_checkpoint(launch_database, tmp_path, m
     monkeypatch.setattr(get_settings(), 'CHECKPOINT_PUBLIC_KEYS_DIR', str(tmp_path))
     (tmp_path / 'public_key.pem').write_bytes(key.public_key().public_bytes(
         serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo))
-    app.dependency_overrides[verify_supabase_token] = lambda: {'sub': 'launch:test', 'email': 'launch@example.test', 'email_verified': True, 'argus_role': 'hr_admin'}
+    app.dependency_overrides[verify_clerk_token] = lambda: {'sub': 'clerk:user_launch_test', 'email': 'launch@example.test', 'email_verified': True, 'provider': 'clerk'}
 
     async def run():
         await init_engines()
         try:
-            async with AsyncClient(transport=ASGITransport(app=app), base_url='http://launch.test') as client:
+            async with AsyncClient(transport=ASGITransport(app=app), base_url='http://launch.test', headers={'X-Argus-Role': 'hr_admin'}) as client:
                 assert (await client.get('/api/health/ready')).status_code == 200
                 department = await client.post('/api/departments', json={'name': 'API Bootstrap'})
                 assert department.status_code == 201, department.text
@@ -344,7 +344,8 @@ def test_real_api_bootstrap_employee_and_checkpoint(launch_database, tmp_path, m
                     cursor.execute('SELECT national_id_encrypted FROM employees WHERE employee_id=%s', (employee_id,))
                     assert b'api-test-national-id' not in bytes(cursor.fetchone()[0])
                     cursor.execute("INSERT INTO users(clerk_user_id,full_name,email,role,is_active) VALUES ('launch:auditor','Audit Test','audit-launch@example.test','compliance_auditor',true)")
-                app.dependency_overrides[verify_supabase_token] = lambda: {'sub': 'launch:auditor', 'email': 'audit-launch@example.test', 'email_verified': True, 'argus_role': 'compliance_auditor'}
+                app.dependency_overrides[verify_clerk_token] = lambda: {'sub': 'clerk:user_launch_auditor', 'email': 'audit-launch@example.test', 'email_verified': True, 'provider': 'clerk'}
+                client.headers['X-Argus-Role'] = 'compliance_auditor'
                 directory = await client.get('/api/employees')
                 assert directory.status_code == 200, directory.text
                 assert all(row['email'] != 'api-test@example.com' for row in directory.json()['items'])

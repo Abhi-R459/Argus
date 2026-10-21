@@ -1,4 +1,4 @@
-# Local development after the Supabase Auth migration
+# Local development with Clerk authentication
 
 The old Clerk demo preparation flow is retired. The local demo database was
 restored from an isolated recovery snapshot for professor demonstrations. It
@@ -22,21 +22,17 @@ Run browser checks from `frontend` with inert public configuration, so tests
 cannot accidentally contact the real authentication project:
 
 ```powershell
-$env:VITE_SUPABASE_URL='https://abcdefghijklmnopqrst.supabase.co'
-$env:VITE_SUPABASE_PUBLISHABLE_KEY='sb_publishable_inert_test_key'
+$env:VITE_CLERK_PUBLISHABLE_KEY='pk_test_dGVzdC5jbGVyay5hY2NvdW50cy5kZXYk'
 npm run test:e2e
 ```
 
 The local demo snapshot contains synthetic demonstration data and can differ
-from production. Real Google sign-in requires the API database to be the same
-Supabase project that issues the session. Migration 027 checks its
-`auth.sessions` and user ban/deletion status. Standalone local PostgreSQL has no
-Auth session rows and intentionally rejects real login; it must not bypass
-session revocation. Use a separate Supabase development project for real-login
-experiments, with matching keys, runtime database URLs, exact localhost Auth
-redirects/CORS and separate synthetic business data. Do not point destructive
-tests or seed jobs at the production project. Keep development signing and
-encryption keys separate.
+from production. Real sign-in requires a Clerk development instance, the API's
+matching public verification key and secret key, and exact localhost origin
+configuration. The API checks active sessions with Clerk. Use separate synthetic
+business data for real-login experiments. Do not point destructive tests or
+seed jobs at the production project. Keep development signing and encryption
+keys separate.
 
-See [the production launch handoff](PRODUCTION_LAUNCH.md) for the current free
-hosting and Google login configuration.
+See [the Clerk production release runbook](CLERK_PRODUCTION_RELEASE.md) for the
+current hosting and domain configuration.

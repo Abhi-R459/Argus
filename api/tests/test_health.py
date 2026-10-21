@@ -14,13 +14,23 @@ async def test_health_check():
 
 
 @pytest.mark.asyncio
+async def test_role_selection_header_is_allowed_by_cors():
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        response = await ac.options("/api/auth/me", headers={
+            "Origin": "http://localhost:5173",
+            "Access-Control-Request-Method": "GET",
+            "Access-Control-Request-Headers": "authorization,x-argus-role",
+        })
+    assert response.status_code == 200
+    assert "x-argus-role" in response.headers["access-control-allow-headers"].lower()
+
+
+@pytest.mark.asyncio
 async def test_readiness_checks_both_database_roles(monkeypatch):
     session = AsyncMock()
     result = MagicMock()
     result.scalar_one.return_value = True
-    absent_session = MagicMock()
-    absent_session.scalar_one.return_value = False
-    session.execute.side_effect = [result, absent_session, result]
+    session.execute.side_effect = [result, result]
 
     @asynccontextmanager
     async def session_context():
@@ -40,7 +50,7 @@ async def test_readiness_checks_both_database_roles(monkeypatch):
     assert response.status_code == 200
     assert response.json() == {"status": "ready"}
     assert requested_roles == ["hr_admin", "compliance_auditor"]
-    assert session.execute.await_count == 3
+    assert session.execute.await_count == 2
 
 
 @pytest.mark.asyncio

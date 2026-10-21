@@ -9,7 +9,7 @@ import OrganizationSetup from '../../components/hr/OrganizationSetup';
 
 export default function HRSettings() {
   const { user, getToken } = useAuth();
-  const fullName = typeof user?.user_metadata.full_name === 'string' ? user.user_metadata.full_name : 'HR Administrator';
+  const fullName = user?.fullName || 'HR Administrator';
   const queryClient = useQueryClient();
   const scheduleQuery = useQuery({
     queryKey: ['checkpoint-schedule'],
@@ -145,7 +145,7 @@ export default function HRSettings() {
               <div className="mt-1.5 flex items-center space-x-2">
                 <span className="inline-flex items-center space-x-1 text-[11px] text-emerald-700 font-medium">
                   <CheckCircle2 className="w-3.5 h-3.5" />
-                  <span>Google sign-in via Supabase</span>
+                  <span>Sign-in via Clerk</span>
                 </span>
               </div>
             </div>

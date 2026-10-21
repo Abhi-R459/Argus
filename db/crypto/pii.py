@@ -19,6 +19,7 @@ _TAG_SIZE = 16
 _AAD_BY_FIELD = {
     "national_id": b"argus:employees:national_id:v1",
     "contact_info": b"argus:employees:contact_info:v1",
+    "hr_undo_snapshot": b"argus:hr_undo_actions:before_snapshot:v1",
 }
 
 

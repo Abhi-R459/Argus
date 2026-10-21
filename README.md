@@ -70,7 +70,7 @@ Traditional relational audit logs are stored in standard database tables. A mali
 
 ## Production Website
 
-The hosted application is available at [argus-frontend-0i6n.onrender.com](https://argus-frontend-0i6n.onrender.com); its API is hosted at [argus-backend-u0i3.onrender.com](https://argus-backend-u0i3.onrender.com). Production uses Google sign-in through Supabase Auth, a FastAPI service, and Supabase PostgreSQL. The API validates the Supabase session and approved role, then uses separate PostgreSQL roles for HR and auditor access. The frontend does not read business tables through the Supabase Data API.
+The hosted application is available at [argus-frontend-0i6n.onrender.com](https://argus-frontend-0i6n.onrender.com); its API is hosted at [argus-backend-u0i3.onrender.com](https://argus-backend-u0i3.onrender.com). The Clerk production release is being prepared for [arguss.in](https://arguss.in); see [the release runbook](docs/CLERK_PRODUCTION_RELEASE.md) for its current status. PostgreSQL remains the business data store. The frontend does not read business tables directly.
 
 The production auditor workflows observed in the 21 October 2026 functional audit include integrity verification, audit-chain browsing, event filtering, historical reconstruction, read-only counterfactual replay, activity/risk review, system analytics, Merkle proof generation, and evidence-pack download. The 09:45 IST acceptance update confirmed the deployed privacy changes: ordinary audit-log responses mask names, email addresses, salaries, and other sensitive payload fields; explicit reveal actions are recorded; counterfactual replay requires a recorded reveal; and evidence downloads record access. These checks cover the observed auditor session and interactions, not every role or edge case.
 
@@ -147,7 +147,7 @@ Full architectural specification in [`docs/CRYPTO_SHREDDING_ANALYSIS.md`](docs/C
 │  - HR Admin Layout (Directory, Create/Edit Modals, Salary Adjustments) │
 │  - Auditor Layout (Log Explorer, Diff Viewer, Time-Travel, Export)     │
 └───────────────────────────────────┬────────────────────────────────────┘
-                                    │ HTTP / REST (Supabase Auth access token)
+                                    │ HTTP / REST (Clerk session token)
 ┌───────────────────────────────────▼────────────────────────────────────┐
 │                        FASTAPI BACKEND API                             │
 │  - JWT Verification Middleware                                         │
@@ -187,7 +187,7 @@ Full architectural specification in [`docs/CRYPTO_SHREDDING_ANALYSIS.md`](docs/C
 - **Database:** PostgreSQL 15+, `pgcrypto`, PL/pgSQL triggers, views, and stored procedures.
 - **Backend:** Python 3.12, FastAPI, SQLAlchemy 2 (asyncpg + psycopg2), Pydantic v2, Uvicorn.
 - **Frontend:** React 19, TypeScript, Vite, Tailwind CSS, TanStack React Query, Lucide React.
-- **Authentication:** Supabase Auth with Google OAuth; the API checks the current session and server-side HR/auditor allowlists. A standalone local PostgreSQL database cannot validate real Supabase sessions; see [Local Demo Setup](docs/LOCAL_DEMO_SETUP.md).
+- **Authentication:** Clerk verifies sign-in; a signed-in account chooses the HR or Auditor workspace in the UI. The API verifies the Clerk session and routes each request through the corresponding PostgreSQL role. See [Local Demo Setup](docs/LOCAL_DEMO_SETUP.md).
 - **Cryptography:** Ed25519 (`cryptography`), SHA-256 (`hashlib`), RFC 8032 pure-Python curve math, RFC 3161 ASN.1 DER parser, RFC 6962 (Merkle trees), RFC 9162 (Multi-witness cosigning).
 - **Database Migrations:** Alembic (18 versioned migrations).
 - **External Anchors:** Local File, GitHub Repository, RFC 3161 Time-Stamping Authority (`.tsr`), and AWS S3 WORM Object Lock (`COMPLIANCE` mode).
@@ -201,8 +201,8 @@ The fastest way to spin up the complete end-to-end stack:
 
 For a professor walkthrough that must stay on your laptop and must not touch
 the configured hosted database, use the [Local Demo Setup](docs/LOCAL_DEMO_SETUP.md).
-It uses an isolated local PostgreSQL database. Real Google sign-in requires a
-separate Supabase development project connected to the API; local PostgreSQL
+It uses an isolated local PostgreSQL database. Real sign-in requires a Clerk
+development instance with matching local origins; local PostgreSQL
 alone intentionally rejects production Supabase sessions.
 
 ```bash
@@ -255,13 +255,12 @@ DATABASE_URL_MIGRATIONS=postgresql://postgres:<password>@localhost:5433/argus
 DATABASE_URL_HR_ADMIN=postgresql+asyncpg://hr_admin:<password>@localhost:5433/argus
 DATABASE_URL_COMPLIANCE_AUDITOR=postgresql+asyncpg://compliance_auditor:<password>@localhost:5433/argus
 
-# Supabase Auth (public frontend settings plus API-side session validation)
-VITE_SUPABASE_URL=https://<project-ref>.supabase.co
-VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
-SUPABASE_URL=https://<project-ref>.supabase.co
-SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
-HR_ADMIN_EMAILS=<approved HR account list>
-COMPLIANCE_AUDITOR_EMAILS=<approved auditor account list>
+# Clerk (only the publishable key belongs in browser assets)
+VITE_CLERK_PUBLISHABLE_KEY=pk_test_...
+CLERK_SECRET_KEY=sk_test_...
+CLERK_JWT_KEY=<Clerk PEM public key>
+CLERK_ISSUER=https://<Clerk Frontend API domain>
+CLERK_AUTHORIZED_PARTIES=http://localhost:5173
 
 # Required before migrations, demo seeding, or real-PII use. Keep these values
 # separate, private, and backed up through an approved key-management process.
@@ -864,8 +863,8 @@ The repository includes API unit tests, database/cryptographic unit tests, and b
 ## Troubleshooting & FAQ
 
 ### 1. "Missing Publishable Key" / Blank Screen in Browser
-- **Cause:** Supabase URL or publishable key (`VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`) is empty or invalid.
-- **Fix:** Configure the public values for your development Supabase project and matching API session settings. Restart the Vite server (`npm run dev`). Do not use production credentials for local testing.
+- **Cause:** Clerk publishable key (`VITE_CLERK_PUBLISHABLE_KEY`) is empty or invalid.
+- **Fix:** Configure the public key for the Clerk development instance and matching API verification settings. Restart the Vite server (`npm run dev`). Do not use production credentials for local testing.
 
 ### 2. "listen EACCES: permission denied ::1:5173"
 - **Cause:** Port 5173 is in Windows/Hyper-V's reserved port range.

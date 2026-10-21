@@ -1,0 +1,53 @@
+name: Argus production migrations
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: argus-production-migrations
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    environment: production
+    env:
+      APP_ENV: production
+      DATABASE_URL_MIGRATIONS: ${{ secrets.DATABASE_URL_MIGRATIONS }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.11'
+      - name: Install migration dependencies
+        run: python -m pip install --require-hashes -r api/requirements-dev.lock
+      - name: Check production migration state
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${DATABASE_URL_MIGRATIONS}" ]]; then
+            echo "Configure DATABASE_URL_MIGRATIONS in the production GitHub environment."
+            exit 1
+          fi
+          current="$(python -m alembic current)"
+          echo "$current"
+          if [[ "$current" != *"033_schedule_auditor_id"* && "$current" != *"034_clerk_identity_links"* && "$current" != *"035_hr_undo_actions"* ]]; then
+            echo "Unexpected starting revision; expected 033, 034, or 035. No migration was applied."
+            exit 1
+          fi
+      - name: Apply additive migrations
+        run: python -m alembic upgrade head
+      - name: Confirm expected release revision
+        shell: bash
+        run: |
+          set -euo pipefail
+          current="$(python -m alembic current)"
+          echo "$current"
+          [[ "$current" == *"035_hr_undo_actions"* ]]

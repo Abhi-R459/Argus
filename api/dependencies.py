@@ -1,48 +1,28 @@
 from typing import AsyncGenerator, Callable, List
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, Header, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, text
+from sqlalchemy import text
 
-from .middleware.supabase_auth import verify_supabase_token, validate_local_access
+from .middleware.clerk_auth import verify_clerk_token
 from .database import get_session_factory
 from .models.user import User
+from .services.identity_user import resolve_clerk_user
 from db.crypto.actor_context import create_actor_context
 from .config import get_settings
 from .services.request_budget import consume_request_budget
 
 
 async def get_current_user(
-    token_payload: dict = Depends(verify_supabase_token),
+    token_payload: dict = Depends(verify_clerk_token),
+    selected_role: str | None = Header(default=None, alias="X-Argus-Role"),
 ) -> User:
-    """Resolve the verified Supabase identity to a local User record.
-    
-    Uses the hr_admin pool for the lookup since both roles need
-    to be able to read from the users table.
-    """
-    clerk_user_id = token_payload.get("sub")
-    if not clerk_user_id:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token: missing subject."
-        )
-    
-    session_factory = get_session_factory("hr_admin")
-    async with session_factory() as session:
-        result = await session.execute(
-            select(User).where(
-                User.clerk_user_id == clerk_user_id,
-                User.is_active == True,
-            )
-        )
-        user = result.scalar_one_or_none()
-    
-    if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="User not found or inactive. Call POST /api/auth/sync first."
-        )
-    
-    validate_local_access(user, token_payload)
+    """Resolve a verified Clerk account and its selected request role."""
+    if selected_role not in {"hr_admin", "compliance_auditor"}:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Choose a workspace role first.")
+    user = await resolve_clerk_user(token_payload)
+    # The ORM instance is detached. Its stored role remains unchanged for a
+    # release rollback; request-scoped role drives authorization and DB routing.
+    user.role = selected_role
     await consume_request_budget(user)
     return user
 

@@ -6,11 +6,8 @@ import tailwindcss from '@tailwindcss/vite'
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '..', 'VITE_');
   if (mode === 'launch') {
-    if (!/^sb_publishable_[A-Za-z0-9_-]+$/.test(env.VITE_SUPABASE_PUBLISHABLE_KEY || '')) {
-      throw new Error('Launch builds require a public Supabase publishable key.');
-    }
-    if (!/^https:\/\/[a-z0-9]{20}\.supabase\.co$/.test(env.VITE_SUPABASE_URL || '')) {
-      throw new Error('Launch builds require the exact HTTPS Supabase project URL.');
+    if (!/^pk_live_[A-Za-z0-9_-]+$/.test(env.VITE_CLERK_PUBLISHABLE_KEY || '')) {
+      throw new Error('Launch builds require a production Clerk publishable key.');
     }
     const apiUrl = new URL(env.VITE_API_URL || 'invalid');
     if (apiUrl.protocol !== 'https:' || apiUrl.username || apiUrl.password || apiUrl.search || apiUrl.hash || !apiUrl.pathname.endsWith('/api')) {

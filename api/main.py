@@ -12,7 +12,7 @@ from sqlalchemy.exc import DBAPIError, TimeoutError as DatabasePoolTimeout
 from .database import init_engines, dispose_engines, get_session_factory
 from .config import get_settings
 from .middleware.request_safety import RequestSafetyMiddleware
-from .routers import health, auth, employees, audits, dashboard, checkpoints, monitoring
+from .routers import health, auth, employees, audits, dashboard, checkpoints, monitoring, hr_undo
 from .services.integrity_monitor import run_integrity_monitor
 from .services.checkpoint_scheduler import run_checkpoint_scheduler
 
@@ -136,7 +136,7 @@ app.add_middleware(
     ],
     allow_credentials=False,
     allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "Accept", "X-Requested-With"],
+    allow_headers=["Authorization", "Content-Type", "Accept", "X-Requested-With", "X-Argus-Role"],
     expose_headers=["X-Request-ID", "Retry-After", "Content-Disposition"],
 )
 app.add_middleware(RequestSafetyMiddleware, max_body_bytes=settings.MAX_REQUEST_BODY_BYTES)
@@ -187,3 +187,4 @@ app.include_router(audits.router, prefix="/api")
 app.include_router(dashboard.router, prefix="/api")
 app.include_router(checkpoints.router, prefix="/api")
 app.include_router(monitoring.router, prefix="/api")
+app.include_router(hr_undo.router, prefix="/api")

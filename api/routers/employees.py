@@ -18,6 +18,7 @@ import math
 from ..dependencies import get_current_user, require_role, get_db_session
 from ..config import get_settings
 from ..services.blind_index import compute_blind_index
+from ..services.hr_undo import employee_snapshot, record_employee_change
 from db.crypto.pii import (
     InvalidPiiEnvelope,
     LegacyPlaintextPiiError,
@@ -379,6 +380,7 @@ async def create_employee(
     # Commit is handled by the get_db_session dependency
     await session.flush()
     await session.refresh(new_employee)
+    record_employee_change(session, new_employee, None, "employee_created", current_user.user_id)
 
     return EmployeeCreateResponse(
         employee_id=new_employee.employee_id,
@@ -450,6 +452,7 @@ async def update_employee(
             detail=f"Employee with id {employee_id} not found.",
         )
 
+    before_snapshot = employee_snapshot(employee)
     update_data = data.model_dump(exclude_unset=True)
 
     # Encrypt contact information and supply the blind index used by the audit trigger.
@@ -497,6 +500,8 @@ async def update_employee(
 
     await session.flush()
     await session.refresh(employee)
+    if employee_snapshot(employee) != before_snapshot:
+        record_employee_change(session, employee, before_snapshot, "profile_updated", current_user.user_id)
 
     return EmployeeUpdateResponse(
         employee_id=employee.employee_id,
@@ -533,6 +538,9 @@ async def deactivate_employee(
             detail=f"Employee with id {employee_id} not found.",
         )
 
+    if not employee.is_active:
+        raise HTTPException(status_code=409, detail="Employee is already inactive.")
+    before_snapshot = employee_snapshot(employee)
     # Soft deletion is still an employee UPDATE: the audit trigger requires
     # the same transaction-local salt and blind index as a profile edit.
     settings = get_settings()
@@ -554,6 +562,7 @@ async def deactivate_employee(
 
     employee.is_active = False
     await session.flush()
+    record_employee_change(session, employee, before_snapshot, "employee_deactivated", current_user.user_id)
 
     return EmployeeDeactivateResponse(
         employee_id=employee.employee_id,

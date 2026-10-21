@@ -12,7 +12,7 @@ interface RoleGuardProps {
 export default function RoleGuard({ allowedRole, children }: RoleGuardProps) {
   const devE2ERole = import.meta.env.DEV && typeof window !== 'undefined' ? window.__E2E_ROLE__ : undefined;
 
-  const { getToken, isLoaded } = useAuth();
+  const { getToken, isLoaded, selectedRole } = useAuth();
 
   const { data: profile, isLoading, isError, refetch } = useQuery<UserProfile>({
     queryKey: ['myProfile'],
@@ -43,12 +43,13 @@ export default function RoleGuard({ allowedRole, children }: RoleGuardProps) {
   }
 
   // If user role does not match the allowed role, redirect to their authorized portal
-  if (profile.role !== allowedRole) {
-    if (profile.role === 'compliance_auditor') {
+  if (selectedRole !== allowedRole) {
+    if (selectedRole === 'compliance_auditor') {
       return <Navigate to="/auditor/overview" replace />;
-    } else {
+    } else if (selectedRole === 'hr_admin') {
       return <Navigate to="/hr/dashboard" replace />;
     }
+    return <Navigate to="/" replace />;
   }
 
   return children ? <>{children}</> : <Outlet />;

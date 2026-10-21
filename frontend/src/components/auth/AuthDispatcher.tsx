@@ -5,7 +5,7 @@ import { fetchMyProfile, UserProfile } from '../../services/auditService';
 import ProfileLoadError from './ProfileLoadError';
 
 export default function AuthDispatcher() {
-  const { getToken, isLoaded } = useAuth();
+  const { getToken, isLoaded, selectedRole } = useAuth();
 
   const { data: profile, isLoading, isError, refetch } = useQuery<UserProfile>({
     queryKey: ['myProfile'],
@@ -28,9 +28,9 @@ export default function AuthDispatcher() {
     return <ProfileLoadError onRetry={() => void refetch()} />;
   }
 
-  if (profile.role === 'compliance_auditor') {
+  if (selectedRole === 'compliance_auditor') {
     return <Navigate to="/auditor/overview" replace />;
   }
 
-  return <Navigate to="/hr/dashboard" replace />;
+  return selectedRole === 'hr_admin' ? <Navigate to="/hr/dashboard" replace /> : <Navigate to="/" replace />;
 }

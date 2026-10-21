@@ -19,15 +19,15 @@ services:
         sync: false
       - key: DATABASE_URL_COMPLIANCE_AUDITOR
         sync: false
-      - key: SUPABASE_URL
+      - key: CLERK_JWT_KEY
         sync: false
-      - key: SUPABASE_PUBLISHABLE_KEY
+      - key: CLERK_SECRET_KEY
         sync: false
+      - key: CLERK_ISSUER
+        sync: false
+      - key: CLERK_AUTHORIZED_PARTIES
+        value: https://arguss.in
       - key: CORS_ORIGINS
-        sync: false
-      - key: HR_ADMIN_EMAILS
-        sync: false
-      - key: COMPLIANCE_AUDITOR_EMAILS
         sync: false
       - key: PII_ENCRYPTION_KEY
         sync: false
@@ -45,8 +45,6 @@ services:
         value: "2"
       - key: DB_MAX_OVERFLOW
         value: "1"
-      - key: ALLOW_DEMO_ROLE_SWITCH
-        value: "false"
       - key: ALLOW_CONCURRENCY_DIAGNOSTICS
         value: "false"
       - key: ANCHOR_STORE
@@ -74,15 +72,15 @@ services:
     name: argus-frontend
     runtime: static
     rootDir: frontend
+    domains:
+      - arguss.in
     autoDeployTrigger: "off"
     buildCommand: npm ci && npm run build:production
     staticPublishPath: ./dist
     envVars:
       - key: NODE_VERSION
         value: "22"
-      - key: VITE_SUPABASE_URL
-        sync: false
-      - key: VITE_SUPABASE_PUBLISHABLE_KEY
+      - key: VITE_CLERK_PUBLISHABLE_KEY
         sync: false
       - key: VITE_API_URL
         sync: false

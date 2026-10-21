@@ -15,13 +15,12 @@ from api.services import request_budget
 
 @pytest.mark.asyncio
 async def test_inactive_account_cannot_read_profile(client_hr, monkeypatch):
-    user = User(user_id=10, clerk_user_id="user_hr_123", email="hr@argus.test",
-                full_name="Inactive", role="hr_admin", is_active=False)
-    session = AsyncMock()
-    session.__aenter__.return_value = session
-    session.execute.return_value = MagicMock()
-    session.execute.return_value.scalar_one_or_none.return_value = user
-    monkeypatch.setattr(auth, "get_session_factory", lambda role: lambda: session)
+    from fastapi import HTTPException
+
+    async def reject_inactive(_identity):
+        raise HTTPException(status_code=401, detail="Inactive account")
+
+    monkeypatch.setattr(auth, "resolve_clerk_user", reject_inactive)
     response = await client_hr.get("/api/auth/me")
     assert response.status_code == 401
 

@@ -2,6 +2,7 @@ import { lazy, Suspense, useMemo } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from './components/auth/AuthProvider';
 import SignIn from './components/auth/SignIn';
+import RoleChooser from './components/auth/RoleChooser';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { createQueryClient } from './lib/queryClient';
 import HRAdminLayout from './layouts/HRAdminLayout';
@@ -12,6 +13,7 @@ import { ErrorBoundary } from './components/common/ErrorBoundary';
 const Dashboard = lazy(() => import('./pages/hr/Dashboard'));
 const EmployeeList = lazy(() => import('./pages/hr/EmployeeList'));
 const HRSettings = lazy(() => import('./pages/hr/HRSettings'));
+const UndoHistory = lazy(() => import('./pages/hr/UndoHistory'));
 const AuditorOverview = lazy(() => import('./pages/auditor/AuditorOverview'));
 const AuditLogPage = lazy(() => import('./pages/auditor/AuditLogPage'));
 const ActivityPage = lazy(() => import('./pages/auditor/ActivityPage'));
@@ -32,19 +34,20 @@ function ProtectedPortal({ allowedRole, children }: { allowedRole: 'hr_admin' | 
 }
 
 function App() {
-  const { userId, isLoaded, isSignedIn } = useAuth();
+  const { userId, isLoaded, isSignedIn, selectedRole } = useAuth();
   const sessionKey = import.meta.env.DEV && window.__E2E_ROLE__ ? `e2e:${window.__E2E_ROLE__}` : userId ?? 'signed-out';
   // A new account gets a new cache; HR and audit data never cross sessions.
-  const queryClient = useMemo(() => createQueryClient(), [sessionKey]);
+  const cacheKey = sessionKey + ':' + (selectedRole ?? 'none');
+  const queryClient = useMemo(() => createQueryClient(), [cacheKey]);
   return (
-    <QueryClientProvider key={sessionKey} client={queryClient}>
+    <QueryClientProvider key={cacheKey} client={queryClient}>
       <BrowserRouter>
         <ErrorBoundary fallbackTitle="Application Error" fallbackSubtitle="An unexpected system error occurred. Please refresh or try again.">
           <Suspense fallback={<div className="min-h-screen bg-linear-canvas text-linear-ink flex items-center justify-center" role="status">Loading page…</div>}>
           <Routes>
             {/* Root: redirect signed-in users based on role; show sign-in for guests */}
             <Route path="/" element={
-              isSignedIn ? <AuthDispatcher /> : (
+              isSignedIn ? (selectedRole ? <AuthDispatcher /> : <RoleChooser />) : (
                 <div className="min-h-screen bg-linear-canvas flex flex-col items-center justify-center p-4">
                   <div className="mb-8 text-center">
                     <h1 className="text-3xl font-bold text-linear-ink tracking-tight">Argus Audit Engine</h1>
@@ -66,6 +69,7 @@ function App() {
               <Route path="dashboard" element={<Dashboard />} />
               <Route path="employees" element={<EmployeeList />} />
               <Route path="settings" element={<HRSettings />} />
+              <Route path="history" element={<UndoHistory />} />
             </Route>
 
             {/* Compliance Auditor routes */}
