@@ -62,6 +62,7 @@ export default function AuditChainPage() {
   }, [searchParams]);
   const [selectedTable, setSelectedTable] = useState<string>('');
   const [selectedAction, setSelectedAction] = useState<string>('');
+  const [revealPii, setRevealPii] = useState(false);
   const [pageOffset, setPageOffset] = useState<number>(0);
   const [selectedBlock, setSelectedBlock] = useState<ChainEntry | null>(null);
   const [focusedRowIndex, setFocusedRowIndex] = useState<number>(-1);
@@ -91,7 +92,7 @@ export default function AuditChainPage() {
     isFetching,
     dataUpdatedAt,
   } = useQuery({
-    queryKey: ['audit-chain-explorer', activeAroundSeq, pageOffset, selectedTable, selectedAction],
+    queryKey: ['audit-chain-explorer', activeAroundSeq, pageOffset, selectedTable, selectedAction, revealPii],
     queryFn: async () => {
       const data = await fetchAuditChain(getToken, {
         limit: PAGE_LIMIT,
@@ -99,10 +100,11 @@ export default function AuditChainPage() {
         around_seq: activeAroundSeq ?? undefined,
         table_name: selectedTable || undefined,
         action: selectedAction || undefined,
+        include_pii: revealPii,
       });
       return data;
     },
-    refetchInterval: isStreaming ? 2500 : false,
+    refetchInterval: isStreaming && !revealPii ? 2500 : false,
   });
 
   // Track fetch timestamp for LiveStreamBadge
@@ -442,6 +444,10 @@ export default function AuditChainPage() {
 
         {/* Live Controls */}
         <div className="flex items-center space-x-2.5">
+          <label className="flex items-center gap-1.5 text-xs text-linear-ink-muted">
+            <input type="checkbox" checked={revealPii} onChange={(event) => { setRevealPii(event.target.checked); setSelectedBlock(null); setFrozenEntries(null); }} />
+            Reveal employee fields (recorded)
+          </label>
           {incident.isCompromised && incident.tamperedSeqId && (
             <Button
               variant="danger"

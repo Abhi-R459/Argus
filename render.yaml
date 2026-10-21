@@ -51,8 +51,8 @@ services:
         value: "false"
       - key: ANCHOR_STORE
         value: "none"
-      # Switch ANCHOR_STORE to github_repo only after this private, read-only
-      # configuration is populated and the signed baseline has been published.
+      # Blueprint default only. The live service can override this in Render.
+      # Verify the effective value and remote anchor before each release.
       - key: GITHUB_ANCHOR_REPOSITORY
         sync: false
       - key: GITHUB_ANCHOR_TOKEN

@@ -84,19 +84,28 @@ async def test_counterfactual_invalid_timestamp_returns_422(client_auditor: Asyn
     """Passing an invalid ISO timestamp in as_of must return 422."""
     response = await client_auditor.post(
         "/api/audit-logs/counterfactual",
-        json={"employee_id": 42, "skip_sequence_ids": [71], "as_of": "not-a-valid-date"},
+        json={"employee_id": 42, "skip_sequence_ids": [71], "as_of": "not-a-valid-date", "include_pii": True},
     )
     assert response.status_code == 422
     assert "Invalid ISO timestamp format" in response.json()["detail"]
 
 
-async def test_counterfactual_auditor_success(client_auditor: AsyncClient):
+async def test_counterfactual_requires_explicit_reveal(client_auditor: AsyncClient):
+    response = await client_auditor.post(
+        "/api/audit-logs/counterfactual",
+        json={"employee_id": 42, "skip_sequence_ids": [71]},
+    )
+    assert response.status_code == 422
+    assert "include_pii=true" in response.json()["detail"]
+
+
+async def test_counterfactual_auditor_success(client_auditor: AsyncClient, mock_db_session):
     """Compliance auditor can trigger simulation; returns typed counterfactual payload."""
     with patch("db.cli.counterfactual.counterfactual_replay", return_value=_dummy_result(42, [71])):
         with patch("psycopg2.connect"):
             response = await client_auditor.post(
                 "/api/audit-logs/counterfactual",
-                json={"employee_id": 42, "skip_sequence_ids": [71], "as_of": "2026-09-25T12:00:00Z"},
+                json={"employee_id": 42, "skip_sequence_ids": [71], "as_of": "2026-09-25T12:00:00Z", "include_pii": True},
             )
             assert response.status_code == 200
             data = response.json()
@@ -107,6 +116,7 @@ async def test_counterfactual_auditor_success(client_auditor: AsyncClient):
             assert data["blast_radius"]["salary_overpaid_cumulative"] == 680000.0
             assert len(data["skipped_events"]) == 1
             assert data["skipped_events"][0]["sequence_id"] == 71
+            assert mock_db_session.add.call_args.args[0].event_type == "COUNTERFACTUAL_PII_REVEAL"
 
 
 async def test_counterfactual_missing_sequence_ids_422(client_auditor: AsyncClient):
@@ -118,7 +128,7 @@ async def test_counterfactual_missing_sequence_ids_422(client_auditor: AsyncClie
         with patch("psycopg2.connect"):
             response = await client_auditor.post(
                 "/api/audit-logs/counterfactual",
-                json={"employee_id": 42, "skip_sequence_ids": [999]},
+                json={"employee_id": 42, "skip_sequence_ids": [999], "include_pii": True},
             )
             assert response.status_code == 422
             assert "999" in response.json()["detail"]

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useAuth } from '../../components/auth/AuthProvider';
 import {
   GitCompare, Play, AlertCircle, ShieldCheck,
@@ -24,10 +24,10 @@ function describeEvent(event: AuditLogItem): string {
   if (event.table_name === 'salary_history') {
     const oldAmount = oldValue.amount;
     const newAmount = newValue.amount;
-    if (oldAmount !== undefined && newAmount !== undefined) {
+    if (oldAmount !== undefined && newAmount !== undefined && Number.isFinite(Number(oldAmount)) && Number.isFinite(Number(newAmount))) {
       return `Amount ${formatINR(Number(oldAmount))} → ${formatINR(Number(newAmount))}`;
     }
-    if (newAmount !== undefined) {
+    if (newAmount !== undefined && Number.isFinite(Number(newAmount))) {
       const effectiveDate = newValue.effective_date ? ` · effective ${String(newValue.effective_date)}` : '';
       return `Salary recorded: ${formatINR(Number(newAmount))}${effectiveDate}`;
     }
@@ -48,6 +48,7 @@ export default function CounterfactualPage() {
   const [manualEmployeeId, setManualEmployeeId] = useState('');
   const [selectedSequenceIds, setSelectedSequenceIds] = useState<number[]>([]);
   const [asOfInput, setAsOfInput] = useState<string>('');
+  const [revealPii, setRevealPii] = useState(false);
   const [eventSearch, setEventSearch] = useState('');
   
   // State
@@ -60,6 +61,7 @@ export default function CounterfactualPage() {
   const [eventError, setEventError] = useState<string | null>(null);
   const [isSimulating, setIsSimulating] = useState(false);
   const [result, setResult] = useState<CounterfactualResult | null>(null);
+  const simulationRequestId = useRef(0);
   const [error, setError] = useState<string | null>(null);
 
   // Fetch initial employee directory for easy selection
@@ -84,6 +86,8 @@ export default function CounterfactualPage() {
   // directly instead of searching Audit Log and copying sequence numbers.
   useEffect(() => {
     let isMounted = true;
+    simulationRequestId.current += 1;
+    setIsSimulating(false);
     setEmployeeEvents([]);
     setSelectedSequenceIds([]);
     setEventPage(1);
@@ -150,6 +154,7 @@ export default function CounterfactualPage() {
   };
 
   const toggleSequence = (sequenceId: number) => {
+    simulationRequestId.current += 1;
     setSelectedSequenceIds((current) => current.includes(sequenceId)
       ? current.filter((id) => id !== sequenceId)
       : [...current, sequenceId].sort((a, b) => a - b));
@@ -164,6 +169,10 @@ export default function CounterfactualPage() {
       setError('Choose at least one event from this employee’s audit history.');
       return;
     }
+    if (!revealPii) {
+      setError('Confirm the recorded reveal of employee and salary details before running the replay.');
+      return;
+    }
 
     let formattedAsOf: string | undefined = undefined;
     if (asOfInput.trim()) {
@@ -176,21 +185,23 @@ export default function CounterfactualPage() {
     }
 
     setIsSimulating(true);
+    const requestId = ++simulationRequestId.current;
     try {
       const res = await runCounterfactualSimulation(
         {
           employee_id: Number(employeeId),
           skip_sequence_ids: selectedSequenceIds,
           as_of: formattedAsOf,
+          include_pii: true,
         },
         getToken,
       );
-      setResult(res);
+      if (requestId === simulationRequestId.current) setResult(res);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      setError(msg || 'Simulation failed. Check sequence IDs and employee ID.');
+      if (requestId === simulationRequestId.current) setError(msg || 'Simulation failed. Check sequence IDs and employee ID.');
     } finally {
-      setIsSimulating(false);
+      if (requestId === simulationRequestId.current) setIsSimulating(false);
     }
   };
 
@@ -379,6 +390,10 @@ export default function CounterfactualPage() {
           </section>
 
           {/* Guidance & Action */}
+          <label className="flex items-start gap-2 text-xs text-linear-ink-muted">
+            <input type="checkbox" checked={revealPii} onChange={(event) => { simulationRequestId.current += 1; setRevealPii(event.target.checked); setResult(null); setIsSimulating(false); }} />
+            Reveal employee and salary details in the replay. This access is recorded.
+          </label>
           <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-linear-hairline/60">
             <p className="text-xs text-linear-ink-muted">
               Select one or more events above. The replay excludes them in memory and leaves the ledger unchanged.
@@ -386,7 +401,7 @@ export default function CounterfactualPage() {
 
             <button
               type="submit"
-              disabled={isSimulating || isLoadingEvents || selectedSequenceIds.length === 0}
+              disabled={isSimulating || isLoadingEvents || selectedSequenceIds.length === 0 || !revealPii}
               className="btn-press flex items-center gap-2 px-5 py-2 rounded-lg bg-linear-primary hover:bg-linear-primary/90 text-white text-sm font-semibold shadow-xs disabled:opacity-50 transition-colors duration-150"
             >
               {isSimulating ? (
@@ -417,7 +432,7 @@ export default function CounterfactualPage() {
       )}
 
       {/* Results View */}
-      {result && (
+      {result && revealPii && (
         <div className="space-y-6">
           {/* Blast Radius Impact Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">

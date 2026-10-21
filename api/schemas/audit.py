@@ -23,6 +23,7 @@ class AuditLogSearchRequest(BaseModel):
     page: int = Field(default=1, ge=1)
     limit: int = Field(default=20, ge=1, le=100)
     before_sequence_id: Optional[int] = Field(default=None, ge=1)
+    include_pii: bool = False
 
     model_config = {"extra": "forbid", "str_strip_whitespace": True}
 
@@ -195,6 +196,7 @@ class CounterfactualRequest(BaseModel):
     employee_id: int = Field(gt=0)
     skip_sequence_ids: List[int] = Field(max_length=100)
     as_of: Optional[str] = None
+    include_pii: bool = False
 
 
 class SkippedEventSchema(BaseModel):

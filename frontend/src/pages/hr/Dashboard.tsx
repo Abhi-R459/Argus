@@ -87,7 +87,7 @@ export default function Dashboard() {
         <div className="bg-white rounded-2xl border border-slate-200/80 p-6 flex flex-col justify-between shadow-xs">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-slate-500">
-              Verified Audit Ledger
+              Audit Ledger Events
             </span>
             <div className="p-2.5 bg-emerald-50 text-emerald-600 rounded-xl border border-emerald-100/80">
               <ShieldCheck className="w-4 h-4" />
@@ -104,10 +104,10 @@ export default function Dashboard() {
             <div className="mt-3 flex items-center justify-between pt-3 border-t border-slate-100 text-xs">
               <span className="text-emerald-700 font-medium flex items-center gap-1.5">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                Cryptographically Sealed
+                Recorded in ledger
               </span>
               <span className="font-medium text-slate-500">
-                Chain Intact
+                Verify in auditor view
               </span>
             </div>
           </div>

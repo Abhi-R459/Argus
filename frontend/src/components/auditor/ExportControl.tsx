@@ -88,6 +88,7 @@ export default function ExportControl() {
               ? 'Download a .arguspack archive with a standalone verifier and detached Ed25519 signature. Verify authenticity with a public key obtained through a trusted channel.'
               : 'Download a signed JSON file containing audit events and their hash links. Verify authenticity with a public key obtained through a trusted channel.'}
           </p>
+          <p className="text-xs text-status-warning">Exports contain original employee and salary values. Downloads are recorded; store files securely.</p>
         </div>
 
         {/* Included in each package */}

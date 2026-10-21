@@ -32,6 +32,39 @@ async def test_audit_logs_hr_forbidden(client_hr: AsyncClient):
     response = await client_hr.get("/api/audit-logs")
     assert response.status_code == 403
 
+
+@pytest.mark.asyncio
+async def test_audit_payload_is_masked_until_recorded_reveal(client_auditor: AsyncClient, mock_db_session: AsyncMock):
+    from datetime import datetime, timezone
+
+    mock_db_session.scalar.return_value = 1
+    row = MagicMock()
+    row.sequence_id = 42
+    row.actor_user_id = 2
+    row.actor_name = "Auditor"
+    row.employee_id = 7
+    row.action = "UPDATE"
+    row.table_name = "employees"
+    row.row_id = 7
+    row.old_value = {"full_name": "Alice", "role_id": 1}
+    row.new_value = {"full_name": "Alice B", "email": "alice@example.com", "role_id": 2}
+    row.severity = "INFO"
+    row.entry_hash = "a" * 64
+    row.previous_hash = "b" * 64
+    row.created_at = datetime.now(timezone.utc)
+    result = MagicMock(); result.all.return_value = [row]
+    mock_db_session.execute.return_value = result
+
+    masked = await client_auditor.get("/api/audit-logs")
+    revealed = await client_auditor.get("/api/audit-logs?include_pii=true")
+
+    assert masked.status_code == revealed.status_code == 200
+    assert masked.json()["items"][0]["new_value"] == {"full_name": "[REDACTED]", "email": "[REDACTED]", "role_id": 2}
+    assert row.new_value["email"] == "alice@example.com"
+    assert masked.json()["items"][0]["entry_hash"] == "a" * 64
+    assert revealed.json()["items"][0]["new_value"]["email"] == "alice@example.com"
+    assert mock_db_session.add.call_args.args[0].event_type == "AUDIT_PAYLOAD_REVEAL"
+
 @pytest.mark.asyncio
 async def test_verify_chain_auditor(client_auditor: AsyncClient):
     response = await client_auditor.post("/api/verify")

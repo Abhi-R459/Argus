@@ -105,6 +105,22 @@ async def test_chain_explorer_role_isolation(client_hr: AsyncClient):
     assert response.status_code == 403
 
 
+async def test_chain_payload_is_masked_until_recorded_reveal(client_auditor: AsyncClient, mock_db_session: AsyncMock):
+    count = MagicMock(); count.scalar.return_value = 1
+    row = MockRow(seq=42, h="a" * 64, prev="b" * 64, tbl="salary_history", act="INSERT")
+    row.new_value = {"amount": 125000, "employee_id": 7}
+    result = MagicMock(); result.all.return_value = [row]
+    mock_db_session.execute.side_effect = [count, result, count, result]
+
+    masked = await client_auditor.get("/api/audit-logs/chain")
+    revealed = await client_auditor.get("/api/audit-logs/chain?include_pii=true")
+
+    assert masked.status_code == revealed.status_code == 200
+    assert masked.json()[0]["new_value"]["amount"] == "[REDACTED]"
+    assert revealed.json()[0]["new_value"]["amount"] == 125000
+    assert mock_db_session.add.call_args.args[0].event_type == "CHAIN_PAYLOAD_REVEAL"
+
+
 async def test_audit_logs_employee_and_sequence_filters(client_auditor: AsyncClient, mock_db_session: AsyncMock):
     """Test employee_id and sequence_id filtering on GET /api/audit-logs."""
     mock_db_session.scalar.return_value = 1

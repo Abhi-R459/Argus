@@ -85,7 +85,7 @@ async def test_blind_search_filter_applied(client_auditor: AsyncClient, mock_db_
 
     item = data["items"][0]
     assert item["sequence_id"] == 42
-    assert item["new_value"]["national_id_blind_index"] == expected_digest
+    assert item["new_value"]["national_id_blind_index"] == "[REDACTED]"
     # Strict privacy assertion: Plaintext NID must NEVER appear anywhere in the response
     assert raw_nid not in str(data)
     assert item["new_value"]["national_id_encrypted"] == "[REDACTED]"

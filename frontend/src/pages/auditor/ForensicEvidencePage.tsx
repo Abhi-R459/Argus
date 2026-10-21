@@ -91,6 +91,7 @@ export default function ForensicEvidencePage() {
         description="Prove one record’s inclusion in a signed checkpoint without disclosing sibling records."
         eyebrow="Selective evidence · RFC 6962-style"
       />
+      <p className="text-xs text-status-warning">A downloaded capsule contains the selected original audit record, including any sensitive values. Downloads are recorded.</p>
 
       {/* Lookup Card */}
       <div className="p-5 rounded-xl border border-linear-hairline bg-linear-surface-1 shadow-xs space-y-4">

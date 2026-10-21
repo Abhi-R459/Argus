@@ -7,7 +7,6 @@ Implements:
 - POST /api/suspicious-activity/{id}/review — Mark flag reviewed (compliance_auditor only)
 
 GET /api/audit-logs queries the real audit_log table joined with users.
-The table will be empty until Abhinav's Week 3 triggers land — that is expected.
 
 POST /api/verify invokes the standalone verification engine to walk and verify the chain.
 """
@@ -37,6 +36,7 @@ from ..services.blind_index import (
     audit_logger,
 )
 from ..services.request_budget import consume_request_budget
+from ..services.audit_disclosure import redact_audit_payload
 from ..services.checkpoint_binding import verify_checkpoint_bindings
 from ..services.remote_anchor import (
     AnchorUnavailable,
@@ -285,6 +285,7 @@ async def list_audit_logs(
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
     before_sequence_id: Optional[int] = Query(None, ge=1, description="Return entries older than this sequence; use next_cursor from the previous response"),
+    include_pii: bool = Query(False, description="Reveal sensitive audit payload fields; access is recorded"),
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session, scope="function"),
 ):
@@ -443,6 +444,17 @@ async def list_audit_logs(
     has_more = len(fetched_rows) > limit
     rows = fetched_rows[:limit]
 
+    if include_pii and rows:
+        session.add(SecurityAuditEvent(
+            event_type="AUDIT_PAYLOAD_REVEAL",
+            actor_user_id=current_user.user_id,
+            actor_email=current_user.email,
+            employee_id=employee_id,
+            sequence_id=sequence_id,
+            matches_found=len(rows),
+            client_ip=client_ip,
+        ))
+
     forensic_before_by_seq = _forensic_before_payloads()
     items = [
         AuditLogItem(
@@ -453,9 +465,9 @@ async def list_audit_logs(
             action=row.action,
             table_name=row.table_name,
             row_id=row.row_id,
-            old_value=row.old_value,
-            new_value=row.new_value,
-            forensic_before_value=forensic_before_by_seq.get(row.sequence_id),
+            old_value=row.old_value if include_pii else redact_audit_payload(row.table_name, row.old_value),
+            new_value=row.new_value if include_pii else redact_audit_payload(row.table_name, row.new_value),
+            forensic_before_value=(forensic_before_by_seq.get(row.sequence_id) if include_pii else redact_audit_payload(row.table_name, forensic_before_by_seq.get(row.sequence_id))),
             severity=row.severity,
             entry_hash=row.entry_hash,
             previous_hash=row.previous_hash,
@@ -1264,6 +1276,7 @@ from ..services.export import generate_signed_evidence_export, generate_evidence
     dependencies=_auditor_only,
 )
 async def export_signed_evidence(
+    request: Request,
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session, scope="function"),
 ):
@@ -1273,6 +1286,13 @@ async def export_signed_evidence(
     Accessible to compliance_auditor only.
     """
     export_data = await generate_signed_evidence_export(session)
+    session.add(SecurityAuditEvent(
+        event_type="EVIDENCE_JSON_EXPORT",
+        actor_user_id=current_user.user_id,
+        actor_email=current_user.email,
+        matches_found=export_data.get("data", {}).get("total_entries", 0),
+        client_ip=request.client.host if request.client else "unknown",
+    ))
     
     # Create an in-memory file for streaming
     file_stream = io.BytesIO(json.dumps(export_data, indent=2).encode('utf-8'))
@@ -1292,6 +1312,7 @@ async def export_signed_evidence(
     dependencies=_auditor_only,
 )
 async def export_evidence_pack(
+    request: Request,
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session, scope="function"),
 ):
@@ -1302,6 +1323,12 @@ async def export_evidence_pack(
     Accessible to compliance_auditor only.
     """
     bundle_bytes = await generate_evidence_bundle(session)
+    session.add(SecurityAuditEvent(
+        event_type="EVIDENCE_PACK_EXPORT",
+        actor_user_id=current_user.user_id,
+        actor_email=current_user.email,
+        client_ip=request.client.host if request.client else "unknown",
+    ))
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     filename = f"audit_evidence_{timestamp}.arguspack"
 
@@ -1336,11 +1363,13 @@ def _map_severity_to_frontend(severity: Optional[str]) -> str:
 )
 async def get_audit_chain(
     response: Response,
+    request: Request,
     limit: int = Query(10, ge=1, le=100, description="Number of entries to return (newest first)"),
     offset: int = Query(0, ge=0, description="Offset for pagination"),
     around_seq: Optional[int] = Query(None, description="Center window around a specific sequence_id"),
     table_name: Optional[str] = Query(None, description="Filter by table name"),
     action: Optional[str] = Query(None, description="Filter by action: INSERT, UPDATE, DELETE"),
+    include_pii: bool = Query(False, description="Reveal sensitive audit payload fields; access is recorded"),
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session, scope="function"),
 ):
@@ -1394,6 +1423,16 @@ async def get_audit_chain(
     result = await session.execute(query)
     rows = result.all()
 
+    if include_pii and rows:
+        session.add(SecurityAuditEvent(
+            event_type="CHAIN_PAYLOAD_REVEAL",
+            actor_user_id=current_user.user_id,
+            actor_email=current_user.email,
+            sequence_id=around_seq,
+            matches_found=len(rows),
+            client_ip=request.client.host if request.client else "unknown",
+        ))
+
     forensic_before_by_seq = _forensic_before_payloads()
     chain: List[ChainEntry] = []
     for row in rows:
@@ -1416,9 +1455,9 @@ async def get_audit_chain(
                 ),
                 timestamp=row.created_at,
                 severity=_map_severity_to_frontend(row.severity),
-                old_value=row.old_value,
-                new_value=row.new_value,
-                forensic_before_value=forensic_before_by_seq.get(row.sequence_id),
+                old_value=row.old_value if include_pii else redact_audit_payload(row.table_name, row.old_value),
+                new_value=row.new_value if include_pii else redact_audit_payload(row.table_name, row.new_value),
+                forensic_before_value=(forensic_before_by_seq.get(row.sequence_id) if include_pii else redact_audit_payload(row.table_name, forensic_before_by_seq.get(row.sequence_id))),
             )
         )
     return chain
@@ -2000,6 +2039,7 @@ async def run_concurrency_test(
 )
 async def run_counterfactual_simulation(
     payload: CounterfactualRequest,
+    request: Request,
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session, scope="function"),
 ):
@@ -2014,6 +2054,12 @@ async def run_counterfactual_simulation(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="skip_sequence_ids must contain at least one sequence ID.",
+        )
+
+    if not payload.include_pii:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Explicitly acknowledge sensitive employee and salary disclosure with include_pii=true.",
         )
 
     # Parse optional as_of timestamp
@@ -2074,6 +2120,14 @@ async def run_counterfactual_simulation(
 
     try:
         sim_result = await asyncio.to_thread(_execute)
+        session.add(SecurityAuditEvent(
+            event_type="COUNTERFACTUAL_PII_REVEAL",
+            actor_user_id=current_user.user_id,
+            actor_email=current_user.email,
+            employee_id=payload.employee_id,
+            matches_found=len(sim_result.skipped_events),
+            client_ip=request.client.host if request.client else "unknown",
+        ))
         return sim_result.to_dict()
     except ValueError as ve:
         raise HTTPException(
@@ -2096,7 +2150,9 @@ async def run_counterfactual_simulation(
 )
 async def export_audit_log_capsule(
     seq_id: int,
+    request: Request,
     current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session, scope="function"),
 ):
     """Generate and stream a self-contained .arguscap Merkle evidence bundle (NOVEL-009-F).
 
@@ -2113,6 +2169,14 @@ async def export_audit_log_capsule(
 
     try:
         bundle_bytes = await _generate_capsule_with_legacy_attestation(seq_id)
+        session.add(SecurityAuditEvent(
+            event_type="EVIDENCE_CAPSULE_EXPORT",
+            actor_user_id=current_user.user_id,
+            actor_email=current_user.email,
+            sequence_id=seq_id,
+            matches_found=1,
+            client_ip=request.client.host if request.client else "unknown",
+        ))
         return Response(
             content=bundle_bytes,
             media_type="application/zip",

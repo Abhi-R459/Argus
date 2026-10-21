@@ -72,7 +72,7 @@ function getMutationSemanticNote(log: AuditLogItem) {
   if (log.table_name === 'salary_history') {
     const amt = log.new_value?.amount;
     const eff = log.new_value?.effective_date;
-    const formatted = typeof amt === 'number' || typeof amt === 'string'
+    const formatted = (typeof amt === 'number' || typeof amt === 'string') && Number.isFinite(Number(amt))
       ? formatINR(Number(amt))
       : 'Rate Adjustment';
     return `Compensation Updated to ${formatted}${typeof eff === 'string' ? ` (Effective: ${eff})` : ''}`;
@@ -210,8 +210,8 @@ export default function TimeTravelView() {
 
   // ── Fetch Recent Audit Mutation Timeline for Selected Employee ─────────────
   const { data: employeeLogsData, isLoading: isLogsLoading } = useQuery({
-    queryKey: ['employeeAuditLogs', parsedEmpId],
-    queryFn: () => fetchAuditLogs({ employee_id: parsedEmpId, limit: 50 }, getToken),
+    queryKey: ['employeeAuditLogs', parsedEmpId, revealPii],
+    queryFn: () => fetchAuditLogs({ employee_id: parsedEmpId, limit: 50, include_pii: revealPii }, getToken),
     enabled: isValidEmpId,
     staleTime: 15000,
   });

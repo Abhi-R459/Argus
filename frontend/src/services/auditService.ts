@@ -17,6 +17,7 @@ export interface AuditChainOptions {
   around_seq?: number;
   table_name?: string;
   action?: string;
+  include_pii?: boolean;
 }
 
 export interface IncidentState {
@@ -255,6 +256,7 @@ export interface AuditLogFilters {
   page?: number;
   limit?: number;
   before_sequence_id?: number;
+  include_pii?: boolean;
 }
 
 export interface EmployeeListItem {
@@ -326,6 +328,7 @@ export async function fetchAuditLogs(
   if (filters.before_sequence_id !== undefined) {
     params.set('before_sequence_id', String(filters.before_sequence_id));
   }
+  if (filters.include_pii) params.set('include_pii', 'true');
 
   return fetchWithAuth(`/audit-logs?${params.toString()}`, {}, getToken);
 }
@@ -453,6 +456,7 @@ export async function fetchAuditChain(
   if (opts.around_seq !== undefined) params.set('around_seq', String(opts.around_seq));
   if (opts.table_name) params.set('table_name', opts.table_name);
   if (opts.action) params.set('action', opts.action);
+  if (opts.include_pii) params.set('include_pii', 'true');
 
   const queryStr = params.toString();
   return fetchWithAuth(`/audit-logs/chain${queryStr ? `?${queryStr}` : ''}`, {}, getToken);
@@ -644,6 +648,7 @@ export interface CounterfactualRequest {
   employee_id: number;
   skip_sequence_ids: number[];
   as_of?: string;
+  include_pii: boolean;
 }
 
 export interface SkippedEventInfo {

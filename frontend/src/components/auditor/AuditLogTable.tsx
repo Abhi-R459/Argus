@@ -241,6 +241,7 @@ export default function AuditLogTable() {
     sequence_id: targetSeqId,
   });
   const [cursorByPage, setCursorByPage] = useState<Record<number, number>>({});
+  const [revealPii, setRevealPii] = useState(false);
 
   const [focusedRowIndex, setFocusedRowIndex] = useState<number>(-1);
   const [openRowSeq, setOpenRowSeq] = useState<number | null>(targetSeqId ?? null);
@@ -251,9 +252,10 @@ export default function AuditLogTable() {
     isFetching,
     refetch,
   } = useQuery({
-    queryKey: ['audit-logs', filters],
+    queryKey: ['audit-logs', filters, revealPii],
     queryFn: () => fetchAuditLogs({
       ...filters,
+      include_pii: revealPii,
       before_sequence_id: cursorByPage[filters.page ?? 1],
     }, getToken),
     placeholderData: (prev) => prev,
@@ -363,6 +365,10 @@ export default function AuditLogTable() {
       {/* Faceted Filter Toolbar */}
       <FilterBar activeFilters={activeFilters} onClearAll={handleClearAll} portalTheme="auditor">
         <div className="flex flex-wrap items-center gap-2.5 flex-1">
+          <label className="flex items-center gap-1.5 text-xs text-linear-ink-muted">
+            <input type="checkbox" checked={revealPii} onChange={(event) => { setRevealPii(event.target.checked); setOpenRowSeq(null); }} />
+            Reveal employee fields (recorded)
+          </label>
           {/* Table name */}
           <div className="relative">
             <Search className="w-3.5 h-3.5 text-linear-ink-subtle absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />

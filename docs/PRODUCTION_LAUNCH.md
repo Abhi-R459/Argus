@@ -24,6 +24,17 @@ passed both backend and frontend jobs. API deployment
 `dep-db5qt83bc2fs739qglug` and static deployment
 `dep-db5qthlckfvc73b4un0g` both report Live.
 
+**21 October audit update:** The release IDs and empty-data assumptions above are
+the 11 October launch snapshot, not a current production attestation. A live
+auditor session on 21 October showed 102 employee inserts, 106 salary-history
+inserts, 212 audit entries, three checkpoints, and a private GitHub anchor with
+two entries beyond it. The exact deployed source commit and effective Render
+environment were not independently confirmed. Treat the existing synthetic
+QA records as part of this instance's permanent audit history; do not remove
+them directly from the ledger. See
+[`PRODUCTION_FUNCTIONAL_AUDIT_2026-10-21.md`](PRODUCTION_FUNCTIONAL_AUDIT_2026-10-21.md)
+for the observed feature matrix and limitations.
+
 ## Free deployment
 
 Deploy the reviewed `codex/production-launch` branch using `render.yaml`: one
@@ -165,8 +176,12 @@ concurrency diagnostics disabled, and use the configured small connection pools.
 Apply migrations through a separate administrator before deploying code; workers
 do not run migrations at startup.
 
-`ANCHOR_STORE=none`: signed checkpoints persist in PostgreSQL. External anchoring
-is missing and independent witness verification is unknown. The signing key
+The checked-in Blueprint defaults to `ANCHOR_STORE=none`, while the 21 October
+live auditor view reported a configured private GitHub anchor. Confirm the
+effective Render value and anchor repository without copying credentials into
+this document. The last two observed entries had not been externally anchored;
+independent witness verification remained unknown. Signed checkpoints persist
+in PostgreSQL. The signing key
 resides with the API; API compromise can use it. A complete rollback of both
 business data and checkpoints requires independently retained evidence to
 detect. No KMS, HSM or independent witness has been configured for this free
