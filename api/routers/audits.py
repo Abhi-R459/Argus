@@ -657,6 +657,16 @@ async def run_verification(
                     try:
                         with conn.cursor() as cur:
                             cur.execute(
+                                "SELECT enabled, interval_events "
+                                "FROM checkpoint_schedule_settings WHERE id = 1"
+                            )
+                            checkpoint_schedule = cur.fetchone()
+                            rolling_interval = (
+                                int(checkpoint_schedule[1])
+                                if checkpoint_schedule and checkpoint_schedule[0]
+                                else None
+                            )
+                            cur.execute(
                                 "SELECT checkpoint_id, sequence_id, checkpoint_hash, merkle_root, "
                                 "signature, key_id FROM chain_checkpoints ORDER BY sequence_id"
                             )
@@ -669,6 +679,7 @@ async def run_verification(
                         comparison = compare_manifest(
                             anchor_rows, manifest,
                             minimum_sequence=settings.GITHUB_ANCHOR_MIN_SEQUENCE,
+                            rolling_interval=rolling_interval,
                         )
                         checks["external_anchor"] = comparison.status
                         if comparison.status != "pass":
@@ -1598,6 +1609,18 @@ async def get_anchor_status(
             status_str = "MISSING"
     elif store_type == "github_repo":
         try:
+            schedule_result = await session.execute(
+                text(
+                    "SELECT enabled, interval_events "
+                    "FROM checkpoint_schedule_settings WHERE id = 1"
+                )
+            )
+            checkpoint_schedule = schedule_result.first()
+            rolling_interval = (
+                int(checkpoint_schedule[1])
+                if checkpoint_schedule and checkpoint_schedule[0]
+                else None
+            )
             checkpoints_result = await session.execute(
                 text(
                     "SELECT checkpoint_id, sequence_id, checkpoint_hash, merkle_root, "
@@ -1614,6 +1637,7 @@ async def get_anchor_status(
             comparison = compare_manifest(
                 anchor_rows, manifest,
                 minimum_sequence=settings.GITHUB_ANCHOR_MIN_SEQUENCE,
+                rolling_interval=rolling_interval,
             )
             if comparison.anchored_sequence:
                 delta = max(0, tail_seq - comparison.anchored_sequence)

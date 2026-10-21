@@ -98,6 +98,7 @@ def compare_manifest(
     manifest: Mapping[str, Any],
     *,
     minimum_sequence: int = 0,
+    rolling_interval: int | None = None,
 ) -> AnchorComparison:
     """Compare every externally published checkpoint to the database rows.
 
@@ -106,6 +107,15 @@ def compare_manifest(
     The configured minimum prevents a truncation below the launch baseline from
     being mistaken for ordinary publication lag.
     """
+    # The scheduler maintains a mutable signed checkpoint for the incomplete
+    # interval. It is verified locally but is not an external anchor until the
+    # interval closes, so compare the repo only against fixed boundaries.
+    if rolling_interval and rolling_interval > 0:
+        database_checkpoints = [
+            row for row in database_checkpoints
+            if int(row["sequence_id"]) % rolling_interval == 0
+        ]
+
     remote = manifest.get("checkpoints")
     if manifest.get("schema_version") != 1 or not isinstance(remote, list):
         return AnchorComparison("unknown", "The private anchor manifest format is unsupported.")
@@ -130,6 +140,16 @@ def compare_manifest(
         ):
             return AnchorComparison("unknown", "A private anchor record is malformed.")
         prior_id, prior_sequence = checkpoint_id, sequence_id
+
+    if rolling_interval and rolling_interval > 0:
+        remote = [
+            item for item in remote
+            if item["sequence_id"] % rolling_interval == 0
+        ]
+        if not remote:
+            return AnchorComparison(
+                "unknown", "The private anchor has no completed interval checkpoints yet."
+            )
 
     latest = remote[-1]
     latest_seq = latest["sequence_id"]

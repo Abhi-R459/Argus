@@ -48,6 +48,8 @@ async def create_signed_checkpoint(
     client_ip: str,
     max_events: int = MAX_CHECKPOINT_EVENTS,
     require_full_interval: bool = False,
+    starting_after_sequence: int | None = None,
+    replace_checkpoint_id: int | None = None,
     signer_loader=load_checkpoint_signer,
     event_type: str = "CHECKPOINT_CREATED",
 ) -> dict[str, Any] | None:
@@ -62,7 +64,11 @@ async def create_signed_checkpoint(
         text("SELECT sequence_id FROM chain_checkpoints ORDER BY sequence_id DESC LIMIT 1")
     )
     latest = latest_result.first()
-    last_sequence = int(latest[0]) if latest else 0
+    last_sequence = (
+        int(starting_after_sequence)
+        if starting_after_sequence is not None
+        else (int(latest[0]) if latest else 0)
+    )
     entries_result = await session.execute(
         text(
             "SELECT sequence_id, actor_user_id, employee_id, action, table_name, row_id, "
@@ -81,23 +87,36 @@ async def create_signed_checkpoint(
     merkle_tree = ArgusMerkleTree.build(entries)
     signature = signer.sign(f"{checkpoint_hash}:{merkle_tree.root}".encode("utf-8"))
     end_sequence = int(entries[-1]["sequence_id"])
-    inserted = await session.execute(
-        text(
-            "INSERT INTO chain_checkpoints "
-            "(sequence_id, checkpoint_hash, signature, key_id, merkle_root, merkle_leaf_count) "
-            "VALUES (:sequence_id, :checkpoint_hash, :signature, :key_id, :merkle_root, :leaf_count) "
-            "RETURNING checkpoint_id, created_at"
-        ),
-        {
-            "sequence_id": end_sequence,
-            "checkpoint_hash": checkpoint_hash,
-            "signature": signature,
-            "key_id": signer.key_id,
-            "merkle_root": merkle_tree.root,
-            "leaf_count": merkle_tree.leaf_count,
-        },
-    )
-    stored = inserted.first()
+    checkpoint_values = {
+        "sequence_id": end_sequence,
+        "checkpoint_hash": checkpoint_hash,
+        "signature": signature,
+        "key_id": signer.key_id,
+        "merkle_root": merkle_tree.root,
+        "leaf_count": merkle_tree.leaf_count,
+    }
+    if replace_checkpoint_id is None:
+        stored_result = await session.execute(
+            text(
+                "INSERT INTO chain_checkpoints "
+                "(sequence_id, checkpoint_hash, signature, key_id, merkle_root, merkle_leaf_count) "
+                "VALUES (:sequence_id, :checkpoint_hash, :signature, :key_id, :merkle_root, :leaf_count) "
+                "RETURNING checkpoint_id, created_at"
+            ),
+            checkpoint_values,
+        )
+    else:
+        checkpoint_values["checkpoint_id"] = replace_checkpoint_id
+        stored_result = await session.execute(
+            text(
+                "UPDATE chain_checkpoints SET sequence_id = :sequence_id, "
+                "checkpoint_hash = :checkpoint_hash, signature = :signature, key_id = :key_id, "
+                "merkle_root = :merkle_root, merkle_leaf_count = :leaf_count "
+                "WHERE checkpoint_id = :checkpoint_id RETURNING checkpoint_id, created_at"
+            ),
+            checkpoint_values,
+        )
+    stored = stored_result.first()
     if stored is None:
         return None
 

@@ -32,6 +32,27 @@ def test_private_manifest_comparison_covers_all_published_checkpoints():
     assert compare_manifest([first, second], {**manifest, "checkpoints": [second, first]}).status == "unknown"
 
 
+def test_rolling_tail_is_not_treated_as_an_external_anchor():
+    first = _checkpoint(1, 50)
+    second = _checkpoint(2, 100)
+    tail = _checkpoint(3, 116)
+    manifest = {
+        "schema_version": 1,
+        "published_at": "2026-10-15T00:00:00Z",
+        "checkpoints": [first, second, tail],
+    }
+
+    assert compare_manifest(
+        [first, second, tail], manifest, rolling_interval=50
+    ).status == "pass"
+    assert compare_manifest(
+        [first, second, _checkpoint(3, 117)], manifest, rolling_interval=50
+    ).status == "pass"
+    assert compare_manifest(
+        [first, second, _checkpoint(3, 150)], manifest, rolling_interval=50
+    ).status == "unknown"
+
+
 def test_private_manifest_fetch_uses_only_read_scope(monkeypatch):
     manifest = {"schema_version": 1, "checkpoints": [_checkpoint()]}
     envelope = {
