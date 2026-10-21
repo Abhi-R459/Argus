@@ -1,5 +1,7 @@
-import pytest
+import base64
 import os
+
+import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
@@ -7,6 +9,10 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 os.environ.setdefault("DATABASE_URL_HR_ADMIN", "postgresql+asyncpg://hr_admin@localhost/argus_test")
 os.environ.setdefault("DATABASE_URL_COMPLIANCE_AUDITOR", "postgresql+asyncpg://compliance_auditor@localhost/argus_test")
 os.environ["APP_ENV"] = "development"
+# HR rollback receipts encrypt employee snapshots even in mocked route tests.
+# Use deterministic, test-only values rather than inheriting deployment secrets.
+os.environ["PII_ENCRYPTION_KEY"] = base64.urlsafe_b64encode(b"x" * 32).decode().rstrip("=")
+os.environ["AUDIT_SALT"] = "test-only-audit-salt-" + ("x" * 32)
 from httpx import AsyncClient, ASGITransport
 from typing import AsyncGenerator
 from unittest.mock import AsyncMock, MagicMock
