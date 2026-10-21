@@ -1,11 +1,13 @@
 # Argus launch handoff
 
-Updated 11 October 2026. The user requires free services only, with no card,
+Updated 21 October 2026. The user requires free services only, with no card,
 paid upgrade, expiring trial or paid add-on. The application now uses Supabase
-Auth with Google OAuth. The existing Supabase Free project is at migration
-`030_definer_schema_usage`. Google login is enabled in Supabase, Email login is
-disabled, and both approved accounts are saved in Google's restricted access
-list. The approved Render Free API and static site have been provisioned:
+Auth with Google OAuth. Migration `031_checkpoint_schedule_settings` adds the
+HR automatic checkpoint schedule; migrations 032-033 apply subsequent access
+policy updates. Confirm the deployed database revision before claiming those
+changes are live. Google login is enabled in Supabase, Email login is disabled,
+and approved accounts are saved in Google's restricted access list. The
+approved Render Free API and static site have been provisioned:
 
 | Resource | Actual assigned address / ID |
 |---|---|
@@ -18,11 +20,12 @@ list. The approved Render Free API and static site have been provisioned:
 The API stores its runtime secrets and two signing files only in its backend
 configuration. The frontend has public Auth configuration and the API address.
 Supabase Site URL and its one callback redirect match the actual frontend.
-Both services run release `2f1dd71b170933b85255c3374a0a07f2bbf45210`.
-[CI run 38152267482](https://github.com/Abhi-R459/Argus/actions/runs/38152267482)
-passed both backend and frontend jobs. API deployment
-`dep-db5qt83bc2fs739qglug` and static deployment
-`dep-db5qthlckfvc73b4un0g` both report Live.
+The 11 October release and deployment IDs below are historical. On 21 October,
+the functional audit recorded the frontend deployed from `26dd494` and backend
+from `a11d951`; the backend deployment included a production-discovered replay
+fix. See the [production functional audit](PRODUCTION_FUNCTIONAL_AUDIT_2026-10-21.md)
+for the tested workflows and exact limits. The live Render environment and
+source revision should be rechecked after each later release.
 
 **21 October audit update:** The release IDs and empty-data assumptions above are
 the 11 October launch snapshot, not a current production attestation. A live
@@ -86,13 +89,6 @@ Google Audience remains in **Testing** with only the two real approved accounts
 permitted. These are launch accounts, not disposable demo accounts. The app is
 ready for that restricted audience; wider Google access has not been published.
 
-Approved identities:
-
-| Role | Verified Google email |
-|---|---|
-| HR administrator | evillegend045@gmail.com |
-| Compliance auditor | abhinavreddykarnati@gmail.com |
-
 The API derives permissions from its separate server-side email lists. It
 validates the access token with Supabase Auth, then checks current verified
 Google identity, user ban/deletion state and the signed session ID against
@@ -125,18 +121,26 @@ external identity rather than weakening the deployed checks.
 
 ## Data and database security
 
-The hosted project is `jdfakmmbydbnupndcytf`, region ap-south-1, on Free. Its
-business tables contain no employees, salary records, departments, roles,
-audit entries or checkpoints. Real approved sign-ins create and retain Auth
-accounts and application profiles; these are not demo data. The disabled
-maintenance identity, chain singleton, migration history
-and cryptographic configuration are intentional infrastructure.
+The hosted project is `jdfakmmbydbnupndcytf`, region ap-south-1, on Free. The
+21 October production browser audit observed 102 synthetic QA employee inserts,
+106 salary-history inserts, 212 audit entries, and three checkpoints. The
+latest observed private GitHub anchor was two entries behind the ledger; the
+independent witness quorum was unverified. These are dated observations, not
+live counters. Treat the synthetic events as permanent audit history; do not
+delete rows directly. The production functional audit records the time and
+scope of the observation.
 
-Local demo data was also emptied after a backup. Its recovery dump under
-`backups/pre-launch-cleanup-20261011T043421Z/` restored successfully into an
-isolated database: 101 employees, 209 audit events and 13 checkpoints. Recovery
-material is ignored by Git and excluded from deployment images. Local tests
-remain in source but never seed production.
+Local recovery data is stored outside Git and excluded from deployment images.
+The local snapshot is for isolated demonstrations and is separate from the
+hosted database. Never point local seed, attack, or destructive test commands at
+the production project.
+
+The local database was empty after the 11 October launch cleanup, then the
+available isolated backup was restored for the 21 October demonstration setup.
+That restored snapshot contains 101 employees, 209 audit events, and 13
+checkpoints. It is separate from production and can change during local demos.
+Recovery material is ignored by Git and excluded from deployment images. Local
+tests and seed tools must never target production.
 
 All 13 public tables have RLS. Supabase anonymous/authenticated Data API roles
 have no application-table privileges; runtime roles are neither superusers nor
@@ -179,9 +183,10 @@ do not run migrations at startup.
 The checked-in Blueprint defaults to `ANCHOR_STORE=none`, while the 21 October
 live auditor view reported a configured private GitHub anchor. Confirm the
 effective Render value and anchor repository without copying credentials into
-this document. The last two observed entries had not been externally anchored;
-independent witness verification remained unknown. Signed checkpoints persist
-in PostgreSQL. The signing key
+this document. At the 08:40 observation, the latest two entries had not been
+externally anchored; a later checkpoint or publication may change that state.
+Independent witness verification was unknown. Signed checkpoints persist in
+PostgreSQL. The signing key
 resides with the API; API compromise can use it. A complete rollback of both
 business data and checkpoints requires independently retained evidence to
 detect. No KMS, HSM or independent witness has been configured for this free
@@ -225,22 +230,14 @@ that are addressed by migrations 028-030 and reproduced by the updated isolated
 checks. The strengthened readiness route executes the session check and checks
 the audit owner's schema access rather than only checking function existence.
 
-Release `2f1dd71` passed CI and all 15 public checks after deployment. Both real
-Google accounts loaded their correct portals; the HR directory/settings and
-auditor overview/log/analytics loaded successfully. Opposite-role portal
-navigation returned to the authorized workspace. Both sign-outs revoked their
-server sessions. Live token refresh and live account deactivation were not
-forced; refresh is covered by the browser tests and deactivation/ban/deletion
-by the isolated checks.
-
-The live auditor exported the empty ledger as an `.arguspack` file. Its public
-key matched the separately retained production public key, and the repository's
-verifier returned SUCCESS with no errors and zero events. This verifies the
-mounted production signer without inserting test business records. Hosted
-business tables remain empty with exactly two real Auth accounts and two active
-application profiles. The local database is also at migration 030 with zero
-employees, audit entries and active profiles. Disposable test containers were
-removed; the prior local database/Adminer services were preserved.
+The 11 October release `2f1dd71` passed CI and all 15 public checks at that
+time. Both approved Google roles loaded their portals, and sign-outs revoked
+their server sessions. The auditor exported and verified an empty-ledger
+`.arguspack` against the separately retained production public key. Those are
+historical launch checks: production later accumulated synthetic QA activity,
+as recorded in the 21 October audit. The 21 October acceptance pass separately
+verified the privacy remediation and successful counterfactual replay; its
+limitations are listed in the functional audit.
 
 For every subsequent release, verify the exact commit's CI, manually deploy the
 Free services, then run the read-only deployment check:
@@ -270,5 +267,5 @@ pending manual approval; its deSEC zone and nameserver checks passed. The new
 Supabase login path does not depend on it. Do not resubmit or claim approval.
 If approved later, verify delegation and publish fresh deSEC DNSSEC DS records
 before using it. EU.org/deSEC are free today, without a lifetime guarantee.
-The four explicitly approved Clerk development test accounts were removed;
-five real Clerk accounts were retained and are not used by this release.
+The old Clerk references describe historical schema/account migration details;
+deployed authentication uses Supabase Auth with Google OAuth.

@@ -20,9 +20,10 @@
 
 ## Table of Contents
 
-For real deployment, start with the [production launch handoff](docs/PRODUCTION_LAUNCH.md). It includes the Vercel/Render configuration, data cleanup status, and remaining live launch checks.
+For the hosted application, start with the [production website and feature status](#production-website) and the [production functional audit](docs/PRODUCTION_FUNCTIONAL_AUDIT_2026-10-21.md). The [launch handoff](docs/PRODUCTION_LAUNCH.md) and [operations runbook](docs/PRODUCTION_OPERATIONS.md) describe hosting, storage, checkpoints, anchoring, and recovery limits.
 
 - [Overview](#overview)
+- [Production Website](#production-website)
 - [Key Features](#key-features)
 - [Architecture & Security Model](#architecture--security-model)
 - [Technology Stack](#technology-stack)
@@ -66,6 +67,18 @@ Traditional relational audit logs are stored in standard database tables. A mali
 - **Ed25519 Checkpoint Signing & Anchoring**: The verifier can sign checkpoints and use configured anchor providers. A local anchor is not an independent trust domain; external anchoring applies only when its credentials and stores are configured.
 - **PII Encryption, Redaction & Blind Indexing**: The API uses a versioned AES-256-GCM envelope when `PII_ENCRYPTION_KEY` is configured. Audit payloads redact these columns and retain a blind index for national-ID search. Names and email addresses are not encrypted by this field-level mechanism.
 - **Air-Gapped Turnkey Verifier**: Self-contained `.arguspack` evidence archives embedding zero-dependency pure-Python RFC 8032 verifiers.
+
+## Production Website
+
+The hosted application is available at [argus-frontend-0i6n.onrender.com](https://argus-frontend-0i6n.onrender.com); its API is hosted at [argus-backend-u0i3.onrender.com](https://argus-backend-u0i3.onrender.com). Production uses Google sign-in through Supabase Auth, a FastAPI service, and Supabase PostgreSQL. The API validates the Supabase session and approved role, then uses separate PostgreSQL roles for HR and auditor access. The frontend does not read business tables through the Supabase Data API.
+
+The production auditor workflows observed in the 21 October 2026 functional audit include integrity verification, audit-chain browsing, event filtering, historical reconstruction, read-only counterfactual replay, activity/risk review, system analytics, Merkle proof generation, and evidence-pack download. The 09:45 IST acceptance update confirmed the deployed privacy changes: ordinary audit-log responses mask names, email addresses, salaries, and other sensitive payload fields; explicit reveal actions are recorded; counterfactual replay requires a recorded reveal; and evidence downloads record access. These checks cover the observed auditor session and interactions, not every role or edge case.
+
+The HR portal is intended for employee and compensation administration, department/role setup, CSV import, and signed checkpoint controls. The 21 October browser audit did not have an authenticated HR session, so those HR write paths were not live-tested in that pass. HR Settings implements automatic checkpoints enabled by default every 50 audit events, with a configurable interval from 1 to 10,000 or disabled; scheduling runs while the API is awake and does not publish an external anchor. See [Production Operations](docs/PRODUCTION_OPERATIONS.md#deployment-order) for behavior and limits.
+
+**Production data snapshot:** the auditor audit around 08:40 IST on 21 October 2026 observed 102 synthetic QA employee inserts, 106 salary-history inserts, 212 audit entries, and three checkpoints. The configured private GitHub anchor was two entries behind at that observation, and independent witness quorum was unverified. These are dated audit observations, not live counters; production data can change. The synthetic entries are already part of the audit history and must not be deleted directly. No employee identities or credentials are documented here.
+
+The production instance is a hosted demonstration deployment, not a completed disaster-recovery or multi-witness service. A passing internal hash-chain check does not establish independent protection for data beyond the latest external anchor. Database backups, restore/key-recovery rehearsal, and independent witness quorum were not demonstrated in the audit. The [production audit](docs/PRODUCTION_FUNCTIONAL_AUDIT_2026-10-21.md) records the test matrix and its limits. The red-team adversary CLI and destructive attack demonstrations are local test tools; do not run them against production.
 
 ---
 
@@ -134,7 +147,7 @@ Full architectural specification in [`docs/CRYPTO_SHREDDING_ANALYSIS.md`](docs/C
 │  - HR Admin Layout (Directory, Create/Edit Modals, Salary Adjustments) │
 │  - Auditor Layout (Log Explorer, Diff Viewer, Time-Travel, Export)     │
 └───────────────────────────────────┬────────────────────────────────────┘
-                                    │ HTTP / REST (Clerk Bearer JWT)
+                                    │ HTTP / REST (Supabase Auth access token)
 ┌───────────────────────────────────▼────────────────────────────────────┐
 │                        FASTAPI BACKEND API                             │
 │  - JWT Verification Middleware                                         │
@@ -174,7 +187,7 @@ Full architectural specification in [`docs/CRYPTO_SHREDDING_ANALYSIS.md`](docs/C
 - **Database:** PostgreSQL 15+, `pgcrypto`, PL/pgSQL triggers, views, and stored procedures.
 - **Backend:** Python 3.12, FastAPI, SQLAlchemy 2 (asyncpg + psycopg2), Pydantic v2, Uvicorn.
 - **Frontend:** React 19, TypeScript, Vite, Tailwind CSS, TanStack React Query, Lucide React.
-- **Authentication:** Clerk Auth (JWT authentication and role sync).
+- **Authentication:** Supabase Auth with Google OAuth; the API checks the current session and server-side HR/auditor allowlists. A standalone local PostgreSQL database cannot validate real Supabase sessions; see [Local Demo Setup](docs/LOCAL_DEMO_SETUP.md).
 - **Cryptography:** Ed25519 (`cryptography`), SHA-256 (`hashlib`), RFC 8032 pure-Python curve math, RFC 3161 ASN.1 DER parser, RFC 6962 (Merkle trees), RFC 9162 (Multi-witness cosigning).
 - **Database Migrations:** Alembic (18 versioned migrations).
 - **External Anchors:** Local File, GitHub Repository, RFC 3161 Time-Stamping Authority (`.tsr`), and AWS S3 WORM Object Lock (`COMPLIANCE` mode).
@@ -188,8 +201,9 @@ The fastest way to spin up the complete end-to-end stack:
 
 For a professor walkthrough that must stay on your laptop and must not touch
 the configured hosted database, use the [Local Demo Setup](docs/LOCAL_DEMO_SETUP.md).
-It uses the regular `argus` Compose PostgreSQL service with your usual local
-Uvicorn and Vite startup. Clerk Development sign-in still needs internet access.
+It uses an isolated local PostgreSQL database. Real Google sign-in requires a
+separate Supabase development project connected to the API; local PostgreSQL
+alone intentionally rejects production Supabase sessions.
 
 ```bash
 # 1. Clone the repository
@@ -241,10 +255,13 @@ DATABASE_URL_MIGRATIONS=postgresql://postgres:<password>@localhost:5433/argus
 DATABASE_URL_HR_ADMIN=postgresql+asyncpg://hr_admin:<password>@localhost:5433/argus
 DATABASE_URL_COMPLIANCE_AUDITOR=postgresql+asyncpg://compliance_auditor:<password>@localhost:5433/argus
 
-# Clerk Authentication Keys (From https://dashboard.clerk.com/)
-VITE_CLERK_PUBLISHABLE_KEY=pk_test_...
-CLERK_SECRET_KEY=sk_test_...
-CLERK_JWT_KEY="-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----"
+# Supabase Auth (public frontend settings plus API-side session validation)
+VITE_SUPABASE_URL=https://<project-ref>.supabase.co
+VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
+SUPABASE_URL=https://<project-ref>.supabase.co
+SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
+HR_ADMIN_EMAILS=<approved HR account list>
+COMPLIANCE_AUDITOR_EMAILS=<approved auditor account list>
 
 # Required before migrations, demo seeding, or real-PII use. Keep these values
 # separate, private, and backed up through an approved key-management process.
@@ -395,7 +412,7 @@ Open a **new terminal** window:
 
 4. **Open the App in your Browser:**
    - Visit: **[http://localhost:5173](http://localhost:5173)** (or `http://localhost:3000`)
-   - Authenticate via Clerk to access the **HR Admin** or **Compliance Auditor** dashboard.
+   - Sign in with an approved Google account for the **HR Admin** or **Compliance Auditor** role. Role access is assigned by the API's server-side allowlists; there is no role toggle.
 
 ---
 
@@ -412,23 +429,23 @@ Open a **new terminal** window:
 
 ### Part 1: Testing Application Features
 
-#### 1.1 Role Switching & Least-Privilege Isolation
-- In the top navigation bar, toggle between the **HR Admin** and **Compliance Auditor** roles.
+#### 1.1 Role Separation & Least-Privilege Isolation
+- Sign in with the separately approved **HR Admin** or **Compliance Auditor** Google account. There is no role toggle; the API assigns access from its server-side allowlists.
 - **Observe Strict Boundary Separation:**
   - **HR Admin** can manage employees and compensation, but cannot access raw cryptographic verification actions or delete/tamper with audit logs.
-  - **Compliance Auditor** has read-only access to audit logs, anchor status, and verification tools, but cannot edit employee salaries or view plaintext PII.
+  - **Compliance Auditor** has read-only access to audit logs, anchor status, and verification tools, but cannot edit employee salaries. Sensitive auditor disclosures require the recorded reveal flow where supported.
 
 #### 1.2 HR Admin: Employee Creation & Database-Level Encryption (`/hr`)
 1. Switch to **HR Admin** (`/hr`) and click **"Add Employee"**.
 2. Create a new employee:
-   - **Name:** Alice Walker
+   - **Name:** Use a fictional name
    - **Department:** Engineering
    - **Role:** Senior Software Engineer
    - **Salary:** $95,000
-   - **National ID:** `123-45-6789`
+   - **National ID:** Leave blank or use a synthetic value generated for an isolated demo
 3. **What happens behind the scenes:**
    - PostgreSQL fires an `AFTER INSERT` trigger (`trg_audit_employees`).
-   - `pgcrypto` encrypts sensitive fields (`national_id`, `contact_info`) at the column level.
+   - When configured, the API encrypts national-ID and contact fields with AES-GCM before storage; audit payloads redact these encrypted fields.
    - The engine generates a keyed HMAC blind index for forensic lookups.
    - A canonical SHA-256 hash is computed, linking this entry to the prior audit block.
 
@@ -698,8 +715,8 @@ UPDATE employees SET salary = salary + 10000.00 WHERE id = 1;
 ### HR Admin Portal
 - **Enterprise Light Mode Canvas:** Designed for high-clarity daily operations in Grafana-inspired light theme (`Slate-50`, crisp white cards, clean tabular layouts).
 - **Employee Directory Table:** Search, filter by department, paginate, and sort employees with inline status indicators.
-- **Slide-Over Personnel Inspector (`EmployeeSheet`):** Lateral slide-in sheet for reviewing employee profiles, compensation histories, and PII encryption status with zero-latency tab switching.
-- **Create & Edit Employee:** Validated modals capturing employee profile details. Sensitive fields (`national_id`, `contact_info`) are encrypted with `pgcrypto` at the database level.
+- **Slide-Over Personnel Inspector (`EmployeeSheet`):** Lateral sheet for reviewing employee profiles and compensation histories. National ID and contact information use AES-GCM encrypted envelopes when the configured API key and migration are present; names and email are ordinary database columns.
+- **Create & Edit Employee:** Validated forms for employee profile changes. Sensitive national-ID and contact fields use application-managed AES-GCM encryption when configured; audit payloads redact encrypted fields.
 - **Salary Adjustments:** Dedicated modal enforcing business constraints (e.g. raises and $< 30\%$ adjustments allowed, self-modifications blocked).
 
 #### Signed checkpoints
@@ -710,7 +727,7 @@ The HR Settings page can create an on-demand signed checkpoint and configure aut
 - **Audit Log Explorer:** Live chronological stream of every database mutation. Filter by actor, action (`INSERT`/`UPDATE`/`DELETE`), target table, and severity (`INFO`, `WARNING`, `CRITICAL`).
 - **Side-by-Side Diff Viewer:** Click any audit entry to inspect exact before/after field mutations in an intuitive visual diff viewer rather than raw JSON strings.
 - **Chain Block Visualizer:** Visual interactive map of chained sequence blocks with direct indicators of previous hash links and tail continuity.
-- **Anchor Health Status:** Real-time monitor checking commit delta and timestamp synchronization against local and GitHub anchor stores.
+- **Anchor Health Status:** Reports configured external-anchor comparison, checkpoint signatures, and witness status. An anchor is only current after its record is published; a single private GitHub repository is not an independent multi-witness quorum.
 - **System Telemetry & Posture:** Live buffer cache hit ratio, database relation byte sizes, and dynamic security score (0–100) calculated from PostgreSQL catalog tables.
 
 ### Time-Travel Historical Reconstruction
@@ -847,8 +864,8 @@ The repository includes API unit tests, database/cryptographic unit tests, and b
 ## Troubleshooting & FAQ
 
 ### 1. "Missing Publishable Key" / Blank Screen in Browser
-- **Cause:** Clerk Publishable Key (`VITE_CLERK_PUBLISHABLE_KEY`) is empty in `.env`.
-- **Fix:** Open `.env` and `frontend/.env` and paste your publishable key from [dashboard.clerk.com](https://dashboard.clerk.com/). Restart the Vite server (`npm run dev`).
+- **Cause:** Supabase URL or publishable key (`VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`) is empty or invalid.
+- **Fix:** Configure the public values for your development Supabase project and matching API session settings. Restart the Vite server (`npm run dev`). Do not use production credentials for local testing.
 
 ### 2. "listen EACCES: permission denied ::1:5173"
 - **Cause:** Port 5173 is in Windows/Hyper-V's reserved port range.
@@ -866,8 +883,10 @@ The repository includes API unit tests, database/cryptographic unit tests, and b
 
 ## Project Documentation
 
+- **Production Website Features and Dated Data Snapshot:** this README's [Production Website](#production-website) section and the [production functional audit](docs/PRODUCTION_FUNCTIONAL_AUDIT_2026-10-21.md).
+- **Production Hosting, Checkpoint Scheduling, Anchors, and Recovery:** [`docs/PRODUCTION_LAUNCH.md`](docs/PRODUCTION_LAUNCH.md) and [`docs/PRODUCTION_OPERATIONS.md`](docs/PRODUCTION_OPERATIONS.md).
 - **Professor Walkthrough and Current Demo Claims:** [`docs/CONFERENCE_AND_DEMO_GUIDE.md`](docs/CONFERENCE_AND_DEMO_GUIDE.md) (current source of truth for demo flow, contribution boundaries, and verification caveats).
-- **Isolated Local Demo Setup:** [`docs/LOCAL_DEMO_SETUP.md`](docs/LOCAL_DEMO_SETUP.md) (local-only database setup, safe seeding, and verified demo snapshot).
+- **Isolated Local Demo Setup:** [`docs/LOCAL_DEMO_SETUP.md`](docs/LOCAL_DEMO_SETUP.md) (local-only database setup, safe seeding, and its separation from production).
 - **Deployment Operations:** [`docs/PRODUCTION_OPERATIONS.md`](docs/PRODUCTION_OPERATIONS.md) (migration, backup, recovery, and production configuration requirements).
 - **Current API Reference:** [`Argus_docs/API_REFERENCE.md`](Argus_docs/API_REFERENCE.md) (current route and authorization summary).
 - **System Architecture:** [`Argus_docs/Architecture.md`](Argus_docs/Architecture.md) (architecture and deployment context; some sections describe historical plans).

@@ -13,7 +13,8 @@ employee data.
    pooler session URL on port 5432 from IPv4-only environments. This application
    uses PostgreSQL's native protocol for business data. This release also
    requires Supabase Auth in the same project, its public publishable key,
-   and migrations through 031 for live session checks and HR checkpoint scheduling. The frontend has no direct
+   and migrations through 033 for live session checks, HR checkpoint scheduling,
+   and the later schedule-access policy updates. The frontend has no direct
    business-table access through the Supabase Data API.
 2. Configure the secrets and public-origin values listed below. Set
    `SIGNING_PRIVATE_KEY_FILE` to the mounted Ed25519 private key. Never commit

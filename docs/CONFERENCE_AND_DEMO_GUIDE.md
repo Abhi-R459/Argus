@@ -29,7 +29,7 @@ The difference we can responsibly present is the **combination and evaluation of
 
 ```mermaid
 flowchart LR
-  HR[HR user] --> UI[React and Clerk UI]
+  HR[HR user] --> UI[React and Supabase Auth UI]
   AU[Auditor] --> UI
   UI --> API[FastAPI authentication and role checks]
   API --> HRDB[(HR PostgreSQL pool)]
@@ -50,7 +50,7 @@ The code to point at during questions:
 
 - Database schema and role grants: `db/alembic/versions/`, `db/scripts/setup_roles.sql`.
 - Mutation capture and hash linking: `db/triggers/audit_employees.sql`, `db/triggers/audit_salary_history.sql`.
-- API auth, authorization, and transaction actor context: `api/middleware/clerk.py`, `api/dependencies.py`, `api/routers/`.
+- API auth, authorization, and transaction actor context: `api/middleware/supabase_auth.py`, `api/dependencies.py`, `api/routers/`.
 - HR on-demand signed checkpoints: `api/routers/checkpoints.py`, `db/alembic/versions/023_hr_checkpoint_creation.py`, and `frontend/src/pages/hr/HRSettings.tsx`.
 - Signed checkpoint and chain verifier: `db/cli/verifier.py`, `db/cli/signer.py`, `db/cli/anchor_store.py`.
 - Selective evidence: `db/cli/merkle_tree.py`, `db/cli/capsule.py`, `db/cli/verify_capsule.py`.
@@ -59,10 +59,21 @@ The code to point at during questions:
 
 ## 10-minute professor walkthrough
 
+### Production website segment
+
+Use the hosted site for a short, read-only tour of the deployed interface:
+
+1. Sign in with an approved Google account. The production API validates the Supabase session and grants the account's server-configured HR or auditor role.
+2. As auditor, show Overview verification, the audit chain and event log, Time Travel, counterfactual replay, risk/activity, analytics, and the forensic evidence screens. Ordinary audit results are redacted; any explicit reveal or sensitive export is recorded as a security event.
+3. Explain the production data with its timestamp: the 21 October 2026 audit observed 102 synthetic QA employee inserts, 106 salary-history inserts, 212 audit entries, and three checkpoints. At the approximately 08:40 observation, the private GitHub anchor lagged by two entries and witness quorum was unverified. Counts and anchor state can change; use the current Overview for a live status.
+4. Keep production actions read-only during the presentation. The 21 October browser audit did not test HR write paths. HR features and automatic checkpoints are described in [Production Operations](PRODUCTION_OPERATIONS.md); the scheduler defaults to 50 events, runs while the API is awake, and does not publish anchor records.
+
+Then switch to the isolated local demo for attack and recovery scenarios. The local adversary CLI is a simulation tool and must target only the local demo database. Do not run attack commands against the hosted site.
+
 ### Before the meeting
 
 1. Use the isolated **`argus-demo` local database** described in [Local Professor Demo Setup](LOCAL_DEMO_SETUP.md). The default `python -m db.seed_demo` resets demo employee, salary-history, audit, checkpoint, and suspicious-flag rows. For an additive expansion, run `python -m db.seed_demo --skip-purge --scale 40` only inside the local demo seed container; each run appends another 40 employees and audit activity. Never point either command at a shared or production database.
-2. Apply migrations and configure the least-privilege database roles using the repository’s setup guide. Configure Clerk and the server-side allowlists for one HR account and one auditor account. There is no role-toggle control in the UI; use separate authorized accounts/sessions.
+2. Apply migrations and configure the least-privilege database roles using the repository’s setup guide. For real login, connect the API to a separate Supabase development project and configure Google OAuth plus the server-side HR and auditor allowlists. Standalone PostgreSQL has no Supabase Auth sessions and will reject real login. There is no role-toggle control; use separate authorized accounts/sessions.
 3. Confirm the local demo signing key and anchor are available before presenting integrity verification. In this setup, checkpoints are Ed25519-signed and the local file anchor can be checked, but the file is not an independent trust domain. The current demo has no persisted witness note, so the Witness Quorum panel reports **Unverified**. Do not describe the laptop setup as an active independently witnessed 2-of-3 deployment.
 4. Start PostgreSQL, the API, and Vite using the current setup instructions in `README.md`. Check `/api/health`, sign in, and rehearse with the same database you will present.
 5. In the Auditor Overview, run verification. Proceed with integrity claims only if each relevant check reports **Verified**. If the configured anchor is unavailable or a checkpoint is unsigned, say so explicitly.
@@ -95,7 +106,7 @@ Show the flow diagram above. Explain that the trigger records a mutation in the 
 
 Sign in with the HR account. Open `/hr/employees`, select a demo employee, and add a salary-history entry with an effective date. Point out that the HR action changes the business row; the database trigger is responsible for producing its audit event. Avoid entering real PII.
 
-Optionally open `/hr/settings` and create a signed checkpoint. The action seals all audit events since the previous checkpoint and records the requesting HR administrator. It does not create an external anchor; explain signing and anchoring as separate steps. Migration `023_hr_checkpoint_creation` must be applied, and production mode currently disables this local-signer action until a managed signer is configured.
+Optionally open `/hr/settings` and create a signed checkpoint. The action seals all audit events since the previous checkpoint and records the requesting HR administrator. It does not create an external anchor; explain signing and anchoring as separate steps. Migration `023_hr_checkpoint_creation` and a valid mounted Ed25519 signer with its trusted public key are required. Automatic scheduling defaults to every 50 audit events and requires migration `031_checkpoint_schedule_settings`; it runs only while the API is awake.
 
 **4:00–5:30 — Verify the event**
 
@@ -148,5 +159,5 @@ Do not publish fixed benchmark numbers from old documentation unless the exact h
 - A public key embedded in an evidence bundle is not trusted automatically. The verifier must receive an independently trusted key.
 - Runtime employee and salary writes now require a short-lived HMAC-signed actor context verified by a restricted PostgreSQL function. The ordinary runtime database roles cannot read the verifier key or edit verifier objects; manually setting the legacy actor GUCs is insufficient. This protects against a database-only runtime credential holder under the stated role/ownership assumptions. It does not protect against a compromised API process, database owner, superuser, or key custodian. Those boundaries and the adversarial PostgreSQL checks must be included in any security claim.
 - This is an academic prototype. Production deployment requires a tested key-management, rotation, backup, retention, and incident-response plan.
-- **Verified local demo snapshot (2026-10-07):** 100 employees, 104 salary-history rows, 206 audit events, and 8 signed checkpoints. The latest checkpoint covers sequence 200; the audit tail is sequence 206. The live Auditor Overview verified the hash chain, local anchor record, and checkpoint signatures through sequence 206 with zero anomalies. Treat these as snapshot values; mutations and additional seed runs change them.
+- **Local recovered demo snapshot (21 October 2026):** the isolated local database was restored from the available backup and contains 101 employees, 209 audit events, and 13 checkpoints. These are snapshot values; mutations change them. Local data and integrity status are separate from production.
 - The local demo's witness report is **Unverified** because no persisted witness note is configured. A passing hash-chain, local-anchor, and checkpoint-signature result does not imply that an independent witness quorum passed.

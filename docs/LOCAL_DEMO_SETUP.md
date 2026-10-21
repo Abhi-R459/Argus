@@ -1,8 +1,10 @@
 # Local development after the Supabase Auth migration
 
-The old Clerk demo preparation flow is retired. The local demo database has
-been emptied for launch. Do not run seeding tools against the hosted project.
-Private recovery backups remain outside the deployment image.
+The old Clerk demo preparation flow is retired. The local demo database was
+restored from an isolated recovery snapshot for professor demonstrations. It
+is separate from the hosted production database. Do not run seeding, attack, or
+destructive test tools against the hosted project. Private recovery backups
+remain outside the deployment image.
 
 For development checks, use the checked-in unit and browser tests. Playwright
 uses mocked identity/API responses and development-only route fixtures; those
@@ -25,14 +27,16 @@ $env:VITE_SUPABASE_PUBLISHABLE_KEY='sb_publishable_inert_test_key'
 npm run test:e2e
 ```
 
-Real Google sign-in requires the API database to be the same Supabase project
-that issues the session. Migration 027 checks its `auth.sessions` and user
-ban/deletion status. Standalone local PostgreSQL has no Auth session rows and
-intentionally rejects real login; it must not bypass session revocation.
-Use a separate Supabase development project for real-login experiments, with
-matching keys, runtime database URLs, exact localhost Auth redirects/CORS and
-separate synthetic business data. Do not point destructive tests or seed jobs
-at the production project. Keep development signing/encryption keys separate.
+The local demo snapshot contains synthetic demonstration data and can differ
+from production. Real Google sign-in requires the API database to be the same
+Supabase project that issues the session. Migration 027 checks its
+`auth.sessions` and user ban/deletion status. Standalone local PostgreSQL has no
+Auth session rows and intentionally rejects real login; it must not bypass
+session revocation. Use a separate Supabase development project for real-login
+experiments, with matching keys, runtime database URLs, exact localhost Auth
+redirects/CORS and separate synthetic business data. Do not point destructive
+tests or seed jobs at the production project. Keep development signing and
+encryption keys separate.
 
 See [the production launch handoff](PRODUCTION_LAUNCH.md) for the current free
 hosting and Google login configuration.
