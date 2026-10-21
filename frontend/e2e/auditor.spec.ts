@@ -309,10 +309,12 @@ test.describe('Compliance Auditor Portal E2E', () => {
     await page.goto('http://localhost:5173/auditor/counterfactual');
     await expect(page.getByRole('combobox')).toHaveValue('1001');
     await page.getByRole('checkbox', { name: 'Exclude sequence 142', exact: true }).check();
+    await expect(page.getByRole('button', { name: 'Run Provenance Simulation' })).toBeDisabled();
+    await page.getByRole('checkbox', { name: /Reveal employee and salary details in the replay/ }).check();
     await page.getByRole('button', { name: 'Run Provenance Simulation' }).click();
     await expect(page.getByText('₹1,00,000.00')).toBeVisible();
     await expect(page.getByText('$100,000.00')).toHaveCount(0);
-    expect(submittedPayload).toMatchObject({ employee_id: 1001, skip_sequence_ids: [142] });
+    expect(submittedPayload).toMatchObject({ employee_id: 1001, skip_sequence_ids: [142], include_pii: true });
   });
 
   test('Audit Chain Explorer page rendering', async ({ page }) => {
