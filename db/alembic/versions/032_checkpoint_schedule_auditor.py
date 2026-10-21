@@ -3,7 +3,7 @@
 from alembic import op
 
 
-revision = "032_checkpoint_schedule_read_for_auditor"
+revision = "032_checkpoint_schedule_auditor"
 down_revision = "031_checkpoint_schedule_settings"
 branch_labels = None
 depends_on = None
@@ -19,10 +19,19 @@ def upgrade():
         END $$;
     """)
     op.execute("""
-        CREATE POLICY checkpoint_schedule_auditor_read
-        ON public.checkpoint_schedule_settings
-        FOR SELECT TO compliance_auditor
-        USING (true)
+        DO $$ BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM pg_policies
+                WHERE schemaname = 'public'
+                  AND tablename = 'checkpoint_schedule_settings'
+                  AND policyname = 'checkpoint_schedule_auditor_read'
+            ) THEN
+                CREATE POLICY checkpoint_schedule_auditor_read
+                ON public.checkpoint_schedule_settings
+                FOR SELECT TO compliance_auditor
+                USING (true);
+            END IF;
+        END $$;
     """)
 
 
