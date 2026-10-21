@@ -13,7 +13,7 @@ def upgrade():
     op.execute("""
         DO $$ BEGIN
             IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'compliance_auditor') THEN
-                GRANT SELECT (enabled, interval_events)
+                GRANT SELECT (id, enabled, interval_events)
                 ON public.checkpoint_schedule_settings TO compliance_auditor;
             END IF;
         END $$;
@@ -41,6 +41,6 @@ def downgrade():
         ON public.checkpoint_schedule_settings
     """)
     op.execute("""
-        REVOKE SELECT (enabled, interval_events)
+        REVOKE SELECT (id, enabled, interval_events)
         ON public.checkpoint_schedule_settings FROM compliance_auditor
     """)
