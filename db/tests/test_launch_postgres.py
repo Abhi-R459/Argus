@@ -281,8 +281,9 @@ def test_real_api_bootstrap_employee_and_checkpoint(launch_database, tmp_path, m
     async def run():
         await init_engines()
         try:
-            async with AsyncClient(transport=ASGITransport(app=app), base_url='http://launch.test', headers={'X-Argus-Role': 'hr_admin'}) as client:
+            async with AsyncClient(transport=ASGITransport(app=app), base_url='http://launch.test') as client:
                 assert (await client.get('/api/health/ready')).status_code == 200
+                assert (await client.post('/api/auth/choose-role', json={'role': 'hr_admin'})).status_code == 200
                 department = await client.post('/api/departments', json={'name': 'API Bootstrap'})
                 assert department.status_code == 201, department.text
                 role = await client.post('/api/roles', json={'title': 'API Engineer',
@@ -359,7 +360,7 @@ def test_real_api_bootstrap_employee_and_checkpoint(launch_database, tmp_path, m
                     assert b'api-test-national-id' not in bytes(cursor.fetchone()[0])
                     cursor.execute("INSERT INTO users(clerk_user_id,full_name,email,role,is_active) VALUES ('launch:auditor','Audit Test','audit-launch@example.test','compliance_auditor',true)")
                 app.dependency_overrides[verify_clerk_token] = lambda: {'sub': 'clerk:user_launch_auditor', 'email': 'audit-launch@example.test', 'email_verified': True, 'provider': 'clerk'}
-                client.headers['X-Argus-Role'] = 'compliance_auditor'
+                assert (await client.post('/api/auth/choose-role', json={'role': 'compliance_auditor'})).status_code == 200
                 directory = await client.get('/api/employees')
                 assert directory.status_code == 200, directory.text
                 assert all(row['email'] != 'api-test@example.com' for row in directory.json()['items'])
