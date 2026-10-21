@@ -1,15 +1,35 @@
 import { useAuth } from '../../components/auth/AuthProvider';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ShieldCheck, Database, Key, User, Lock, CheckCircle2, Fingerprint } from 'lucide-react';
 import { Button } from '../../components/common/Button';
 import PageHeader from '../../components/common/PageHeader';
-import { createCheckpointNow } from '../../services/auditService';
+import { createCheckpointNow, fetchCheckpointSchedule, saveCheckpointSchedule } from '../../services/auditService';
 import OrganizationSetup from '../../components/hr/OrganizationSetup';
 
 export default function HRSettings() {
   const { user, getToken } = useAuth();
   const fullName = typeof user?.user_metadata.full_name === 'string' ? user.user_metadata.full_name : 'HR Administrator';
   const queryClient = useQueryClient();
+  const scheduleQuery = useQuery({
+    queryKey: ['checkpoint-schedule'],
+    queryFn: () => fetchCheckpointSchedule(getToken),
+  });
+  const [scheduleDraft, setScheduleDraft] = useState({ enabled: true, interval_events: 50 });
+  useEffect(() => {
+    if (scheduleQuery.data) {
+      setScheduleDraft({
+        enabled: scheduleQuery.data.enabled,
+        interval_events: scheduleQuery.data.interval_events,
+      });
+    }
+  }, [scheduleQuery.data]);
+  const scheduleMutation = useMutation({
+    mutationFn: () => saveCheckpointSchedule(scheduleDraft, getToken),
+    onSuccess: async (schedule) => {
+      queryClient.setQueryData(['checkpoint-schedule'], schedule);
+    },
+  });
   const checkpointMutation = useMutation({
     mutationFn: () => createCheckpointNow(getToken),
     onSuccess: async () => {
@@ -30,6 +50,82 @@ export default function HRSettings() {
       />
 
       <OrganizationSetup />
+
+      {/* Automatic signed checkpoints */}
+      <section className="bg-white rounded-2xl border border-slate-200/80 p-6 shadow-xs space-y-5" aria-labelledby="checkpoint-schedule-title">
+        <div className="flex items-start gap-3">
+          <div className="p-2.5 rounded-xl bg-blue-50 text-blue-600 border border-blue-100/80">
+            <Fingerprint className="w-5 h-5" aria-hidden="true" />
+          </div>
+          <div>
+            <h2 id="checkpoint-schedule-title" className="font-bold text-slate-900 text-sm">Automatic checkpoint interval</h2>
+            <p className="mt-1 max-w-2xl text-xs leading-relaxed text-slate-600">
+              Create a signed checkpoint for each interval of new audit events. Existing checkpoints are kept. Automatic checkpoints run while the API is awake and do not create an external anchor.
+            </p>
+          </div>
+        </div>
+
+        {scheduleQuery.isLoading ? (
+          <p className="text-xs text-slate-500" role="status">Loading checkpoint schedule…</p>
+        ) : scheduleQuery.isError ? (
+          <p className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs text-amber-900" role="alert">
+            {scheduleQuery.error instanceof Error ? scheduleQuery.error.message : 'Checkpoint schedule could not be loaded.'}
+          </p>
+        ) : (
+          <>
+            <label className="flex items-center gap-3 text-sm font-medium text-slate-800">
+              <input
+                type="checkbox"
+                checked={scheduleDraft.enabled}
+                onChange={(event) => setScheduleDraft((current) => ({ ...current, enabled: event.target.checked }))}
+                className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+              />
+              Enable automatic checkpoints
+            </label>
+            <div className="flex flex-col sm:flex-row sm:items-end gap-3">
+              <label htmlFor="checkpoint-interval-events" className="block text-xs font-semibold text-slate-700">
+                Audit events per checkpoint
+                <input
+                  id="checkpoint-interval-events"
+                  type="number"
+                  min={1}
+                  max={10000}
+                  step={1}
+                  value={scheduleDraft.interval_events}
+                  onChange={(event) => setScheduleDraft((current) => ({
+                    ...current,
+                    interval_events: Number(event.target.value),
+                  }))}
+                  className="mt-1.5 block w-full sm:w-48 rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+                />
+              </label>
+              <Button
+                variant="primary"
+                size="md"
+                portalTheme="hr"
+                loading={scheduleMutation.isPending}
+                disabled={scheduleMutation.isPending || !Number.isInteger(scheduleDraft.interval_events) || scheduleDraft.interval_events < 1 || scheduleDraft.interval_events > 10000}
+                onClick={() => scheduleMutation.mutate()}
+              >
+                Save interval
+              </Button>
+            </div>
+            <p className="text-[11px] text-slate-500">
+              {scheduleQuery.data?.enabled
+                ? `Enabled: the scheduler checks every 15 seconds and seals each next ${scheduleQuery.data.interval_events}-event segment.`
+                : 'Automatic checkpoints are enabled at the default 50-event interval.'}
+            </p>
+            {scheduleMutation.isSuccess && (
+              <p className="text-xs text-emerald-800" role="status">Checkpoint schedule saved.</p>
+            )}
+            {scheduleMutation.isError && (
+              <p className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs text-amber-900" role="alert">
+                {scheduleMutation.error instanceof Error ? scheduleMutation.error.message : 'Checkpoint schedule could not be saved.'}
+              </p>
+            )}
+          </>
+        )}
+      </section>
 
       {/* Account Profile & Session Card */}
       <div className="bg-white rounded-2xl border border-slate-200/80 p-6 shadow-xs space-y-6">

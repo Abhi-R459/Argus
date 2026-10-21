@@ -14,6 +14,7 @@ from .config import get_settings
 from .middleware.request_safety import RequestSafetyMiddleware
 from .routers import health, auth, employees, audits, dashboard, checkpoints, monitoring
 from .services.integrity_monitor import run_integrity_monitor
+from .services.checkpoint_scheduler import run_checkpoint_scheduler
 
 logger = logging.getLogger(__name__)
 ACTOR_NONCE_PRUNE_LOCK_KEY = 4702394923396477262
@@ -91,6 +92,7 @@ async def lifespan(app: FastAPI):
     await init_engines()
     refresh_task = asyncio.create_task(_refresh_suspicious_activity_periodically())
     nonce_prune_task = asyncio.create_task(_prune_actor_context_nonces_periodically())
+    checkpoint_scheduler_task = asyncio.create_task(run_checkpoint_scheduler())
     integrity_monitor_task = None
     if get_settings().INTEGRITY_MONITOR_ENABLED:
         integrity_monitor_task = asyncio.create_task(run_integrity_monitor(app))
@@ -99,9 +101,10 @@ async def lifespan(app: FastAPI):
     finally:
         refresh_task.cancel()
         nonce_prune_task.cancel()
+        checkpoint_scheduler_task.cancel()
         if integrity_monitor_task is not None:
             integrity_monitor_task.cancel()
-        tasks = [refresh_task, nonce_prune_task]
+        tasks = [refresh_task, nonce_prune_task, checkpoint_scheduler_task]
         if integrity_monitor_task is not None:
             tasks.append(integrity_monitor_task)
         try:

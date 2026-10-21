@@ -86,3 +86,59 @@ async def test_auditor_cannot_create_checkpoint(client_auditor, mock_db_session)
 
     assert response.status_code == 403
     mock_db_session.execute.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_hr_admin_can_read_checkpoint_schedule(client_hr, mock_db_session):
+    result = MagicMock()
+    result.first.return_value = (True, 50, datetime(2026, 10, 21, tzinfo=timezone.utc))
+    mock_db_session.execute.return_value = result
+
+    response = await client_hr.get("/api/checkpoints/schedule")
+
+    assert response.status_code == 200
+    assert response.json()["enabled"] is True
+    assert response.json()["interval_events"] == 50
+
+
+@pytest.mark.asyncio
+async def test_hr_admin_can_update_checkpoint_schedule(client_hr, mock_db_session):
+    result = MagicMock()
+    result.first.return_value = (True, 20, datetime(2026, 10, 21, tzinfo=timezone.utc))
+    mock_db_session.execute.return_value = result
+
+    response = await client_hr.put(
+        "/api/checkpoints/schedule",
+        json={"enabled": True, "interval_events": 20},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["enabled"] is True
+    assert response.json()["interval_events"] == 20
+    event = mock_db_session.add.call_args.args[0]
+    assert event.event_type == "CHECKPOINT_SCHEDULE_ENABLED"
+    assert event.actor_email == "hr@argus.test"
+
+
+@pytest.mark.asyncio
+async def test_checkpoint_schedule_rejects_out_of_range_interval(client_hr, mock_db_session):
+    response = await client_hr.put(
+        "/api/checkpoints/schedule",
+        json={"enabled": True, "interval_events": 0},
+    )
+
+    assert response.status_code == 422
+    mock_db_session.execute.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_auditor_cannot_read_or_update_checkpoint_schedule(client_auditor, mock_db_session):
+    read_response = await client_auditor.get("/api/checkpoints/schedule")
+    update_response = await client_auditor.put(
+        "/api/checkpoints/schedule",
+        json={"enabled": True, "interval_events": 20},
+    )
+
+    assert read_response.status_code == 403
+    assert update_response.status_code == 403
+    mock_db_session.execute.assert_not_called()

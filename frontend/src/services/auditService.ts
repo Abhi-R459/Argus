@@ -787,6 +787,28 @@ export async function createCheckpointNow(
   return fetchWithAuth('/checkpoints/create', { method: 'POST' }, getToken);
 }
 
+export interface CheckpointSchedule {
+  enabled: boolean;
+  interval_events: number;
+  updated_at: string | null;
+}
+
+export async function fetchCheckpointSchedule(
+  getToken: () => Promise<string | null>,
+): Promise<CheckpointSchedule> {
+  return fetchWithAuth('/checkpoints/schedule', {}, getToken);
+}
+
+export async function saveCheckpointSchedule(
+  schedule: Pick<CheckpointSchedule, 'enabled' | 'interval_events'>,
+  getToken: () => Promise<string | null>,
+): Promise<CheckpointSchedule> {
+  return fetchWithAuth('/checkpoints/schedule', {
+    method: 'PUT',
+    body: JSON.stringify(schedule),
+  }, getToken);
+}
+
 export async function downloadCapsule(
   seqId: number,
   getToken: (options?: { skipCache?: boolean }) => Promise<string | null>,

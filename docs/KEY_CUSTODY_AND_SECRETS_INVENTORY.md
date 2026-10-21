@@ -51,7 +51,7 @@ This document establishes a complete, granular inventory of every cryptographic 
 - **Process Memory Boundary:**
   - The private key is never loaded into PostgreSQL process memory or sent to the frontend.
   - Standalone verifier commands can load the configured private key for explicit signing.
-  - **Development/demo exception:** the HR-only `POST /api/checkpoints/create` route loads the local key into the FastAPI process to sign a requested checkpoint. HR users receive the signed checkpoint result, not key bytes, but compromise of the API process can expose the key. This route returns `503` in production until a managed signer is integrated.
+  - **Runtime use:** HR on-demand and scheduled checkpoints load the mounted private key into the FastAPI process. HR users receive checkpoint metadata, not key bytes, but compromise of the API process can expose the key. Production configuration verifies that the mounted Ed25519 key matches the trusted public key. This is not an HSM/KMS boundary; independent key custody remains a production hardening requirement.
 - **Development / Demonstration Mode Notice:**
   > [!WARNING]
 > In the local demo, the Ed25519 private key is stored as a local PEM file and mounted into the API/seed containers as a read-only Docker secret. This local signer is **DEV/DEMO ONLY — NOT FOR PRODUCTION**. Do not use a production key in `.env.demo` or enable this signer for real users.

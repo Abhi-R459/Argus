@@ -702,8 +702,8 @@ UPDATE employees SET salary = salary + 10000.00 WHERE id = 1;
 - **Create & Edit Employee:** Validated modals capturing employee profile details. Sensitive fields (`national_id`, `contact_info`) are encrypted with `pgcrypto` at the database level.
 - **Salary Adjustments:** Dedicated modal enforcing business constraints (e.g. raises and $< 30\%$ adjustments allowed, self-modifications blocked).
 
-#### On-demand signed checkpoints
-The HR Settings page can create a signed checkpoint for all audit events since the previous checkpoint. The action requires migration `023_hr_checkpoint_creation` and a configured local signing key in development/demo. It records the HR requester and returns the sealed sequence range. It does **not** create an external anchor; signing and anchoring are separate. Production mode currently fails closed until a managed signer is configured.
+#### Signed checkpoints
+The HR Settings page can create an on-demand signed checkpoint and configure automatic checkpoints by audit-event count. Automatic scheduling defaults to enabled at 50 events; HR can select 1–10,000 events or disable it. Migration `031_checkpoint_schedule_settings` stores this choice in PostgreSQL. The API seals each complete interval under the shared chain-boundary lock and records system-created checkpoints in the security event log. Existing checkpoints remain in place. Both actions use the mounted Ed25519 signer, which must be configured and matched to its trusted public key. Checkpoint creation does **not** publish an external anchor; signing and anchoring are separate. Automatic scheduling runs while the API is awake, so a sleeping free service can delay it.
 
 ### Compliance Auditor Portal
 - **Linear-Inspired Forensic Terminal:** Immersive high-density dark canvas (`#0c0d0e` / Neutral 950) with hairline borders, monospace cryptographic digests, and real-time status pills.
