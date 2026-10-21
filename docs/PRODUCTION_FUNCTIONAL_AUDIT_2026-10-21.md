@@ -1,17 +1,43 @@
 # Argus production functional audit
 
-## Local remediation status (21 October 2026)
+## Production remediation status (21 October 2026, 09:45 IST)
 
-The source changes after this live audit mask names, email addresses, salary
-amounts, and other sensitive audit payload keys in ordinary audit-log and
-chain responses. Explicit reveal controls now request full payloads, with
-durable security events. Counterfactual Replay requires a recorded reveal;
-evidence JSON, pack, and capsule downloads also record access. Time Travel's
-mutation timeline follows its existing reveal setting. The HR dashboard now
-uses neutral ledger-count wording. These changes passed the local API suite
-and frontend build, but **were not deployed or re-tested in production** when
-this note was written. The production observations below describe the live
-version before remediation.
+The privacy fixes are live. The Render frontend is deployed from `26dd494`
+and the backend from `a11d951`, which includes a production-discovered replay
+fix. Ordinary audit-log responses mask employee names, email addresses,
+salary amounts, and other sensitive payload keys. Explicit reveal controls
+request full payloads and record durable security events. Counterfactual
+Replay requires a recorded reveal; evidence JSON, pack, and capsule downloads
+also record access. Time Travel's mutation timeline follows its reveal
+setting. The HR dashboard uses neutral ledger-count wording.
+
+The 09:45 IST production acceptance pass verified:
+
+- Both Render deployments succeeded on the named commits. The replay fix is
+  [backend deployment `dep-dbc3o43ncjis7388o990`](https://dashboard.render.com/web/srv-db5qfenavr4c739nd0q0/deploys/dep-dbc3o43ncjis7388o990), and the privacy UI is
+  [frontend deployment `dep-dbc3lcjrjlhs73anbupg`](https://dashboard.render.com/static/srv-db5qfenavr4c739nd0o0/deploys/dep-dbc3lcjrjlhs73anbupg).
+- All 15 public deployment checks passed, including API readiness, protected
+  routes, security headers, CORS, and frontend routes.
+- The signed-in auditor browser displayed `[REDACTED]` for a salary-history
+  amount in the ordinary audit log. The Audit Chain reveal control was off by
+  default. Counterfactual's new control was off by default and, when selected,
+  a real replay succeeded with one event excluded and six applied.
+- Supabase recorded a `COUNTERFACTUAL_PII_REVEAL` security event for that replay.
+  The deployed HR dashboard asset contains `Audit Ledger Events` and no longer
+  contains `Verified Audit Ledger`; the HR role itself was not available for a
+  signed-in browser check.
+- API tests passed locally (210/210) and the
+  [`a11d951` GitHub CI run](https://github.com/Abhi-R459/Argus/actions/runs/39542851877) succeeded.
+
+During acceptance, replay initially returned a generic database-unavailable
+response. Supabase logs showed a denied `employees` table read by the
+`compliance_auditor` role. The endpoint had caught that read error without
+rolling back its transaction. Commit `a11d951` validates personnel through
+the permitted audit trail instead. The successful browser replay and recorded
+security event confirm the production fix.
+
+The observations below were captured before this remediation and remain a
+historical record of the original audit.
 
 Synthetic production history, external-anchor lag, witness quorum, exact
 deployed commit, and backup/restore rehearsal still require operational action.
