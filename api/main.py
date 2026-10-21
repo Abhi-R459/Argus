@@ -136,7 +136,7 @@ app.add_middleware(
     ],
     allow_credentials=False,
     allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "Accept", "X-Requested-With", "X-Argus-Role"],
+    allow_headers=["Authorization", "Content-Type", "Accept", "X-Requested-With"],
     expose_headers=["X-Request-ID", "Retry-After", "Content-Disposition"],
 )
 app.add_middleware(RequestSafetyMiddleware, max_body_bytes=settings.MAX_REQUEST_BODY_BYTES)

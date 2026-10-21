@@ -22,7 +22,7 @@ export default function Dashboard() {
   const { getToken } = useAuth();
   const navigate = useNavigate();
 
-  const { data, isLoading, isError, refetch } = useQuery<DashboardStats>({
+  const { data, isLoading, isError, error, refetch } = useQuery<DashboardStats>({
     queryKey: ['dashboardStats'],
     queryFn: () => fetchDashboardStats(getToken),
   });
@@ -54,6 +54,13 @@ export default function Dashboard() {
         }
       />
 
+      {isError && (
+        <div role="alert" className="rounded-xl border border-amber-300 bg-amber-50 px-5 py-4 text-sm text-amber-900">
+          Workforce data could not be loaded. {error instanceof Error ? error.message : 'Please try again.'}
+          <button type="button" className="ml-3 underline" onClick={() => void refetch()}>Retry</button>
+        </div>
+      )}
+
       {/* Metrics Row — Clean Modern Executive Metric Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
         {/* Active Workforce */}
@@ -71,13 +78,13 @@ export default function Dashboard() {
               <div className="h-9 w-24 bg-slate-100 animate-pulse rounded-md" />
             ) : (
               <p className="text-3xl font-bold text-slate-900 tracking-tight tabular-nums">
-                {data?.active_employees ?? 0}
+                {isError ? '—' : data?.active_employees ?? 0}
               </p>
             )}
             <div className="mt-3 flex items-center justify-between pt-3 border-t border-slate-100 text-xs">
               <span className="text-slate-500">Total Enrolled Profiles</span>
               <span className="font-semibold text-slate-700 bg-slate-100 px-2 py-0.5 rounded-md">
-                {data?.total_employees ?? 0}
+                {isError ? '—' : data?.total_employees ?? 0}
               </span>
             </div>
           </div>
@@ -98,7 +105,7 @@ export default function Dashboard() {
               <div className="h-9 w-24 bg-slate-100 animate-pulse rounded-md" />
             ) : (
               <p className="text-3xl font-bold text-slate-900 tracking-tight tabular-nums">
-                {data?.total_audit_events ?? 0}
+                {isError ? '—' : data?.total_audit_events ?? 0}
               </p>
             )}
             <div className="mt-3 flex items-center justify-between pt-3 border-t border-slate-100 text-xs">
@@ -134,7 +141,7 @@ export default function Dashboard() {
               <div className="h-9 w-24 bg-slate-100 animate-pulse rounded-md" />
             ) : (
               <p className="text-3xl font-bold text-slate-900 tracking-tight tabular-nums">
-                {data?.unreviewed_flags ?? 0}
+                {isError ? '—' : data?.unreviewed_flags ?? 0}
               </p>
             )}
             <div className="mt-3 flex items-center justify-between pt-3 border-t border-slate-100 text-xs">

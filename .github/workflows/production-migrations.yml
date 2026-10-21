@@ -40,8 +40,8 @@ jobs:
           fi
           current="$(python -m alembic current)"
           echo "$current"
-          if [[ "$current" != *"033_schedule_auditor_id"* && "$current" != *"034_clerk_identity_links"* && "$current" != *"035_hr_undo_actions"* ]]; then
-            echo "Unexpected starting revision; expected 033, 034, or 035. No migration was applied."
+          if [[ "$current" != *"035_hr_undo_actions"* && "$current" != *"036_bound_account_role"* ]]; then
+            echo "Unexpected starting revision; expected 035 or 036. No migration was applied."
             exit 1
           fi
       - name: Apply additive migrations
@@ -52,4 +52,4 @@ jobs:
           set -euo pipefail
           current="$(python -m alembic current)"
           echo "$current"
-          [[ "$current" == *"035_hr_undo_actions"* ]]
+          [[ "$current" == *"036_bound_account_role"* ]]

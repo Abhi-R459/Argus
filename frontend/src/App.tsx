@@ -9,6 +9,7 @@ import HRAdminLayout from './layouts/HRAdminLayout';
 import AuditorLayout from './layouts/AuditorLayout';
 import RoleGuard from './components/auth/RoleGuard';
 import AuthDispatcher from './components/auth/AuthDispatcher';
+import ProfileLoadError from './components/auth/ProfileLoadError';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 const Dashboard = lazy(() => import('./pages/hr/Dashboard'));
 const EmployeeList = lazy(() => import('./pages/hr/EmployeeList'));
@@ -34,7 +35,7 @@ function ProtectedPortal({ allowedRole, children }: { allowedRole: 'hr_admin' | 
 }
 
 function App() {
-  const { userId, isLoaded, isSignedIn, selectedRole } = useAuth();
+  const { userId, isLoaded, isSignedIn, selectedRole, profileLoading, profileError, reloadProfile } = useAuth();
   const sessionKey = import.meta.env.DEV && window.__E2E_ROLE__ ? `e2e:${window.__E2E_ROLE__}` : userId ?? 'signed-out';
   // A new account gets a new cache; HR and audit data never cross sessions.
   const cacheKey = sessionKey + ':' + (selectedRole ?? 'none');
@@ -47,7 +48,7 @@ function App() {
           <Routes>
             {/* Root: redirect signed-in users based on role; show sign-in for guests */}
             <Route path="/" element={
-              isSignedIn ? (selectedRole ? <AuthDispatcher /> : <RoleChooser />) : (
+              isSignedIn ? (profileLoading ? <div role="status">Loading your account…</div> : profileError ? <ProfileLoadError onRetry={reloadProfile} /> : selectedRole ? <AuthDispatcher /> : <RoleChooser />) : (
                 <div className="min-h-screen bg-linear-canvas flex flex-col items-center justify-center p-4">
                   <div className="mb-8 text-center">
                     <h1 className="text-3xl font-bold text-linear-ink tracking-tight">Argus Audit Engine</h1>

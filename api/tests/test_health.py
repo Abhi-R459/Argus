@@ -14,15 +14,15 @@ async def test_health_check():
 
 
 @pytest.mark.asyncio
-async def test_role_selection_header_is_allowed_by_cors():
+async def test_role_selection_header_is_rejected_by_cors():
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         response = await ac.options("/api/auth/me", headers={
             "Origin": "http://localhost:5173",
             "Access-Control-Request-Method": "GET",
             "Access-Control-Request-Headers": "authorization,x-argus-role",
         })
-    assert response.status_code == 200
-    assert "x-argus-role" in response.headers["access-control-allow-headers"].lower()
+    assert response.status_code == 400
+    assert "x-argus-role" not in response.headers["access-control-allow-headers"].lower()
 
 
 @pytest.mark.asyncio

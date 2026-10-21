@@ -1,5 +1,5 @@
 from typing import AsyncGenerator, Callable, List
-from fastapi import Depends, Header, HTTPException, status
+from fastapi import Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 
@@ -14,15 +14,14 @@ from .services.request_budget import consume_request_budget
 
 async def get_current_user(
     token_payload: dict = Depends(verify_clerk_token),
-    selected_role: str | None = Header(default=None, alias="X-Argus-Role"),
 ) -> User:
-    """Resolve a verified Clerk account and its selected request role."""
-    if selected_role not in {"hr_admin", "compliance_auditor"}:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Choose a workspace role first.")
+    """Resolve a verified Clerk account and its database-bound role."""
     user = await resolve_clerk_user(token_payload)
-    # The ORM instance is detached. Its stored role remains unchanged for a
-    # release rollback; request-scoped role drives authorization and DB routing.
-    user.role = selected_role
+    if user.account_role not in {"hr_admin", "compliance_auditor"}:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Choose your account role first.")
+    # The legacy column is updated together with account_role for database
+    # actor assertions and rollback compatibility.
+    user.role = user.account_role
     await consume_request_budget(user)
     return user
 

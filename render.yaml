@@ -5,6 +5,7 @@
 services:
   - type: web
     name: argus-backend
+    branch: main
     runtime: docker
     region: singapore
     plan: free
@@ -70,6 +71,7 @@ services:
 
   - type: web
     name: argus-frontend
+    branch: main
     runtime: static
     rootDir: frontend
     domains:

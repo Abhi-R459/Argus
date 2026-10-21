@@ -46,6 +46,7 @@ def mock_hr_user() -> User:
         email="hr@argus.test",
         full_name="HR Admin",
         role="hr_admin",
+        account_role="hr_admin",
         is_active=True,
     )
     return user
@@ -58,6 +59,7 @@ def mock_auditor_user() -> User:
         email="auditor@argus.test",
         full_name="Compliance Auditor",
         role="compliance_auditor",
+        account_role="compliance_auditor",
         is_active=True,
     )
     return user

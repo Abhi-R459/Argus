@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Outlet, Link, useLocation } from 'react-router-dom';
 import SignOutButton from '../components/auth/SignOutButton';
-import SwitchRoleButton from '../components/auth/SwitchRoleButton';
 import {
   ShieldCheck, Activity, FileSearch, LayoutDashboard, GitBranch,
   AlertTriangle, History, ShieldAlert, ArrowRight, Lock, Menu, X, GitCompare,
@@ -216,7 +215,6 @@ export default function AuditorLayout() {
                 <RealtimeClock showLiveDot={false} />
               </div>
               <div className="rounded-lg ring-2 ring-linear-hairline-strong flex items-center justify-center">
-                <SwitchRoleButton />
                 <SignOutButton />
               </div>
             </div>

@@ -1,4 +1,3 @@
-import { readWorkspaceRole } from './workspaceRole';
 
 export const API_BASE_URL = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
 const configuredTimeout = Number(import.meta.env.VITE_API_TIMEOUT_MS || 30_000);
@@ -47,8 +46,7 @@ export async function authenticatedFetch(
     headers.set('Authorization', `Bearer ${token}`);
   }
   
-  const selectedRole = readWorkspaceRole();
-  if (selectedRole) headers.set('X-Argus-Role', selectedRole);
+  headers.delete('X-Argus-Role');
 
   // Default to JSON if not explicitly set
   if (!headers.has('Content-Type') && options.body && typeof options.body === 'string') {

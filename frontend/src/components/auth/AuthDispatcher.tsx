@@ -1,21 +1,11 @@
 import { Navigate } from 'react-router-dom';
 import { useAuth } from './AuthProvider';
-import { useQuery } from '@tanstack/react-query';
-import { fetchMyProfile, UserProfile } from '../../services/auditService';
 import ProfileLoadError from './ProfileLoadError';
 
 export default function AuthDispatcher() {
-  const { getToken, isLoaded, selectedRole } = useAuth();
+  const { isLoaded, selectedRole, profileLoading, profileError, reloadProfile } = useAuth();
 
-  const { data: profile, isLoading, isError, refetch } = useQuery<UserProfile>({
-    queryKey: ['myProfile'],
-    queryFn: () => fetchMyProfile(getToken),
-    enabled: isLoaded,
-    staleTime: 60000,
-    refetchInterval: false,
-  });
-
-  if (!isLoaded || isLoading) {
+  if (!isLoaded || profileLoading) {
     return (
       <div className="min-h-screen bg-linear-canvas flex flex-col items-center justify-center p-4 text-linear-ink">
         <div className="w-10 h-10 border-4 border-linear-primary/20 border-t-linear-primary rounded-full animate-spin mb-4" />
@@ -24,8 +14,8 @@ export default function AuthDispatcher() {
     );
   }
 
-  if (isError || !profile) {
-    return <ProfileLoadError onRetry={() => void refetch()} />;
+  if (profileError) {
+    return <ProfileLoadError onRetry={reloadProfile} />;
   }
 
   if (selectedRole === 'compliance_auditor') {

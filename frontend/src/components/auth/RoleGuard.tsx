@@ -1,7 +1,5 @@
 import { Navigate, Outlet } from 'react-router-dom';
 import { useAuth } from './AuthProvider';
-import { useQuery } from '@tanstack/react-query';
-import { fetchMyProfile, UserProfile } from '../../services/auditService';
 import ProfileLoadError from './ProfileLoadError';
 
 interface RoleGuardProps {
@@ -12,15 +10,7 @@ interface RoleGuardProps {
 export default function RoleGuard({ allowedRole, children }: RoleGuardProps) {
   const devE2ERole = import.meta.env.DEV && typeof window !== 'undefined' ? window.__E2E_ROLE__ : undefined;
 
-  const { getToken, isLoaded, selectedRole } = useAuth();
-
-  const { data: profile, isLoading, isError, refetch } = useQuery<UserProfile>({
-    queryKey: ['myProfile'],
-    queryFn: () => fetchMyProfile(getToken),
-    enabled: isLoaded && !devE2ERole,
-    staleTime: 60000,
-    refetchInterval: false,
-  });
+  const { isLoaded, selectedRole, profileLoading, profileError, reloadProfile } = useAuth();
 
   if (devE2ERole) {
     if (devE2ERole !== allowedRole) {
@@ -29,7 +19,7 @@ export default function RoleGuard({ allowedRole, children }: RoleGuardProps) {
     return children ? <>{children}</> : <Outlet />;
   }
 
-  if (!isLoaded || isLoading) {
+  if (!isLoaded || profileLoading) {
     return (
       <div className="min-h-screen bg-linear-canvas flex flex-col items-center justify-center p-4 text-linear-ink">
         <div className="w-10 h-10 border-4 border-linear-primary/20 border-t-linear-primary rounded-full animate-spin mb-4" />
@@ -38,8 +28,8 @@ export default function RoleGuard({ allowedRole, children }: RoleGuardProps) {
     );
   }
 
-  if (isError || !profile) {
-    return <ProfileLoadError onRetry={() => void refetch()} />;
+  if (profileError) {
+    return <ProfileLoadError onRetry={reloadProfile} />;
   }
 
   // If user role does not match the allowed role, redirect to their authorized portal

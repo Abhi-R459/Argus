@@ -1,7 +1,7 @@
 """Bind verified Clerk identities to stable Argus user IDs."""
 
 from fastapi import HTTPException
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 
 from ..database import get_session_factory
@@ -38,6 +38,7 @@ async def resolve_clerk_user(identity: dict) -> User:
                     full_name=identity.get("name") or "Unknown",
                     email=normalized_email,
                     role="compliance_auditor",
+                    account_role=None,
                     is_active=True,
                 )
                 session.add(user)
@@ -51,3 +52,23 @@ async def resolve_clerk_user(identity: dict) -> User:
         if not user.is_active:
             raise HTTPException(401, "User account is deactivated.")
         return user
+
+
+async def bind_account_role(user: User, role: str) -> User:
+    """Atomically bind the account once; later attempts always conflict."""
+    if role not in {"hr_admin", "compliance_auditor"}:
+        raise HTTPException(422, "Invalid account role.")
+    async with get_session_factory("hr_admin")() as session:
+        result = await session.execute(
+            update(User)
+            .where(User.user_id == user.user_id, User.account_role.is_(None))
+            .values(account_role=role, role=role)
+            .returning(User.user_id)
+        )
+        if result.scalar_one_or_none() is None:
+            await session.rollback()
+            raise HTTPException(409, "Account role has already been chosen.")
+        await session.commit()
+    user.account_role = role
+    user.role = role
+    return user

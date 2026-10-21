@@ -24,7 +24,7 @@ def launch_database():
         pytest.fail("Refusing launch checks against an unconfirmed test database.")
     with psycopg2.connect(dsn) as conn, conn.cursor() as cursor:
         cursor.execute("SELECT version_num FROM alembic_version")
-        assert cursor.fetchone()[0] == "035_hr_undo_actions"
+        assert cursor.fetchone()[0] == "036_bound_account_role"
         cursor.execute("INSERT INTO departments(name) VALUES ('Launch Check') RETURNING department_id")
         department = cursor.fetchone()[0]
         cursor.execute("INSERT INTO roles(title,department_id,salary_band_min,salary_band_max) VALUES ('Engineer',%s,1,1000000) RETURNING role_id", (department,))
@@ -52,6 +52,20 @@ def test_runtime_request_budget_works_under_schema_lockdown(launch_database):
         allowed, retry_after = cursor.fetchone()
         assert allowed is True and 1 <= retry_after <= 60
         conn.rollback()
+
+
+def test_account_role_binds_once_and_matches_runtime_budget(launch_database):
+    with psycopg2.connect(os.environ['ARGUS_TEST_DATABASE_URL']) as conn, conn.cursor() as cursor:
+        cursor.execute("INSERT INTO users(clerk_user_id,full_name,email,role,is_active) VALUES ('launch:role','Role Test','role@example.test','compliance_auditor',true) RETURNING user_id")
+        user_id = cursor.fetchone()[0]
+    with psycopg2.connect(_runtime('hr_admin')) as conn, conn.cursor() as cursor:
+        cursor.execute("UPDATE users SET role='hr_admin', account_role='hr_admin' WHERE user_id=%s AND account_role IS NULL", (user_id,))
+        assert cursor.rowcount == 1
+        cursor.execute("SELECT allowed FROM argus_private.consume_request_budget(%s,'api',120)", (user_id,))
+        assert cursor.fetchone()[0] is True
+    with psycopg2.connect(_runtime('hr_admin')) as conn, conn.cursor() as cursor:
+        with pytest.raises(psycopg2.errors.CheckViolation):
+            cursor.execute("UPDATE users SET role='compliance_auditor', account_role='compliance_auditor' WHERE user_id=%s", (user_id,))
 
 
 def test_supabase_session_helper_revokes_logout_and_banned_users(launch_database):

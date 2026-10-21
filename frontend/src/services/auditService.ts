@@ -667,7 +667,7 @@ export interface UserProfile {
   auth_user_id: string;
   full_name: string;
   email: string;
-  role: 'hr_admin' | 'compliance_auditor';
+  role: 'hr_admin' | 'compliance_auditor' | null;
   is_active: boolean;
   created_at: string;
 }
@@ -676,6 +676,13 @@ export async function fetchMyProfile(
   getToken: () => Promise<string | null>,
 ): Promise<UserProfile> {
   return fetchWithAuth('/auth/me', {}, getToken);
+}
+
+export async function chooseAccountRole(
+  role: 'hr_admin' | 'compliance_auditor',
+  getToken: () => Promise<string | null>,
+): Promise<UserProfile> {
+  return fetchWithAuth('/auth/choose-role', { method: 'POST', body: JSON.stringify({ role }) }, getToken);
 }
 
 

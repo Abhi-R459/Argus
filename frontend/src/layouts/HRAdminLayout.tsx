@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Outlet, Link, useLocation } from 'react-router-dom';
 import SignOutButton from '../components/auth/SignOutButton';
-import SwitchRoleButton from '../components/auth/SwitchRoleButton';
 import { LayoutDashboard, Users, Settings, ShieldCheck, Menu, X, RotateCcw } from 'lucide-react';
 import RealtimeClock from '../components/common/RealtimeClock';
 import { ErrorBoundary } from '../components/common/ErrorBoundary';
@@ -142,7 +141,6 @@ export default function HRAdminLayout() {
                 <RealtimeClock showLiveDot={false} />
               </div>
               <div className="rounded-lg ring-2 ring-slate-200 hover:ring-slate-300 transition-colors duration-150 flex items-center justify-center">
-                <SwitchRoleButton />
                 <SignOutButton />
               </div>
             </div>
