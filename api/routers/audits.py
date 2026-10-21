@@ -2080,27 +2080,17 @@ async def run_counterfactual_simulation(
         if as_of_dt.tzinfo is None:
             as_of_dt = as_of_dt.replace(tzinfo=timezone.utc)
 
-    # Validate that employee exists
-    try:
-        emp_res = await session.execute(
-            select(Employee.employee_id).where(Employee.employee_id == payload.employee_id)
+    # Auditors have no direct SELECT privilege on employees. Validate through the
+    # audit trail, which is the source used by the replay engine as well.
+    audit_res = await session.execute(
+        text("SELECT 1 FROM audit_log WHERE employee_id = :emp_id OR (table_name = 'employees' AND row_id = :emp_id) LIMIT 1"),
+        {"emp_id": payload.employee_id},
+    )
+    if audit_res.scalar() is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Employee #{payload.employee_id} not found in the audit trail.",
         )
-        if emp_res.scalar() is None:
-            # Check if historical employee records exist in audit_log
-            audit_res = await session.execute(
-                text("SELECT 1 FROM audit_log WHERE employee_id = :emp_id OR (table_name = 'employees' AND row_id = :emp_id) LIMIT 1"),
-                {"emp_id": payload.employee_id}
-            )
-            if audit_res.scalar() is None:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail=f"Employee #{payload.employee_id} not found in database or audit trail.",
-                )
-    except HTTPException:
-        raise
-    except Exception:
-        # If DB query fails or mock session doesn't support complex models, proceed to verifier execution
-        pass
 
     db_url = _compliance_sync_db_url()
 

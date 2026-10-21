@@ -116,6 +116,9 @@ async def test_counterfactual_auditor_success(client_auditor: AsyncClient, mock_
             assert data["blast_radius"]["salary_overpaid_cumulative"] == 680000.0
             assert len(data["skipped_events"]) == 1
             assert data["skipped_events"][0]["sequence_id"] == 71
+            validation_query = str(mock_db_session.execute.call_args.args[0])
+            assert "FROM audit_log" in validation_query
+            assert "FROM employees" not in validation_query
             assert mock_db_session.add.call_args.args[0].event_type == "COUNTERFACTUAL_PII_REVEAL"
 
 
