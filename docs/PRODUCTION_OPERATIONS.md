@@ -104,6 +104,35 @@ retention requirements. Keep encryption and audit keys backed up separately
 under a tested key-custody process; a database backup without the PII key does
 not restore readable encrypted fields.
 
+## Integrity monitoring and incident alerts
+
+The API can run the existing read-only chain/checkpoint verifier on a configured
+interval. Set `INTEGRITY_MONITOR_ENABLED=true` and
+`INTEGRITY_MONITOR_INTERVAL_SECONDS` (60–3600 seconds). The auditor Overview
+shows the latest result and reports stale results as **UNVERIFIED**. The last
+result is held in API process memory, so it is lost on restart and is not an
+incident-history store. On a free or suspending web service, scheduled checks
+may pause while the service sleeps; use an always-on worker or external
+scheduler for a production detection-time guarantee.
+
+Set `SECURITY_ALERT_WEBHOOK_URL` to an HTTPS receiver controlled independently
+from the database to deliver PII-free integrity state transitions. Argus sends
+the status, check outcomes, observation time, and any affected sequence ID; it
+does not send employee payloads. The current webhook is an alert delivery
+adapter, not a durable case-management system. Test the receiver and escalation
+policy before relying on it.
+
+This monitor detects inconsistencies in the Argus audit chain, checkpoint
+bindings, signatures, and the configured anchor. It does **not** receive native
+PostgreSQL statement/role logs or Supabase control-plane events. Configure the
+provider's available audit-log export independently and send it to a separate
+SIEM or retention-locked store. Alert on privileged logins, grants/role changes,
+DDL and trigger changes, audit/logging configuration changes, backup deletion,
+and log-export gaps. Confirm which events and retention are available on the
+actual database plan. The API monitor and API webhook sender still share one
+service trust boundary; use independently managed evidence and credentials for
+DB-owner threat coverage.
+
 ## Restore rehearsal
 
 The included restore helper is deliberately restricted to an empty database
@@ -127,6 +156,43 @@ Repeat this procedure on a schedule using a disposable staging database. A
 production outage recovery must follow the database provider's documented
 restore/PITR procedure and be approved by the responsible operator.
 
+## Suspected DBA compromise and recovery
+
+This is an operator runbook, not an automatic repair endpoint. Keep the
+compromised database available as a restricted, read-only forensic copy after
+containment. Never recompute or reseal its audit chain as the first response.
+
+1. **Declare and preserve.** Open an incident, note the detector result and
+   trusted external checkpoint, export available provider and application logs,
+   and preserve a database snapshot before changing access. Record who took
+   each action and when.
+2. **Contain access.** Disable or rotate the suspected DBA and service
+   credentials, revoke active sessions/tokens where supported, and restrict
+   database ingress. If writes must stop, use the provider's controlled
+   maintenance/read-only process and communicate the outage to the operator.
+3. **Choose a trusted recovery point.** Use the last independently verified
+   checkpoint and provider/WAL evidence to bound the suspected compromise time.
+   Restore to a new isolated project/database at a point before the earliest
+   suspicious activity. Do not restore over the forensic source.
+4. **Validate before cutover.** Check schema/migrations, users/roles, audit
+   chain, checkpoint signatures, independent anchor, and available application
+   data. Recover encryption/signing keys from separately controlled custody;
+   rotate exposed credentials and keys. Reconfigure Auth, Storage, network
+   rules, extensions, and other provider services explicitly.
+5. **Reconcile and cut over.** Review transactions after the recovery point.
+   Reapply only business changes confirmed by independent records and an
+   authorized owner. Point the application at the clean target, verify health
+   and integrity, and retain a rollback path.
+6. **Close and learn.** Preserve the incident evidence, record data loss and
+   outage duration, document the actual RPO/RTO, verify alerting, and schedule a
+   follow-up restore exercise.
+
+Before a real incident, the operator must fill in the chosen provider's exact
+PITR steps, approver/on-call contacts, credential-revocation steps, DNS or
+connection-string cutover, and rollback procedure. A clean staging restore is
+not proof that a provider PITR, Auth/Storage recovery, or production cutover has
+been tested.
+
 ## Configuration to supply before real deployment
 
 | Configuration | Required action |
@@ -141,8 +207,8 @@ restore/PITR procedure and be approved by the responsible operator.
 | Web origin and TLS | Set `CORS_ORIGINS` to the exact HTTPS origin(s), configure DNS and a TLS-terminating ingress, enforce HTTPS, and expose only ingress ports publicly. |
 | Evidence anchoring | Choose and configure independently administered external anchor/witness providers, credentials, quorum policy, and retention. Verify checkpoints against a separately trusted public key. |
 | Backup destination | Set `ARGUS_BACKUP_DIR` to a protected mount for local staging, then configure a separate scheduled copy to encrypted off-site/WORM storage, retention/lifecycle, access review, and alerting on missed runs. |
-| Monitoring | Integrate container/database logs, metrics, uptime checks, disk/connection monitoring, security alerts, and an on-call escalation path. `/api/health` is process liveness; `/api/health/ready` checks both runtime DB roles. |
-| Recovery | Define RPO/RTO, enable provider PITR/snapshots, rehearse restore and key recovery, validate audit-chain continuity after restoration, and document the cutover/rollback owner. |
+| Monitoring | Enable the scheduled Argus chain verifier and configure `SECURITY_ALERT_WEBHOOK_URL`; also export provider/PostgreSQL audit and control-plane logs to independently administered retention and alerting. `/api/health` is process liveness; `/api/health/ready` checks both runtime DB roles. The in-process monitor status is volatile and may pause on a sleeping service. |
+| Recovery | Define RPO/RTO, enable provider PITR/snapshots and independent encrypted backup retention, rehearse restore and key recovery, validate audit-chain continuity after restoration, and document the cutover/rollback owner. Record a successful provider restore before claiming production recoverability. |
 | Deployment | Pin reviewed image versions/digests, configure CI secrets/protection, stage migrations with backup and rollback review, and deploy through a restricted operator workflow. |
 
 Until these values and operational controls are supplied and tested, treat the

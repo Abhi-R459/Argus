@@ -5,6 +5,8 @@
 
 > **Professor walkthrough and research claim:** See [Conference Positioning and Professor Walkthrough](docs/CONFERENCE_AND_DEMO_GUIDE.md). This is the source of truth for the current demo, contribution boundaries, and evaluation caveats. Older research drafts and demo manuals contain claims and routes that have not been reconciled with the current implementation.
 
+> **DBTHON 2026 review packet:** The [hackathon documentation](docs/CONFERENCE_AND_DEMO_GUIDE.md#hackathon-review-packet) includes the ER diagram, evaluation status, SDG alignment, and provisional TRL assessment.
+
 [![Test suites](https://img.shields.io/badge/tests-Pytest%20%2B%20Playwright-blue.svg)](#running-automated-tests)
 [![Red Team Engine](https://img.shields.io/badge/Adversary%20CLI-Active-crimson.svg)](#part-2-testing-out-of-band-adversary-attacks-red-team-cli)
 [![Security](https://img.shields.io/badge/Security-Fail--Closed-009688.svg)](#overview)

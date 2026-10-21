@@ -153,6 +153,29 @@ export async function mockArgusApi(page: Page): Promise<void> {
           },
         };
         break;
+      case '/monitor/status':
+        response = {
+          enabled: true,
+          status: 'intact',
+          last_result_status: 'intact',
+          observed_at: new Date().toISOString(),
+          age_seconds: 0,
+          stale: false,
+          interval_seconds: 300,
+          alert_delivery: 'not_configured',
+          duration_ms: 124,
+          entries_scanned: 142,
+          last_verified_sequence_id: 142,
+          tampered_sequence_id: null,
+          details: 'Scheduled verification passed across 142 entries.',
+          verification_checks: {
+            hash_chain: 'pass',
+            checkpoint_binding: 'pass',
+            external_anchor: 'pass',
+            checkpoint_signatures: 'pass',
+          },
+        };
+        break;
       case '/audit-logs/chain':
         response = chainEntries;
         break;

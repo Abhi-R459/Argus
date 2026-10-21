@@ -44,6 +44,9 @@ class Settings(BaseSettings):
     HR_ADMIN_EMAILS: str = ""
     COMPLIANCE_AUDITOR_EMAILS: str = ""
     SUSPICIOUS_ACTIVITY_REFRESH_SECONDS: int = 30
+    INTEGRITY_MONITOR_ENABLED: bool = False
+    INTEGRITY_MONITOR_INTERVAL_SECONDS: int = Field(default=300, ge=60, le=3600)
+    SECURITY_ALERT_WEBHOOK_URL: str = Field(default="", repr=False)
     CORS_ORIGINS: str = "http://localhost:5173,http://localhost:3000"
     DB_POOL_SIZE: int = 2
     DB_MAX_OVERFLOW: int = 1
@@ -64,6 +67,16 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def validate_production_configuration(self) -> "Settings":
         """Fail closed when deployment declares production but lacks security controls."""
+        if self.SECURITY_ALERT_WEBHOOK_URL:
+            alert_url = urlsplit(self.SECURITY_ALERT_WEBHOOK_URL)
+            if (
+                alert_url.scheme != "https"
+                or not alert_url.hostname
+                or alert_url.username
+                or alert_url.password
+                or alert_url.fragment
+            ):
+                raise ValueError("SECURITY_ALERT_WEBHOOK_URL must be an HTTPS URL without embedded credentials or fragments.")
         if self.APP_ENV == "development":
             return self
 

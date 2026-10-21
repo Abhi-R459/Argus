@@ -1,4 +1,6 @@
-# API Contract - Frozen after Week 1
+# Original API Contract (Historical)
+
+> This file records the initial Week 1 contract. Authentication and endpoints have evolved. The current implementation and `Argus_docs/API_REFERENCE.md` are authoritative; update this historical contract only when preserving a contract change matters for compatibility.
 
 This document specifies the endpoints, request/response models, and error responses agreed upon for the Argus application. The backend (FastAPI) and frontend (React) must conform to this contract to allow parallel, independent development.
 
@@ -8,8 +10,8 @@ All API paths are prefixed with `/api`.
 ---
 
 ## 1. Authentication & Session Context
-Argus uses Clerk for authentication. The client must include the Clerk session JWT in the `Authorization` header on all request paths (except `/api/health`):
-`Authorization: Bearer <clerk_token>`
+The initial design used Clerk. The current deployment uses Supabase Auth. Protected API requests include the validated access token in the `Authorization` header:
+`Authorization: Bearer <access_token>`
 
 ### User Verification & Role Mapping (`POST /api/auth/sync`)
 Synchronizes the authenticated Clerk user with the local `users` table and establishes the session context.
@@ -232,6 +234,14 @@ Triggers the standalone verifier to scan the hash chain.
     }
     ```
   * **Unknown / Error:** The `status` may be `unknown` when the chain is readable but external-anchor or signature evidence is missing, or `error` when the verifier cannot run. `verification_checks` is additive and each check is `pass`, `fail`, or `unknown`. `anchor_match` is true only when a local external anchor comparison passed. Merkle proofs are not part of this endpoint; they are verified by the separate proof operation.
+
+### Scheduled Integrity Monitor (`GET /api/monitor/status`)
+Returns the latest scheduled chain verification result. `compliance_auditor` only.
+
+- `status` is `unknown` if monitoring is disabled, has not completed a check, or the last result is stale.
+- A fresh result includes the check time, verification outcomes, scanned entry count, last verified sequence, and any detected sequence.
+- The current API implementation holds the latest result in process memory. It is not durable incident history and does not include provider-native database audit events.
+- Configure `SECURITY_ALERT_WEBHOOK_URL` to notify an independently managed HTTPS receiver about integrity state transitions. The webhook excludes employee payloads.
 
 ---
 

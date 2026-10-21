@@ -8,11 +8,13 @@ import ExportControl from '../../components/auditor/ExportControl';
 import {
   fetchAuditChain,
   fetchAnchorStatus,
+  fetchIntegrityMonitorStatus,
   fetchSuspiciousFlags,
   SUSPICIOUS_FLAGS_QUERY_KEY,
+  type IntegrityMonitorStatus,
   type SuspiciousFlagItem,
 } from '../../services/auditService';
-import { AlertTriangle, ArrowRight, Loader2, RefreshCw } from 'lucide-react';
+import { AlertTriangle, ArrowRight, Loader2, RefreshCw, ShieldAlert, ShieldCheck } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import PageHeader from '../../components/common/PageHeader';
 
@@ -55,12 +57,76 @@ export default function AuditorOverview() {
   });
   const pendingRiskCount = suspiciousFlags?.filter((flag) => !flag.reviewed_at).length ?? 0;
 
+  const monitorQuery = useQuery<IntegrityMonitorStatus>({
+    queryKey: ['integrity-monitor-status'],
+    queryFn: () => fetchIntegrityMonitorStatus(getToken),
+    refetchInterval: 15_000,
+    refetchOnWindowFocus: true,
+  });
+  const monitor = monitorQuery.data;
+  const monitorHealthy = Boolean(monitor?.enabled && monitor.status === 'intact' && !monitor.stale);
+  const monitorCritical = monitor?.status === 'tampered';
+  const monitorTitle = monitorQuery.isError
+    ? 'Monitor status unavailable'
+    : monitorCritical
+      ? 'Integrity incident detected'
+      : monitorHealthy
+        ? 'Scheduled integrity checks are passing'
+        : monitor?.enabled
+          ? 'Integrity status needs review'
+          : 'Continuous monitoring is not enabled';
+
   return (
     <div className="space-y-6">
       <PageHeader
         title="Integrity Overview"
         description="Verification, checkpoint anchoring, and recent audit-chain activity."
       />
+      <section
+        className={`rounded-2xl border p-5 ${monitorCritical ? 'border-status-danger/40 bg-status-danger/5' : monitorHealthy ? 'border-linear-success/35 bg-linear-surface-1' : 'border-status-warning/35 bg-linear-surface-1'}`}
+        role={monitorCritical || monitorQuery.isError ? 'alert' : 'status'}
+        aria-live="polite"
+      >
+        <div className="flex items-start gap-3">
+          <div className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${monitorCritical ? 'bg-status-danger/10 text-status-danger' : monitorHealthy ? 'bg-linear-success/10 text-linear-success' : 'bg-status-warning/10 text-status-warning'}`}>
+            {monitorCritical ? <ShieldAlert className="h-5 w-5" /> : monitorHealthy ? <ShieldCheck className="h-5 w-5" /> : <AlertTriangle className="h-5 w-5" />}
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h2 className="text-sm font-semibold text-linear-ink">{monitorTitle}</h2>
+              {monitor?.observed_at && (
+                <span className="text-xs text-linear-ink-muted">
+                  Last check {new Date(monitor.observed_at).toLocaleString()}
+                </span>
+              )}
+            </div>
+            <p className="mt-1 text-sm leading-5 text-linear-ink-muted">
+              {monitorQuery.isLoading && !monitor
+                ? 'Loading the latest scheduled verification result…'
+                : monitorQuery.isError
+                  ? 'Argus could not retrieve monitor status. Treat integrity as unverified until the service responds.'
+                  : monitor?.details ?? 'No scheduled verification result is available.'}
+            </p>
+            {monitor && (
+              <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-linear-ink-subtle">
+                <span>{monitor.enabled ? `Runs every ${monitor.interval_seconds} seconds` : 'Scheduled checks are disabled'}</span>
+                {monitor.observed_at && <span>{monitor.entries_scanned.toLocaleString()} entries scanned</span>}
+                <span>Alert delivery: {monitor.alert_delivery.replace(/_/g, ' ')}</span>
+                {monitor.stale && <span className="font-semibold text-status-warning">Result is stale</span>}
+              </div>
+            )}
+            {monitor && Object.keys(monitor.verification_checks).length > 0 && (
+              <div className="mt-3 flex flex-wrap gap-2" aria-label="Scheduled verification checks">
+                {Object.entries(monitor.verification_checks).map(([name, result]) => (
+                  <span key={name} className={`rounded-full border px-2 py-1 font-mono text-[10px] uppercase tracking-wide ${result === 'pass' ? 'border-linear-success/30 bg-linear-success/5 text-linear-success' : result === 'fail' ? 'border-status-danger/30 bg-status-danger/5 text-status-danger' : 'border-status-warning/30 bg-status-warning/5 text-status-warning'}`}>
+                    {name.replace(/_/g, ' ')} · {result}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </section>
       {/* Integrity checks get the working width; evidence export sits in its own compact action row. */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-start">
         <div className="animate-fade-cascade stagger-1 min-w-0">

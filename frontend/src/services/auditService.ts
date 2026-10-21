@@ -36,6 +36,23 @@ export interface IncidentState {
   refetch: () => void;
 }
 
+export interface IntegrityMonitorStatus {
+  enabled: boolean;
+  status: 'intact' | 'tampered' | 'unknown' | 'error';
+  last_result_status: 'intact' | 'tampered' | 'unknown' | 'error' | null;
+  observed_at: string | null;
+  age_seconds: number | null;
+  stale: boolean;
+  interval_seconds: number;
+  alert_delivery: string;
+  duration_ms?: number;
+  entries_scanned: number;
+  last_verified_sequence_id: number;
+  tampered_sequence_id: number | null;
+  details: string;
+  verification_checks: Record<string, 'pass' | 'fail' | 'unknown'>;
+}
+
 export type VerificationStatus = 'VERIFIED' | 'TAMPERED' | 'PENDING';
 export type AnchorStoreType = 'local_file' | 'github_repo' | 'multi_witness' | string;
 export type AuditOperation = 'INSERT' | 'UPDATE' | 'DELETE';
@@ -476,39 +493,53 @@ export function useIncidentStatus(): IncidentState {
     queryFn: () => fetchAnchorStatus(getToken),
   });
 
+  const monitorQuery = useQuery<IntegrityMonitorStatus>({
+    queryKey: ['integrity-monitor-status'],
+    queryFn: () => fetchIntegrityMonitorStatus(getToken),
+    refetchInterval: 15_000,
+    refetchOnWindowFocus: true,
+  });
+
   const flagsQuery = useQuery({
     queryKey: SUSPICIOUS_FLAGS_QUERY_KEY,
     queryFn: () => fetchSuspiciousFlags(getToken),
   });
 
-  const isVerificationTampered = verificationQuery.data?.status === 'tampered';
-  const anchorMismatch = anchorQuery.data?.status === 'MISMATCH';
+  const isVerificationTampered =
+    verificationQuery.data?.status === 'tampered' || monitorQuery.data?.status === 'tampered';
+  const anchorMismatch =
+    anchorQuery.data?.status === 'MISMATCH' || monitorQuery.data?.verification_checks.external_anchor === 'fail';
   const isCompromised = Boolean(isVerificationTampered || anchorMismatch);
-  const tamperedSeqId = verificationQuery.data?.tampered_sequence_id ?? null;
+  const tamperedSeqId = verificationQuery.data?.tampered_sequence_id ?? monitorQuery.data?.tampered_sequence_id ?? null;
   const unreviewedFlagsCount = flagsQuery.data ? flagsQuery.data.filter((f) => !f.reviewed_at).length : 0;
   const isUnavailable =
     (verificationQuery.isError && !verificationQuery.data) ||
     (anchorQuery.isError && !anchorQuery.data) ||
+    (monitorQuery.isError && !monitorQuery.data) ||
+    Boolean(monitorQuery.data?.stale) ||
     (flagsQuery.isError && !flagsQuery.data);
 
   return {
     isCompromised,
     tamperedSeqId,
     anchorMismatch,
-    verificationStatus: verificationQuery.data?.status ?? (verificationQuery.isFetching ? 'checking' : 'unknown'),
-    verificationChecks: verificationQuery.data?.verification_checks ?? {},
+    verificationStatus: monitorQuery.data?.status === 'tampered'
+      ? 'tampered'
+      : verificationQuery.data?.status ?? monitorQuery.data?.status ?? (verificationQuery.isFetching ? 'checking' : 'unknown'),
+    verificationChecks: verificationQuery.data?.verification_checks ?? monitorQuery.data?.verification_checks ?? {},
     checkpointSignatureEvidence: verificationQuery.data?.checkpoint_signature_evidence ?? null,
     deletedEntryEvidence: verificationQuery.data?.deleted_entry_evidence ?? null,
     unreviewedFlagsCount,
     lastVerifiedAt: verificationQuery.dataUpdatedAt
       ? new Date(verificationQuery.dataUpdatedAt).toISOString()
-      : null,
-    details: verificationQuery.data?.details ?? null,
-    isLoading: verificationQuery.isFetching || anchorQuery.isLoading,
+      : monitorQuery.data?.observed_at ?? null,
+    details: verificationQuery.data?.details ?? monitorQuery.data?.details ?? null,
+    isLoading: verificationQuery.isFetching || anchorQuery.isLoading || monitorQuery.isLoading,
     isUnavailable,
     refetch: () => {
       verificationQuery.refetch();
       anchorQuery.refetch();
+      monitorQuery.refetch();
       flagsQuery.refetch();
     },
   };
@@ -518,6 +549,12 @@ export async function fetchAnchorStatus(
   getToken: () => Promise<string | null>,
 ): Promise<AnchorInfo> {
   return fetchWithAuth('/anchor/status', {}, getToken);
+}
+
+export async function fetchIntegrityMonitorStatus(
+  getToken: () => Promise<string | null>,
+): Promise<IntegrityMonitorStatus> {
+  return fetchWithAuth('/monitor/status', {}, getToken);
 }
 
 // ─── PACK-002 / PACK-003: Portable Evidence Bundle (.arguspack) ─────────────

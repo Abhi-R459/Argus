@@ -2,6 +2,17 @@
 
 This document is the presentation source of truth for the current code. It deliberately separates what the repository implements from what remains a research or deployment claim.
 
+## Hackathon review packet
+
+These companion documents map the current prototype to the DBTHON 2026 rubric:
+
+- [Core relational ER diagram](hackathon/ER_DIAGRAM.md)
+- [Evaluation plan and current evidence status](hackathon/EVALUATION.md)
+- [SDG 16.6 alignment and claim boundary](hackathon/SDG_ALIGNMENT.md)
+- [Provisional TRL assessment](hackathon/TRL_ASSESSMENT.md)
+
+The evaluation document deliberately marks fresh performance results as pending; the historical report contains numbers that have not been reproduced from a live run in this checkout.
+
 ## One-sentence project description
 
 Argus is a PostgreSQL audit system that records row mutations in a hash-linked log, supports independent integrity checks and portable evidence proofs, and lets an auditor replay an employee’s history while excluding selected events to compare the resulting state and estimate time-weighted salary-rate exposure.

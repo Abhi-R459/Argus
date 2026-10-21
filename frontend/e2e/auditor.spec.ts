@@ -10,6 +10,33 @@ test.describe('Compliance Auditor Portal E2E', () => {
     await mockArgusApi(page);
   });
 
+  test('scheduled integrity monitor surfaces a tamper finding and sequence detail', async ({ page }) => {
+    await page.route('**/api/monitor/status', (route) => route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        enabled: true,
+        status: 'tampered',
+        last_result_status: 'tampered',
+        observed_at: new Date().toISOString(),
+        age_seconds: 0,
+        stale: false,
+        interval_seconds: 300,
+        alert_delivery: 'sent',
+        entries_scanned: 18,
+        last_verified_sequence_id: 17,
+        tampered_sequence_id: 18,
+        details: 'Hash mismatch at sequence 18.',
+        verification_checks: { hash_chain: 'fail', external_anchor: 'pass' },
+      }),
+    }));
+
+    await page.goto('/auditor/overview');
+    await expect(page.getByRole('heading', { name: 'Integrity incident detected' })).toBeVisible();
+    await expect(page.getByText('Hash mismatch at sequence 18.').first()).toBeVisible();
+    await expect(page.getByText('hash chain · fail')).toBeVisible();
+  });
+
   test('Auditor portal navigation and layout rendering', async ({ page }) => {
     const browserErrors: string[] = [];
     page.on('pageerror', (error) => browserErrors.push(error.message));
@@ -22,6 +49,8 @@ test.describe('Compliance Auditor Portal E2E', () => {
     // Auditor header status pill
     const poolBadge = page.locator('text=Pool: compliance_auditor');
     await expect(poolBadge).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Scheduled integrity checks are passing' })).toBeVisible();
+    await expect(page.getByText('Alert delivery: not configured')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Run Verification' })).toBeVisible();
     await page.getByRole('button', { name: 'Run Verification' }).click();
     await expect(page.getByText('Last check passed', { exact: true }).first()).toBeVisible();

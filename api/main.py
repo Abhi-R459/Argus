@@ -12,7 +12,8 @@ from sqlalchemy.exc import DBAPIError, TimeoutError as DatabasePoolTimeout
 from .database import init_engines, dispose_engines, get_session_factory
 from .config import get_settings
 from .middleware.request_safety import RequestSafetyMiddleware
-from .routers import health, auth, employees, audits, dashboard, checkpoints
+from .routers import health, auth, employees, audits, dashboard, checkpoints, monitoring
+from .services.integrity_monitor import run_integrity_monitor
 
 logger = logging.getLogger(__name__)
 ACTOR_NONCE_PRUNE_LOCK_KEY = 4702394923396477262
@@ -90,13 +91,21 @@ async def lifespan(app: FastAPI):
     await init_engines()
     refresh_task = asyncio.create_task(_refresh_suspicious_activity_periodically())
     nonce_prune_task = asyncio.create_task(_prune_actor_context_nonces_periodically())
+    integrity_monitor_task = None
+    if get_settings().INTEGRITY_MONITOR_ENABLED:
+        integrity_monitor_task = asyncio.create_task(run_integrity_monitor(app))
     try:
         yield
     finally:
         refresh_task.cancel()
         nonce_prune_task.cancel()
+        if integrity_monitor_task is not None:
+            integrity_monitor_task.cancel()
+        tasks = [refresh_task, nonce_prune_task]
+        if integrity_monitor_task is not None:
+            tasks.append(integrity_monitor_task)
         try:
-            await asyncio.gather(refresh_task, nonce_prune_task)
+            await asyncio.gather(*tasks)
         except asyncio.CancelledError:
             pass
         await dispose_engines()
@@ -174,3 +183,4 @@ app.include_router(employees.router, prefix="/api")
 app.include_router(audits.router, prefix="/api")
 app.include_router(dashboard.router, prefix="/api")
 app.include_router(checkpoints.router, prefix="/api")
+app.include_router(monitoring.router, prefix="/api")

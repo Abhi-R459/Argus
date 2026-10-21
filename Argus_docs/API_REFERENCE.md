@@ -1,6 +1,6 @@
 # Argus API Reference
 
-Argus provides a RESTful JSON API built with FastAPI. It enables dashboards to manage employees, query audit logs, and trigger cryptographic chain verifications.
+Argus provides a REST API built with FastAPI. It supports HR workflows, auditor review, cryptographic verification, and scheduled integrity-monitor status.
 
 ## OpenAPI Specification
 A complete machine-readable OpenAPI (Swagger) specification is available in this repository:
@@ -11,11 +11,10 @@ When running the application locally, you can view the interactive documentation
 - ReDoc: `http://localhost:8000/redoc`
 
 ## Authentication
-All protected endpoints require a Bearer token in the `Authorization` header. Argus delegates authentication to **Clerk**.
-The token must be a valid Clerk JWT.
+All protected endpoints require a Bearer token in the `Authorization` header. Argus delegates authentication and session validation to the configured Supabase Auth project.
 
 ```http
-Authorization: Bearer <clerk_jwt_token>
+Authorization: Bearer <supabase_access_token>
 ```
 
 ### Roles and Authorization
@@ -28,7 +27,7 @@ Argus enforces strict Role-Based Access Control (RBAC):
 ### 1. Health & Auth
 - `GET /api/health`: Public endpoint to check system status.
 - `GET /api/health/ready`: Readiness endpoint; checks that both least-privilege runtime database roles can connect. It does not verify audit-chain integrity.
-- `POST /api/auth/sync`: Syncs a newly authenticated Clerk user with the Argus PostgreSQL database. Must be called immediately after login.
+- `POST /api/auth/sync`: Syncs a newly authenticated Supabase user with the Argus PostgreSQL database. Must be called after login.
 
 ### 2. Employee Management & Workforce (HR Admin)
 - `GET /api/employees`: List employees with pagination, search, and department filtering.
@@ -50,14 +49,17 @@ Argus enforces strict Role-Based Access Control (RBAC):
 - `GET /api/audit-logs/telemetry`: Query live PostgreSQL system telemetry (buffer cache hit ratios, relation sizes) and compute real-time security posture score (0–100).
 - `POST /api/audit-logs/concurrency-race`: Trigger parallel concurrent write transactions to empirically demonstrate Two-Phase Locking (2PL) serialization without gaps.
 - `POST /api/verify`: Trigger on-demand cryptographic chain verification against the external anchor store.
+- `GET /api/monitor/status`: Read the latest scheduled integrity check (auditor only). Returns `unknown` when the monitor is disabled, has not completed a run, or its in-process result is stale. This is chain/checkpoint verification status; it does not include provider-native PostgreSQL or Supabase control-plane events.
 - `GET /api/suspicious-activity`: Retrieve anomalous database behaviors identified by in-engine triggers.
 - `POST /api/suspicious-activity/{id}/review`: Mark a suspicious activity flag as reviewed by the auditor.
+
+The scheduled monitor is enabled with `INTEGRITY_MONITOR_ENABLED=true` and runs at `INTEGRITY_MONITOR_INTERVAL_SECONDS`. Its last result is process-local and may be lost on restart or pause while the host sleeps. Configure `SECURITY_ALERT_WEBHOOK_URL` for PII-free integrity state-transition alerts; provider audit-log export and durable incident storage must be configured separately.
 
 ## Responses & Errors
 Standard HTTP status codes are used:
 - `200 OK` / `201 Created`: Success.
 - `400 Bad Request`: Client-side input validation failure.
-- `401 Unauthorized`: Missing or invalid Clerk JWT.
+- `401 Unauthorized`: Missing or invalid Supabase Auth access token.
 - `403 Forbidden`: Valid token, but the user's role lacks permissions (Privilege Separation).
 - `404 Not Found`: Resource does not exist.
 - `422 Unprocessable Entity`: Pydantic schema validation failure.

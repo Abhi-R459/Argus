@@ -42,6 +42,26 @@ def test_production_settings_accept_complete_secure_configuration(tmp_path):
     assert settings.SUPABASE_URL == "https://abcdefghijklmnopqrst.supabase.co"
 
 
+def test_production_monitor_accepts_https_alert_receiver(tmp_path):
+    settings = _production_settings(
+        tmp_path,
+        INTEGRITY_MONITOR_ENABLED=True,
+        INTEGRITY_MONITOR_INTERVAL_SECONDS=300,
+        SECURITY_ALERT_WEBHOOK_URL="https://alerts.example.com/argus",
+    )
+
+    assert settings.INTEGRITY_MONITOR_ENABLED is True
+    assert settings.INTEGRITY_MONITOR_INTERVAL_SECONDS == 300
+
+
+def test_alert_receiver_rejects_plain_http(tmp_path):
+    with pytest.raises(ValueError, match="must be an HTTPS URL"):
+        _production_settings(
+            tmp_path,
+            SECURITY_ALERT_WEBHOOK_URL="http://alerts.example.com/argus",
+        )
+
+
 @pytest.mark.parametrize(
     ("override", "message"),
     [
