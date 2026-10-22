@@ -9,14 +9,22 @@ from ..models.auth_identity import AuthIdentity
 from ..models.user import User
 
 
+def _display_name(identity: dict, email: str) -> str:
+    name = identity.get("name")
+    if isinstance(name, str) and name.strip():
+        return name.strip()[:255]
+    return email
+
+
 async def resolve_clerk_user(identity: dict) -> User:
     subject = identity.get("sub")
     email = identity.get("email")
     if (identity.get("provider") != "clerk" or identity.get("email_verified") is not True
             or not isinstance(subject, str) or not subject.startswith("clerk:")
-            or not isinstance(email, str) or not email):
+            or not isinstance(email, str) or not email.strip()):
         raise HTTPException(401, "Invalid identity.")
     normalized_email = email.strip().lower()
+    display_name = _display_name(identity, normalized_email)
     async with get_session_factory("hr_admin")() as session:
         link = (await session.execute(
             select(AuthIdentity).where(AuthIdentity.provider == "clerk", AuthIdentity.subject == subject)
@@ -27,6 +35,9 @@ async def resolve_clerk_user(identity: dict) -> User:
             )).scalar_one_or_none()
             if user is None or user.email.strip().lower() != normalized_email:
                 raise HTTPException(403, "This account is not linked to that email.")
+            if not user.full_name or user.full_name.strip() == "Unknown":
+                user.full_name = display_name
+                await session.commit()
         else:
             # Preserve Supabase-era IDs for an earlier release's rollback path.
             user = (await session.execute(
@@ -35,7 +46,7 @@ async def resolve_clerk_user(identity: dict) -> User:
             if user is None:
                 user = User(
                     clerk_user_id=subject,
-                    full_name=identity.get("name") or "Unknown",
+                    full_name=display_name,
                     email=normalized_email,
                     role="compliance_auditor",
                     account_role=None,
@@ -43,6 +54,8 @@ async def resolve_clerk_user(identity: dict) -> User:
                 )
                 session.add(user)
                 await session.flush()
+            elif not user.full_name or user.full_name.strip() == "Unknown":
+                user.full_name = display_name
             session.add(AuthIdentity(provider="clerk", subject=subject, user_id=user.user_id))
             try:
                 await session.commit()

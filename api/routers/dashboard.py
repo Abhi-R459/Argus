@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import case, select, func
 from sqlalchemy.exc import IntegrityError
 from typing import List
 
@@ -60,7 +60,14 @@ async def get_dashboard_stats(
             AuditLog.sequence_id,
             AuditLog.action,
             AuditLog.table_name,
-            func.coalesce(User.full_name, "System").label("actor_name"),
+            func.coalesce(
+                func.nullif(func.nullif(func.trim(User.full_name), ""), "Unknown"),
+                func.nullif(func.trim(User.email), ""),
+                case(
+                    (AuditLog.actor_user_id.is_(None), "System"),
+                    else_=func.concat("unresolved_user#", AuditLog.actor_user_id),
+                ),
+            ).label("actor_name"),
             AuditLog.severity,
             AuditLog.created_at,
         )

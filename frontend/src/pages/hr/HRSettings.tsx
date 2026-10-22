@@ -1,4 +1,5 @@
 import { useAuth } from '../../components/auth/AuthProvider';
+import { useClerk } from '@clerk/react';
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ShieldCheck, Database, Key, User, Lock, CheckCircle2, Fingerprint } from 'lucide-react';
@@ -9,7 +10,8 @@ import OrganizationSetup from '../../components/hr/OrganizationSetup';
 
 export default function HRSettings() {
   const { user, getToken } = useAuth();
-  const fullName = user?.fullName || 'HR Administrator';
+  const clerk = useClerk();
+  const fullName = user?.fullName || user?.email || 'Account';
   const queryClient = useQueryClient();
   const scheduleQuery = useQuery({
     queryKey: ['checkpoint-schedule'],
@@ -154,7 +156,7 @@ export default function HRSettings() {
             variant="secondary"
             size="md"
             portalTheme="hr"
-            onClick={() => window.open('https://myaccount.google.com/security', '_blank', 'noopener,noreferrer')}
+            onClick={() => clerk.openUserProfile()}
             leftIcon={<User className="w-3.5 h-3.5 text-slate-600" />}
           >
             Manage Account
@@ -170,11 +172,11 @@ export default function HRSettings() {
             </p>
           </div>
           <div className="bg-slate-50 p-4 rounded-xl border border-slate-200/80 flex flex-col justify-between">
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Two-Factor Authentication</span>
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Sign-in security</span>
             <div className="mt-1.5 flex items-center space-x-2 bg-white p-2 rounded-lg border border-slate-200 shadow-2xs">
               <Lock className="w-4 h-4 shrink-0 text-slate-600" />
               <span className="text-xs font-semibold text-slate-800" role="status">
-                Managed in your Google account
+                Manage sign-in methods in your Clerk profile
               </span>
             </div>
           </div>
