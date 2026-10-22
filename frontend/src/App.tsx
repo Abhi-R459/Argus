@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate, Link } from 'react-router-dom';
 import { useAuth } from './components/auth/AuthProvider';
 import SignIn from './components/auth/SignIn';
 import SignUp from './components/auth/SignUp';
+import AuthShell from './components/auth/AuthShell';
 import RoleChooser from './components/auth/RoleChooser';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { createQueryClient } from './lib/queryClient';
@@ -50,14 +51,13 @@ function App() {
             {/* Root: redirect signed-in users based on role; show sign-in for guests */}
             <Route path="/" element={
               isSignedIn ? (profileLoading ? <div role="status">Loading your account…</div> : profileError ? <ProfileLoadError onRetry={reloadProfile} /> : selectedRole ? <AuthDispatcher /> : <RoleChooser />) : (
-                <div className="min-h-screen bg-linear-canvas flex flex-col items-center justify-center p-4">
-                  <div className="mb-8 text-center">
-                    <h1 className="text-3xl font-bold text-linear-ink tracking-tight">Argus Audit Engine</h1>
-                    <p className="text-linear-ink-subtle mt-2">Sign in or create an account to access your dashboard</p>
+                <AuthShell eyebrow="Account access" title="Argus Audit Engine" description="Sign in or create an account to access your dashboard.">
+                  <div className="mb-6 flex rounded-xl border border-slate-200 bg-white p-1 text-sm font-semibold shadow-xs">
+                    <span className="flex-1 rounded-lg bg-[#111827] px-3 py-2.5 text-center text-white">Sign in</span>
+                    <Link to="/sign-up" className="flex-1 rounded-lg px-3 py-2.5 text-center text-slate-600 hover:bg-slate-50 hover:text-slate-900">Create an account</Link>
                   </div>
-                  <Link to="/sign-up" className="mb-5 rounded-xl bg-linear-primary px-5 py-3 font-semibold text-white">Create an account</Link>
                   {isLoaded ? <SignIn /> : <div role="status">Loading sign-in…</div>}
-                </div>
+                </AuthShell>
               )
             } />
 
