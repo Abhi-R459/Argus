@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from api.services.checkpoints import create_signed_checkpoint
-from api.services.checkpoint_scheduler import _rolling_checkpoint_plan
+from api.services.checkpoint_scheduler import _append_checkpoint_plan
 
 
 class FakeSigner:
@@ -37,15 +37,18 @@ def _event(sequence_id: int) -> dict:
 @pytest.mark.parametrize(
     ("checkpoint", "latest", "expected"),
     [
-        ((5, 216), 217, (200, 5, "CHECKPOINT_AUTO_REPLACED")),
-        ((5, 249), 250, (200, 5, "CHECKPOINT_AUTO_REPLACED")),
-        ((4, 200), 201, (200, None, "CHECKPOINT_AUTO_CREATED")),
+        ((5, 216), 217, None),
+        ((5, 249), 250, 249),
+        ((4, 200), 201, None),
         ((5, 216), 216, None),
-        (None, 16, (0, None, "CHECKPOINT_AUTO_CREATED")),
+        (None, 16, None),
+        (None, 50, 0),
+        ((6, 218), 249, None),
+        ((6, 218), 250, 218),
     ],
 )
-def test_scheduler_keeps_one_rolling_tail_between_fixed_boundaries(checkpoint, latest, expected):
-    assert _rolling_checkpoint_plan(checkpoint, latest, 50) == expected
+def test_scheduler_appends_only_at_fixed_boundaries(checkpoint, latest, expected):
+    assert _append_checkpoint_plan(checkpoint, latest, 50) == expected
 
 
 @pytest.mark.asyncio
@@ -131,16 +134,16 @@ async def test_auto_checkpoint_waits_for_the_complete_interval():
 
 
 @pytest.mark.asyncio
-async def test_rolling_tail_replaces_the_partial_checkpoint_in_place():
+async def test_scheduler_appends_after_a_partial_checkpoint():
     session = AsyncMock()
     session.add = MagicMock()
     latest = MagicMock()
-    latest.first.return_value = (216,)
+    latest.first.return_value = (218,)
     entries = MagicMock()
-    entries.mappings.return_value.all.return_value = [_event(seq) for seq in range(201, 218)]
-    updated = MagicMock()
-    updated.first.return_value = (5, datetime(2026, 10, 21, tzinfo=timezone.utc))
-    session.execute.side_effect = [MagicMock(), MagicMock(), latest, entries, updated]
+    entries.mappings.return_value.all.return_value = [_event(seq) for seq in range(219, 251)]
+    inserted = MagicMock()
+    inserted.first.return_value = (7, datetime(2026, 10, 21, tzinfo=timezone.utc))
+    session.execute.side_effect = [MagicMock(), MagicMock(), latest, entries, inserted]
 
     result = await create_signed_checkpoint(
         session,
@@ -148,20 +151,18 @@ async def test_rolling_tail_replaces_the_partial_checkpoint_in_place():
         actor_email="system-maintenance@argus.invalid",
         client_ip="system",
         max_events=50,
-        starting_after_sequence=200,
-        replace_checkpoint_id=5,
+        starting_after_sequence=218,
         signer_loader=FakeSigner,
-        event_type="CHECKPOINT_AUTO_REPLACED",
+        event_type="CHECKPOINT_AUTO_CREATED",
     )
 
-    assert result["checkpoint_id"] == 5
-    assert result["sequence_id"] == 217
-    assert result["entries_sealed"] == 17
+    assert result["checkpoint_id"] == 7
+    assert result["sequence_id"] == 250
+    assert result["entries_sealed"] == 32
     entries_query = session.execute.call_args_list[3]
-    assert entries_query.args[1] == {"last_sequence": 200, "max_events": 50}
-    update_query = session.execute.call_args_list[4]
-    assert "UPDATE chain_checkpoints" in str(update_query.args[0])
-    assert update_query.args[1]["checkpoint_id"] == 5
+    assert entries_query.args[1] == {"last_sequence": 218, "max_events": 50}
+    insert_query = session.execute.call_args_list[4]
+    assert "INSERT INTO chain_checkpoints" in str(insert_query.args[0])
     event = session.add.call_args.args[0]
-    assert event.event_type == "CHECKPOINT_AUTO_REPLACED"
-    assert event.matches_found == 17
+    assert event.event_type == "CHECKPOINT_AUTO_CREATED"
+    assert event.matches_found == 32

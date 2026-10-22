@@ -15,31 +15,24 @@ SYSTEM_ACTOR_ID = 0
 SYSTEM_ACTOR_EMAIL = "system-maintenance@argus.invalid"
 
 
-def _rolling_checkpoint_plan(
+def _append_checkpoint_plan(
     latest_checkpoint: tuple[int, int] | None,
     latest_event_sequence: int,
     interval_events: int,
-) -> tuple[int, int | None, str] | None:
-    """Return the covered boundary, row to replace, and audit event type."""
-    if latest_checkpoint is not None and latest_event_sequence <= latest_checkpoint[1]:
-        return None
+) -> int | None:
+    """Return the previous sealed sequence when the next fixed boundary is ready.
 
-    if latest_checkpoint is not None and latest_checkpoint[1] % interval_events:
-        return (
-            latest_checkpoint[1] - latest_checkpoint[1] % interval_events,
-            latest_checkpoint[0],
-            "CHECKPOINT_AUTO_REPLACED",
-        )
-
-    return (
-        latest_checkpoint[1] if latest_checkpoint else 0,
-        None,
-        "CHECKPOINT_AUTO_CREATED",
-    )
+    Checkpoints are signed evidence. The HR database role can append them but
+    deliberately cannot update existing rows, including a partial checkpoint
+    created manually between boundaries.
+    """
+    last_sequence = latest_checkpoint[1] if latest_checkpoint else 0
+    next_boundary = (last_sequence // interval_events + 1) * interval_events
+    return last_sequence if latest_event_sequence >= next_boundary else None
 
 
 async def run_checkpoint_scheduler() -> None:
-    """Keep interval boundaries and one replaceable checkpoint at the current tail."""
+    """Append signed checkpoints when fixed audit-event boundaries are reached."""
     while True:
         try:
             factory = get_session_factory("hr_admin")
@@ -74,14 +67,13 @@ async def run_checkpoint_scheduler() -> None:
                             "SELECT COALESCE(MAX(sequence_id), 0) FROM audit_log"
                         ))
                         latest_event_sequence = int(event_result.scalar() or 0)
-                        plan = _rolling_checkpoint_plan(
+                        starting_after_sequence = _append_checkpoint_plan(
                             latest_checkpoint, latest_event_sequence, interval_events
                         )
-                        if plan is None:
+                        if starting_after_sequence is None:
                             await session.rollback()
                             await asyncio.sleep(POLL_SECONDS)
                             continue
-                        starting_after_sequence, replace_checkpoint_id, event_type = plan
                         result = await create_signed_checkpoint(
                             session,
                             actor_user_id=SYSTEM_ACTOR_ID,
@@ -89,8 +81,7 @@ async def run_checkpoint_scheduler() -> None:
                             client_ip="system",
                             max_events=interval_events,
                             starting_after_sequence=starting_after_sequence,
-                            replace_checkpoint_id=replace_checkpoint_id,
-                            event_type=event_type,
+                            event_type="CHECKPOINT_AUTO_CREATED",
                         )
                         if result is None:
                             await session.rollback()
