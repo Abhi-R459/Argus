@@ -1,7 +1,8 @@
 import { lazy, Suspense, useMemo } from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, Link } from 'react-router-dom';
 import { useAuth } from './components/auth/AuthProvider';
 import SignIn from './components/auth/SignIn';
+import SignUp from './components/auth/SignUp';
 import RoleChooser from './components/auth/RoleChooser';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { createQueryClient } from './lib/queryClient';
@@ -52,12 +53,15 @@ function App() {
                 <div className="min-h-screen bg-linear-canvas flex flex-col items-center justify-center p-4">
                   <div className="mb-8 text-center">
                     <h1 className="text-3xl font-bold text-linear-ink tracking-tight">Argus Audit Engine</h1>
-                    <p className="text-linear-ink-subtle mt-2">Sign in to access your dashboard</p>
+                    <p className="text-linear-ink-subtle mt-2">Sign in or create an account to access your dashboard</p>
                   </div>
+                  <Link to="/sign-up" className="mb-5 rounded-xl bg-linear-primary px-5 py-3 font-semibold text-white">Create an account</Link>
                   {isLoaded ? <SignIn /> : <div role="status">Loading sign-in…</div>}
                 </div>
               )
             } />
+
+            <Route path="/sign-up" element={isSignedIn ? <Navigate to="/" replace /> : <SignUp isLoaded={isLoaded} />} />
 
             <Route path="/auth/callback" element={isLoaded ? <Navigate to="/" replace /> : <div role="status">Completing sign-in…</div>} />
             {/* HR Admin routes */}

@@ -12,8 +12,17 @@ test.describe('Authentication & Route Protection', () => {
     const brandHeading = page.locator('h1', { hasText: 'Argus Audit Engine' });
     await expect(brandHeading).toBeVisible();
 
-    const subtitle = page.locator('p', { hasText: 'Sign in to access your dashboard' });
+    const subtitle = page.locator('p', { hasText: 'Sign in or create an account to access your dashboard' });
     await expect(subtitle).toBeVisible();
+  });
+
+  test('New account entry leads to sign-up before role choice', async ({ page }) => {
+    await page.goto('http://localhost:5173/');
+    await page.getByRole('link', { name: 'Create an account' }).click();
+
+    await expect(page).toHaveURL(/\/sign-up$/);
+    await expect(page.getByRole('heading', { name: 'Create your Argus account' })).toBeVisible();
+    await expect(page.getByText('You will choose Auditor or HR next.', { exact: false })).toBeVisible();
   });
 
   test('Unauthenticated user cannot access protected HR routes', async ({ page }) => {
