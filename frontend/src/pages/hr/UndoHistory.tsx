@@ -104,7 +104,7 @@ export default function UndoHistory() {
               <button type="button" onClick={() => setSelectedAction(null)} className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium hover:bg-slate-50">Cancel</button>
               <button type="button" disabled={!preview.data.can_undo || preview.data.changes.length === 0 || pending !== null}
                 onClick={() => void undo(action.action_id)}
-                className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50">
+                className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-slate-500 disabled:text-white disabled:opacity-100">
                 {pending === action.action_id ? 'Restoring…' : 'Confirm undo'}
               </button>
             </div>
