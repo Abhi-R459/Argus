@@ -106,14 +106,11 @@ async def compare_independent_witnesses(
     never becomes pass merely because the application database contains rows.
     """
     try:
-        endpoints = json.loads(endpoints_json)
-        if not isinstance(endpoints, list) or len(endpoints) < threshold or len(endpoints) > 20:
-            return _unknown("Independent witness endpoints are not configured.")
-        names = [item.get("name") for item in endpoints if isinstance(item, dict)]
-        if len(names) != len(endpoints) or any(not isinstance(name, str) for name in names) or len(set(names)) != len(names):
-            return _unknown("Independent witness identities are invalid.")
-    except (TypeError, ValueError):
-        return _unknown("Independent witness endpoints are not configured.")
+        endpoints = validate_services(endpoints_json, trust_json, origin_public_key_pem)
+        if not 2 <= threshold <= len(endpoints):
+            raise ValueError("An independent quorum needs at least two witnesses.")
+    except (TypeError, ValueError, KeyError):
+        return _unknown("Independent witness endpoints or pinned keys are not configured safely.")
     rows = list(database_checkpoints)
     if rolling_interval and rolling_interval > 0:
         completed = [row["sequence_id"] for row in rows if row["sequence_id"] % rolling_interval == 0]

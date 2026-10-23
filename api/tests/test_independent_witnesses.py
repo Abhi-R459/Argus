@@ -91,6 +91,19 @@ async def test_new_partial_checkpoint_does_not_displace_completed_witness_head(m
 
 
 @pytest.mark.asyncio
+async def test_same_witness_host_cannot_count_as_two_independent_services():
+    origin_pem, _, rows, endpoints, trust = _setup()
+    configured = json.loads(endpoints)
+    configured[1]["url"] = configured[0]["url"]
+    result = await independent_witnesses.compare_independent_witnesses(
+        rows, endpoints_json=json.dumps(configured), trust_json=trust,
+        origin_public_key_pem=origin_pem, threshold=2,
+    )
+    assert result.status == "unknown"
+    assert not result.witnesses.independent_trust_domains
+
+
+@pytest.mark.asyncio
 async def test_publisher_checks_signed_readback_before_reporting_success(monkeypatch):
     origin_pem, witnesses, rows, endpoints, trust = _setup()
 
