@@ -31,5 +31,6 @@ jobs:
           DATABASE_URL_COMPLIANCE_AUDITOR: ${{ secrets.DATABASE_URL_COMPLIANCE_AUDITOR }}
           ORIGIN_PUBLIC_KEY_PEM: ${{ secrets.ORIGIN_PUBLIC_KEY_PEM }}
           WITNESS_PUBLISH_ENDPOINTS_JSON: ${{ secrets.WITNESS_PUBLISH_ENDPOINTS_JSON }}
+          WITNESS_READ_ENDPOINTS_JSON: ${{ secrets.WITNESS_READ_ENDPOINTS_JSON }}
           WITNESS_TRUST_CONFIG_JSON: ${{ secrets.WITNESS_TRUST_CONFIG_JSON }}
         run: python scripts/publish_witness_quorum.py

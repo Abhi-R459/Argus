@@ -40,11 +40,16 @@ def _setup():
     return _pem(origin), witnesses, checkpoints, json.dumps(services), json.dumps(trust)
 
 
-def _transport(checkpoints, witnesses, *, fork=False, lag=False):
+def _transport(checkpoints, witnesses, *, fork=False, lag=False, publish_tokens=None,
+               read_tokens=None):
     async def respond(request):
         name = request.url.host.removesuffix(".example")
         if request.method == "POST":
+            if publish_tokens is not None and request.headers.get("authorization") != f"Bearer {publish_tokens[name]}":
+                return httpx.Response(401)
             return httpx.Response(200, json={"accepted": True})
+        if read_tokens is not None and request.headers.get("authorization") != f"Bearer {read_tokens[name]}":
+            return httpx.Response(401)
         rows = checkpoints[:-1] if lag and name == "operator.two" else [dict(row) for row in checkpoints]
         if fork and name == "operator.two":
             rows[0]["checkpoint_hash"] = "f" * 64
@@ -106,23 +111,39 @@ async def test_same_witness_host_cannot_count_as_two_independent_services():
 @pytest.mark.asyncio
 async def test_publisher_checks_signed_readback_before_reporting_success(monkeypatch):
     origin_pem, witnesses, rows, endpoints, trust = _setup()
+    publish_services = json.loads(endpoints)
+    read_services = [{**service, "token": "read-" + service["token"]}
+                     for service in publish_services]
+    read_endpoints = json.dumps(read_services)
+    publish_tokens = {service["name"]: service["token"] for service in publish_services}
+    read_tokens = {service["name"]: service["token"] for service in read_services}
 
     async def fake_database(_url):
         return rows
 
     monkeypatch.setattr(publish_witness_quorum, "database_checkpoints", fake_database)
-    async with httpx.AsyncClient(transport=_transport(rows, witnesses)) as client:
+    async with httpx.AsyncClient(transport=_transport(
+            rows, witnesses, publish_tokens=publish_tokens, read_tokens=read_tokens)) as client:
         result = await publish_witness_quorum.publish_once(
             database_url="unused", origin_pem=origin_pem, services_raw=endpoints,
-            trust_raw=trust, client=client,
+            read_services_raw=read_endpoints, trust_raw=trust, client=client,
         )
     assert "2 witnesses retained checkpoint sequence 50" in result
 
-    async with httpx.AsyncClient(transport=_transport(rows, witnesses, fork=True)) as client:
+    async with httpx.AsyncClient(transport=_transport(
+            rows, witnesses, fork=True, publish_tokens=publish_tokens,
+            read_tokens=read_tokens)) as client:
         with pytest.raises(ValueError, match="readback"):
             await publish_witness_quorum.publish_once(
                 database_url="unused", origin_pem=origin_pem, services_raw=endpoints,
-                trust_raw=trust, client=client,
+                read_services_raw=read_endpoints, trust_raw=trust, client=client,
+            )
+
+    async with httpx.AsyncClient(transport=_transport(rows, witnesses)) as client:
+        with pytest.raises(ValueError, match="separate read token"):
+            await publish_witness_quorum.publish_once(
+                database_url="unused", origin_pem=origin_pem, services_raw=endpoints,
+                read_services_raw=endpoints, trust_raw=trust, client=client,
             )
 
 

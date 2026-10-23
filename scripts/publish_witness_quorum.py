@@ -88,8 +88,18 @@ def verify_origin(checkpoints: list[dict], origin_pem: str) -> None:
 
 
 async def publish_once(*, database_url: str, origin_pem: str, services_raw: str,
-                       trust_raw: str, client: httpx.AsyncClient) -> str:
+                       read_services_raw: str, trust_raw: str,
+                       client: httpx.AsyncClient) -> str:
     services = validate_services(services_raw, trust_raw, origin_pem)
+    read_services = validate_services(read_services_raw, trust_raw, origin_pem)
+    read_by_name = {service["name"]: service for service in read_services}
+    if set(read_by_name) != {service["name"] for service in services}:
+        raise ValueError("Publish and read witnesses must have the same identities.")
+    for service in services:
+        read_service = read_by_name[service["name"]]
+        if (read_service["url"] != service["url"]
+                or read_service["token"] == service["token"]):
+            raise ValueError("Each witness needs its matching URL and a separate read token.")
     trust = json.loads(trust_raw)
     checkpoints = await database_checkpoints(database_url)
     if not checkpoints:
@@ -103,7 +113,7 @@ async def publish_once(*, database_url: str, origin_pem: str, services_raw: str,
         submitted = await client.post(f"{endpoint}/v1/checkpoints", headers=headers,
                                       json={"checkpoints": checkpoints}, follow_redirects=False)
         submitted.raise_for_status()
-        receipt = await fetch_witness_head(client, endpoint, service["token"])
+        receipt = await fetch_witness_head(client, endpoint, read_by_name[service["name"]]["token"])
         if (receipt.get("schema_version") != 1 or receipt.get("name") != service["name"]
                 or receipt.get("checkpoints") != checkpoints
                 or receipt.get("prefix_sha256") != expected_digest):
@@ -122,6 +132,7 @@ async def _main() -> None:
             database_url=os.environ["DATABASE_URL_COMPLIANCE_AUDITOR"],
             origin_pem=os.environ["ORIGIN_PUBLIC_KEY_PEM"],
             services_raw=os.environ["WITNESS_PUBLISH_ENDPOINTS_JSON"],
+            read_services_raw=os.environ["WITNESS_READ_ENDPOINTS_JSON"],
             trust_raw=os.environ["WITNESS_TRUST_CONFIG_JSON"],
             client=client,
         )
