@@ -1,13 +1,13 @@
 """Flag any audited deletion and bursts of employee deactivation.
 
-Revision ID: 037_data_deletion_and_deactivation_flags
+Revision ID: 037_data_delete_deactivate
 Revises: 036_bound_account_role
 """
 
 from alembic import op
 
 
-revision = "037_data_deletion_and_deactivation_flags"
+revision = "037_data_delete_deactivate"
 down_revision = "036_bound_account_role"
 branch_labels = None
 depends_on = None
