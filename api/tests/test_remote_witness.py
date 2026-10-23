@@ -54,7 +54,7 @@ def test_one_operator_or_key_cannot_count_twice(tmp_path):
     first = Ed25519PrivateKey.generate()
     second = Ed25519PrivateKey.generate()
     _configure(tmp_path, "auditor.one", "same-operator", first)
-    _configure(tmp_path, "auditor.two", "same-operator", second)
+    _configure(tmp_path, "auditor.two", "SAME-OPERATOR", second)
     payload = checkpoint_prefix_bytes(checkpoints, 0)
     checkpoints[0]["witnesses"] = [
         {"name": "auditor.one", "signature_hex": first.sign(payload).hex()},

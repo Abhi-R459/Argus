@@ -91,6 +91,16 @@ def test_prepared_anchor_is_pii_free_and_rejects_changed_evidence(tmp_path: Path
             origin_public_key_pem=key_path.read_text(encoding="utf-8"),
         ).status == "pass"
         assert "Sensitive Person" not in anchor_path.read_text(encoding="utf-8")
+        stale_state = tmp_path / "auditor.one.state.json"
+        state = json.loads(stale_state.read_text(encoding="utf-8"))
+        state["prefix_sha256"] = "0" * 64
+        stale_state.write_text(json.dumps(state), encoding="utf-8")
+        with pytest.raises(ValueError, match="retained checkpoint state"):
+            cosign(
+                bundle=bundle, trusted_origin_key=key_path, anchor_manifest=anchor_path,
+                witness_private_key=tmp_path / "auditor.one.private.pem",
+                state_path=stale_state, witness_name="auditor.one",
+            )
 
         with pytest.raises(ValueError, match="safely extended"):
             prepare_manifest(bundle, key_path, {"schema_version": 1, "checkpoints": []})

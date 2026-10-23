@@ -104,7 +104,8 @@ def verify_remote_witnesses(
         hex_value = signature.get("signature_hex") if isinstance(signature, dict) else None
         reason = ""
         key_pem = keys.get(name) if isinstance(name, str) else None
-        domain = domains.get(name) if isinstance(name, str) else None
+        configured_domain = domains.get(name) if isinstance(name, str) else None
+        domain = configured_domain.strip().casefold() if isinstance(configured_domain, str) else None
         if not isinstance(name, str) or not name or name in seen_names or not isinstance(hex_value, str):
             reason = "Malformed or duplicate witness identity"
             invalid = True
