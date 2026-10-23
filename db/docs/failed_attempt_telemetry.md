@@ -9,9 +9,15 @@ and the **database layer** (Abhinav's domain) for recording failed access attemp
 The `suspicious_activity_flags` table is populated through two distinct channels:
 
 1. **Automatically** — by the `refresh_suspicious_activity_flags()` stored procedure (DB-019),
-   which scans `audit_log` for patterns like repeated salary decreases or mass deletions.
-2. **Manually** — by the API layer inserting flags for application-level failures that never
-   reach the database (e.g., unauthorized endpoint hits, JWT validation failures).
+   which scans `audit_log` for salary changes greater than 30%, any audited `DELETE`, and
+   more than three employee deactivations within a rolling one-hour window.
+2. **Manually** — the original contract below describes planned API-side failed-attempt
+   flags. Those API-layer inserts are not currently implemented; do not treat the listed
+   unauthorized-access, JWT, rate-limit, or role-escalation reasons as active detectors.
+
+The database detectors can only see changes recorded in `audit_log`. They do not detect
+privileged changes that bypass or disable the audit triggers. The refresh procedure runs
+periodically and can also be invoked by the Auditor's **Refresh detections** action.
 
 ---
 
