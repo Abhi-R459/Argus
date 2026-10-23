@@ -78,6 +78,23 @@ def _fail(detail: str, sequence: int = 0) -> IndependentWitnessComparison:
         RemoteWitnessResult("fail", detail, 0, 0, False, []))
 
 
+async def fetch_witness_head(client: httpx.AsyncClient, url: str, token: str) -> dict[str, Any]:
+    """Bound remote evidence before JSON parsing; never follow redirects."""
+    raw = bytearray()
+    async with client.stream("GET", url.rstrip("/") + "/v1/head",
+                             headers={"Authorization": f"Bearer {token}"},
+                             follow_redirects=False) as response:
+        response.raise_for_status()
+        async for chunk in response.aiter_bytes():
+            raw.extend(chunk)
+            if len(raw) > 1_000_000:
+                raise ValueError("Witness response exceeds the size limit.")
+    head = json.loads(raw)
+    if not isinstance(head, dict):
+        raise ValueError("Witness response is malformed.")
+    return head
+
+
 async def compare_independent_witnesses(
     database_checkpoints: Sequence[Mapping[str, Any]],
     *, endpoints_json: str, trust_json: str, origin_public_key_pem: str,
@@ -121,15 +138,7 @@ async def compare_independent_witnesses(
                 failures.append("A witness endpoint configuration is invalid.")
                 continue
             try:
-                response = await client.get(url.rstrip("/") + "/v1/head",
-                                            headers={"Authorization": f"Bearer {token}"},
-                                            follow_redirects=False)
-                response.raise_for_status()
-                if len(response.content) > 1_000_000:
-                    raise ValueError("Witness response exceeds the size limit.")
-                head = response.json()
-                if not isinstance(head, dict):
-                    raise ValueError("Witness response is malformed.")
+                head = await fetch_witness_head(client, url, token)
                 if head.get("schema_version") != 1 or head.get("name") != name:
                     raise ValueError("Witness identity or schema differs from its pinned configuration.")
                 published = head.get("checkpoints")

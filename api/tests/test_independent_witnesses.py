@@ -74,6 +74,23 @@ async def test_two_witnesses_pass_and_fork_or_lag_fails_closed(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_new_partial_checkpoint_does_not_displace_completed_witness_head(monkeypatch):
+    origin_pem, witnesses, rows, endpoints, trust = _setup()
+    partial = {**rows[-1], "checkpoint_id": 3, "sequence_id": 60}
+    real_client = httpx.AsyncClient
+    transport = _transport(rows, witnesses)
+    monkeypatch.setattr(independent_witnesses.httpx, "AsyncClient",
+                        lambda **kwargs: real_client(transport=transport, **kwargs))
+    result = await independent_witnesses.compare_independent_witnesses(
+        rows + [partial], endpoints_json=endpoints, trust_json=trust,
+        origin_public_key_pem=origin_pem, threshold=2,
+        minimum_sequence=25, rolling_interval=25,
+    )
+    assert result.status == "pass"
+    assert result.anchored_sequence == 50
+
+
+@pytest.mark.asyncio
 async def test_publisher_checks_signed_readback_before_reporting_success(monkeypatch):
     origin_pem, witnesses, rows, endpoints, trust = _setup()
 
@@ -93,6 +110,18 @@ async def test_publisher_checks_signed_readback_before_reporting_success(monkeyp
             await publish_witness_quorum.publish_once(
                 database_url="unused", origin_pem=origin_pem, services_raw=endpoints,
                 trust_raw=trust, client=client,
+            )
+
+
+@pytest.mark.asyncio
+async def test_oversized_witness_readback_is_rejected():
+    async def oversized(_request):
+        return httpx.Response(200, content=b"x" * 1_000_001)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(oversized)) as client:
+        with pytest.raises(ValueError, match="size limit"):
+            await independent_witnesses.fetch_witness_head(
+                client, "https://operator.example", "read-token-for-test-0123456789abcdef",
             )
 
 

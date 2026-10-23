@@ -64,8 +64,10 @@ function receipt(name, rows, privateKey) {
 }
 
 async function storedRows(db) {
-  const result = await db.prepare("SELECT row_json FROM checkpoints ORDER BY ordinal").all();
-  return result.results.map(({ row_json }) => JSON.parse(row_json));
+  const result = await db.prepare(
+    "SELECT checkpoint_hash, checkpoint_id, key_id, merkle_root, sequence_id, signature_hex FROM checkpoints ORDER BY ordinal"
+  ).all();
+  return result.results;
 }
 
 export async function handle(request, env) {
@@ -124,8 +126,11 @@ export async function handle(request, env) {
   }
   try {
     const additions = verified.slice(existing.length).map((row, index) =>
-      env.DB.prepare("INSERT INTO checkpoints (ordinal, checkpoint_id, sequence_id, row_json) VALUES (?, ?, ?, ?)")
-        .bind(existing.length + index + 1, row.checkpoint_id, row.sequence_id, JSON.stringify(row)));
+      env.DB.prepare("INSERT INTO checkpoints " +
+        "(ordinal, checkpoint_id, sequence_id, checkpoint_hash, merkle_root, signature_hex, key_id) " +
+        "VALUES (?, ?, ?, ?, ?, ?, ?)")
+        .bind(existing.length + index + 1, row.checkpoint_id, row.sequence_id,
+              row.checkpoint_hash, row.merkle_root, row.signature_hex, row.key_id));
     if (additions.length) await env.DB.batch(additions);
     // A concurrent conflicting insert must never receive a signature.
     const retained = await storedRows(env.DB);
@@ -134,7 +139,9 @@ export async function handle(request, env) {
     }
     return response(receipt(env.WITNESS_NAME, retained, env.WITNESS_PRIVATE_KEY_PEM));
   } catch (error) {
-    if (error instanceof Error && (error.message.includes("UNIQUE") || error.message.includes("constraint"))) {
+    if (error instanceof Error && (error.message.includes("UNIQUE") ||
+        error.message.includes("constraint") ||
+        error.message.includes("checkpoint history must be appended in order"))) {
       return response({ detail: "Witness state changed concurrently." }, 409);
     }
     return response({ detail: "Witness state is unavailable." }, 503);

@@ -7,18 +7,20 @@ class MemoryD1 {
   rows = [];
   prepare(query) {
     if (query.startsWith("SELECT")) {
-      return { all: async () => ({ results: this.rows.map((row) => ({ row_json: JSON.stringify(row) })) }) };
+      return { all: async () => ({ results: this.rows.map((row) => ({ ...row })) }) };
     }
     return { bind: (...values) => ({ values }) };
   }
   async batch(statements) {
     const next = [...this.rows];
     for (const statement of statements) {
-      const [ordinal, checkpointId, sequenceId, json] = statement.values;
+      const [ordinal, checkpointId, sequenceId, checkpointHash, merkleRoot, signatureHex, keyId] = statement.values;
       if (ordinal !== next.length + 1 || next.some((row) => row.checkpoint_id === checkpointId || row.sequence_id === sequenceId)) {
         throw new Error("UNIQUE constraint failed");
       }
-      next.push(JSON.parse(json));
+      next.push({ checkpoint_hash: checkpointHash, checkpoint_id: checkpointId,
+                  key_id: keyId, merkle_root: merkleRoot, sequence_id: sequenceId,
+                  signature_hex: signatureHex });
     }
     this.rows = next;
   }

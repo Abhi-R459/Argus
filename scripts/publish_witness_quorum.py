@@ -25,7 +25,7 @@ sys.path.insert(0, str(ROOT))
 
 from api.services.remote_anchor import checkpoint_row  # noqa: E402
 from api.services.remote_witness import checkpoint_prefix_bytes  # noqa: E402
-from api.services.independent_witnesses import validate_services  # noqa: E402
+from api.services.independent_witnesses import fetch_witness_head, validate_services  # noqa: E402
 from api.services.checkpoint_binding import verify_checkpoint_bindings  # noqa: E402
 from db.cli.hash_verifier import verify_chain  # noqa: E402
 
@@ -103,9 +103,7 @@ async def publish_once(*, database_url: str, origin_pem: str, services_raw: str,
         submitted = await client.post(f"{endpoint}/v1/checkpoints", headers=headers,
                                       json={"checkpoints": checkpoints}, follow_redirects=False)
         submitted.raise_for_status()
-        readback = await client.get(f"{endpoint}/v1/head", headers=headers, follow_redirects=False)
-        readback.raise_for_status()
-        receipt = readback.json()
+        receipt = await fetch_witness_head(client, endpoint, service["token"])
         if (receipt.get("schema_version") != 1 or receipt.get("name") != service["name"]
                 or receipt.get("checkpoints") != checkpoints
                 or receipt.get("prefix_sha256") != expected_digest):
