@@ -8,6 +8,7 @@ updates a local anchors.json copy; publication remains an operator action.
 from __future__ import annotations
 
 import argparse
+import getpass
 import json
 import os
 from pathlib import Path
@@ -19,6 +20,7 @@ from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat,
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+_STATE_PREFIX = b"argus.witness-retained-state/v1\n"
 
 from api.services.remote_witness import checkpoint_prefix_bytes, checkpoint_prefix_digest  # noqa: E402
 from scripts.prepare_private_anchor import prepare_manifest  # noqa: E402
@@ -32,6 +34,25 @@ def _atomic_json(path: Path, value: dict) -> None:
         os.replace(temporary, path)
     finally:
         temporary.unlink(missing_ok=True)
+
+
+def _state_bytes(checkpoint_id: int, prefix_sha256: str) -> bytes:
+    return _STATE_PREFIX + json.dumps(
+        {"checkpoint_id": checkpoint_id, "prefix_sha256": prefix_sha256},
+        sort_keys=True, separators=(",", ":"),
+    ).encode("utf-8")
+
+
+def _load_witness_key(path: Path) -> Ed25519PrivateKey:
+    private_bytes = path.read_bytes()
+    try:
+        key = load_pem_private_key(private_bytes, password=None)
+    except TypeError:
+        passphrase = getpass.getpass("Witness key passphrase: ").encode("utf-8")
+        key = load_pem_private_key(private_bytes, password=passphrase)
+    if not isinstance(key, Ed25519PrivateKey):
+        raise ValueError("The witness private key must be Ed25519.")
+    return key
 
 
 def cosign(
@@ -48,19 +69,26 @@ def cosign(
     latest_index = len(checkpoints) - 1
     latest = checkpoints[latest_index]
     latest_digest = checkpoint_prefix_digest(checkpoints, latest_index)
+    key = _load_witness_key(witness_private_key)
 
     if state_path.is_file():
         previous = json.loads(state_path.read_text(encoding="utf-8"))
         previous_id = previous.get("checkpoint_id")
+        previous_digest = previous.get("prefix_sha256")
+        previous_signature = previous.get("state_signature_hex")
+        try:
+            key.public_key().verify(
+                bytes.fromhex(previous_signature),
+                _state_bytes(previous_id, previous_digest),
+            )
+        except Exception as exc:
+            raise ValueError("The retained witness state signature is invalid.") from exc
         matching = next((i for i, row in enumerate(checkpoints) if row["checkpoint_id"] == previous_id), None)
-        if matching is None or checkpoint_prefix_digest(checkpoints, matching) != previous.get("prefix_sha256"):
+        if matching is None or checkpoint_prefix_digest(checkpoints, matching) != previous_digest:
             raise ValueError("The evidence pack conflicts with this witness's retained checkpoint state.")
         if matching > latest_index:
             raise ValueError("The private anchor has been rolled back behind witness state.")
 
-    key = load_pem_private_key(witness_private_key.read_bytes(), password=None)
-    if not isinstance(key, Ed25519PrivateKey):
-        raise ValueError("The witness private key must be Ed25519.")
     signature_hex = key.sign(checkpoint_prefix_bytes(checkpoints, latest_index)).hex()
     witnesses = latest.setdefault("witnesses", [])
     if not isinstance(witnesses, list):
@@ -71,7 +99,11 @@ def cosign(
     if not prior:
         witnesses.append({"name": witness_name, "signature_hex": signature_hex})
     _atomic_json(anchor_manifest, manifest)
-    _atomic_json(state_path, {"schema_version": 1, "checkpoint_id": latest["checkpoint_id"], "prefix_sha256": latest_digest})
+    _atomic_json(state_path, {
+        "schema_version": 1, "checkpoint_id": latest["checkpoint_id"],
+        "prefix_sha256": latest_digest,
+        "state_signature_hex": key.sign(_state_bytes(latest["checkpoint_id"], latest_digest)).hex(),
+    })
     return latest["checkpoint_id"], key.public_key().public_bytes(Encoding.PEM, PublicFormat.SubjectPublicKeyInfo).decode("utf-8")
 
 

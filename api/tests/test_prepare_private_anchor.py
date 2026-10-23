@@ -95,7 +95,7 @@ def test_prepared_anchor_is_pii_free_and_rejects_changed_evidence(tmp_path: Path
         state = json.loads(stale_state.read_text(encoding="utf-8"))
         state["prefix_sha256"] = "0" * 64
         stale_state.write_text(json.dumps(state), encoding="utf-8")
-        with pytest.raises(ValueError, match="retained checkpoint state"):
+        with pytest.raises(ValueError, match="retained witness state signature"):
             cosign(
                 bundle=bundle, trusted_origin_key=key_path, anchor_manifest=anchor_path,
                 witness_private_key=tmp_path / "auditor.one.private.pem",
