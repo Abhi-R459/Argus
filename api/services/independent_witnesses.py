@@ -163,6 +163,6 @@ async def compare_independent_witnesses(
     if result.status == "fail":
         return IndependentWitnessComparison("fail", result.message, latest_sequence, result)
     if result.status != "pass":
-        detail = failures[0] if failures else result.message
+        detail = "; ".join(failures) if failures else result.message
         return IndependentWitnessComparison("unknown", detail, latest_sequence, result)
     return IndependentWitnessComparison("pass", result.message, latest_sequence, result)

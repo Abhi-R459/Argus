@@ -76,6 +76,8 @@ async def test_two_witnesses_pass_and_fork_or_lag_fails_closed(monkeypatch):
         )
         assert result.status == expected
         assert result.witnesses.independent_trust_domains is (expected == "pass")
+        if lag:
+            assert "operator.two has not retained the latest checkpoint" in result.detail
 
 
 @pytest.mark.asyncio

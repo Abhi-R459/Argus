@@ -195,7 +195,7 @@ export default function AnchorStatus({ data }: AnchorStatusProps) {
                 : data.witness_report.message ?? 'Witness quorum is not verified.'}
           </p>
 
-          {data.witness_report.independent_trust_domains === false && data.witness_report.deployment_mode !== 'private_repository' && (
+          {data.witness_report.independent_trust_domains === false && data.witness_report.deployment_mode === 'in_process_reference' && (
             <p className="rounded-md border border-linear-hairline bg-linear-surface-2 px-2.5 py-2 text-[10px] text-linear-ink-muted">
               Reference implementation: witnesses run in-process and do not represent independent trust domains.
             </p>
