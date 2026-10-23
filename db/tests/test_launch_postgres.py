@@ -24,7 +24,7 @@ def launch_database():
         pytest.fail("Refusing launch checks against an unconfirmed test database.")
     with psycopg2.connect(dsn) as conn, conn.cursor() as cursor:
         cursor.execute("SELECT version_num FROM alembic_version")
-        assert cursor.fetchone()[0] == "036_bound_account_role"
+        assert cursor.fetchone()[0] == "039_group_deactivation_flags"
         cursor.execute("INSERT INTO departments(name) VALUES ('Launch Check') RETURNING department_id")
         department = cursor.fetchone()[0]
         cursor.execute("INSERT INTO roles(title,department_id,salary_band_min,salary_band_max) VALUES ('Engineer',%s,1,1000000) RETURNING role_id", (department,))
