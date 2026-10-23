@@ -49,6 +49,36 @@ async def test_undo_rejects_later_employee_change(client_hr, mock_db_session):
     mock_db_session.flush.assert_not_awaited()
 
 
+@pytest.mark.parametrize("method", ["get", "post"])
+async def test_hr_cannot_preview_or_undo_another_hrs_action(client_hr, mock_db_session, method):
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = None
+    mock_db_session.execute.return_value = result
+
+    path = "/api/hr-undo/42/preview" if method == "get" else "/api/hr-undo/42/undo"
+    response = await getattr(client_hr, method)(path)
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Undo action was not found."
+    query = mock_db_session.execute.call_args.args[0]
+    assert "actor_user_id" in str(query)
+    mock_db_session.flush.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_hr_undo_list_is_scoped_to_current_actor(client_hr, mock_db_session):
+    result = MagicMock()
+    result.scalars.return_value.all.return_value = []
+    mock_db_session.execute.return_value = result
+
+    response = await client_hr.get("/api/hr-undo")
+
+    assert response.status_code == 200
+    assert response.json() == []
+    query = mock_db_session.execute.call_args.args[0]
+    assert "actor_user_id" in str(query)
+
+
 @pytest.mark.asyncio
 async def test_undo_preview_shows_values_without_writing(client_hr, mock_db_session):
     employee = _employee()

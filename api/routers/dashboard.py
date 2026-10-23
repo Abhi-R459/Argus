@@ -51,6 +51,7 @@ async def get_dashboard_stats(
         select(func.count())
         .select_from(SuspiciousActivityFlag)
         .where(SuspiciousActivityFlag.reviewed_at.is_(None))
+        .where(SuspiciousActivityFlag.superseded_by_flag_id.is_(None))
     )
     unreviewed_flags = int(flags_res.scalar() or 0)
 

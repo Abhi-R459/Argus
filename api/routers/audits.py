@@ -24,6 +24,7 @@ from urllib.parse import quote, unquote
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
 from sqlalchemy import select, func, text, or_, and_, desc, case, literal
+from sqlalchemy.orm import aliased
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import get_settings
@@ -1006,23 +1007,47 @@ async def list_suspicious_flags(
     Populated by Abhinav's Week 8 refresh_suspicious_activity_flags()
     procedure.
     """
-    result = await session.execute(
-        select(SuspiciousActivityFlag).order_by(
-            SuspiciousActivityFlag.created_at.desc()
+    # Count rows linked to each root with an explicit correlated alias.
+    root_event = aliased(AuditLog)
+    deactivation_event = aliased(AuditLog)
+    deactivation_count = (
+        select(func.count(deactivation_event.sequence_id))
+        .where(
+            deactivation_event.table_name == "employees",
+            deactivation_event.action == "UPDATE",
+            deactivation_event.old_value["is_active"].astext == "true",
+            deactivation_event.new_value["is_active"].astext == "false",
+            deactivation_event.created_at >= root_event.created_at,
+            deactivation_event.created_at <= root_event.created_at + text("INTERVAL '1 hour'"),
         )
+        .correlate(root_event)
+        .scalar_subquery()
     )
-    flags = result.scalars().all()
+    result = await session.execute(
+        select(
+            SuspiciousActivityFlag,
+            case(
+                (SuspiciousActivityFlag.flag_reason == "mass_employee_deactivations", deactivation_count),
+                else_=1,
+            ).label("affected_event_count"),
+        )
+        .join(root_event, root_event.sequence_id == SuspiciousActivityFlag.audit_log_sequence_id)
+        .where(SuspiciousActivityFlag.superseded_by_flag_id.is_(None))
+        .order_by(SuspiciousActivityFlag.created_at.desc())
+    )
+    flags = result.all()
 
     return [
         SuspiciousFlagItem(
             flag_id=f.flag_id,
             audit_log_sequence_id=f.audit_log_sequence_id,
             flag_reason=f.flag_reason,
+            affected_event_count=affected_event_count,
             reviewed_by=f.reviewed_by_user_id,
             reviewed_at=f.reviewed_at,
             created_at=f.created_at,
         )
-        for f in flags
+        for f, affected_event_count in flags
     ]
 
 
@@ -1083,9 +1108,27 @@ async def review_suspicious_flag(
             detail=f"Suspicious activity flag {flag_id} not found.",
         )
 
+    if flag.superseded_by_flag_id is not None:
+        flag = (await session.execute(
+            select(SuspiciousActivityFlag).where(
+                SuspiciousActivityFlag.flag_id == flag.superseded_by_flag_id
+            )
+        )).scalar_one_or_none()
+        if flag is None:
+            raise HTTPException(404, f"Suspicious activity flag {flag_id} not found.")
+
     now = datetime.now(timezone.utc)
-    flag.reviewed_by_user_id = current_user.user_id
-    flag.reviewed_at = now
+    group_result = await session.execute(
+        select(SuspiciousActivityFlag).where(
+            or_(
+                SuspiciousActivityFlag.flag_id == flag.flag_id,
+                SuspiciousActivityFlag.superseded_by_flag_id == flag.flag_id,
+            )
+        )
+    )
+    for group_flag in group_result.scalars().all():
+        group_flag.reviewed_by_user_id = current_user.user_id
+        group_flag.reviewed_at = now
     session.add(
         SuspiciousActivityReview(
             flag_id=flag.flag_id,
@@ -2065,11 +2108,28 @@ async def reopen_suspicious_flag(
     flag = result.scalar_one_or_none()
     if flag is None:
         raise HTTPException(status_code=404, detail=f"Suspicious activity flag {flag_id} not found.")
+    if flag.superseded_by_flag_id is not None:
+        flag = (await session.execute(
+            select(SuspiciousActivityFlag).where(
+                SuspiciousActivityFlag.flag_id == flag.superseded_by_flag_id
+            )
+        )).scalar_one_or_none()
+        if flag is None:
+            raise HTTPException(status_code=404, detail=f"Suspicious activity flag {flag_id} not found.")
     if flag.reviewed_at is None:
         raise HTTPException(status_code=409, detail="This suspicious activity flag is already open.")
 
-    flag.reviewed_by_user_id = None
-    flag.reviewed_at = None
+    group_result = await session.execute(
+        select(SuspiciousActivityFlag).where(
+            or_(
+                SuspiciousActivityFlag.flag_id == flag.flag_id,
+                SuspiciousActivityFlag.superseded_by_flag_id == flag.flag_id,
+            )
+        )
+    )
+    for group_flag in group_result.scalars().all():
+        group_flag.reviewed_by_user_id = None
+        group_flag.reviewed_at = None
     session.add(
         SuspiciousActivityReview(
             flag_id=flag.flag_id,

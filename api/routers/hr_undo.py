@@ -24,10 +24,14 @@ router = APIRouter(prefix="/hr-undo", tags=["HR Undo"], dependencies=[Depends(re
 
 @router.get("")
 async def list_undo_actions(
+    current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session, scope="function"),
 ):
     result = await session.execute(
-        select(HrUndoAction).order_by(HrUndoAction.action_id.desc()).limit(50)
+        select(HrUndoAction)
+        .where(HrUndoAction.actor_user_id == current_user.user_id)
+        .order_by(HrUndoAction.action_id.desc())
+        .limit(50)
     )
     return [{
         "action_id": item.action_id,
@@ -41,11 +45,15 @@ async def list_undo_actions(
 @router.get("/{action_id}/preview")
 async def preview_hr_undo_action(
     action_id: int,
+    current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session, scope="function"),
 ):
     """Show the exact employee fields a receipt would restore, without changing data."""
     action = (await session.execute(
-        select(HrUndoAction).where(HrUndoAction.action_id == action_id)
+        select(HrUndoAction).where(
+            HrUndoAction.action_id == action_id,
+            HrUndoAction.actor_user_id == current_user.user_id,
+        )
     )).scalar_one_or_none()
     if action is None:
         raise HTTPException(404, "Undo action was not found.")
@@ -134,7 +142,10 @@ async def undo_hr_action(
     session: AsyncSession = Depends(get_db_session, scope="function"),
 ):
     action = (await session.execute(
-        select(HrUndoAction).where(HrUndoAction.action_id == action_id).with_for_update()
+        select(HrUndoAction).where(
+            HrUndoAction.action_id == action_id,
+            HrUndoAction.actor_user_id == current_user.user_id,
+        ).with_for_update()
     )).scalar_one_or_none()
     if action is None:
         raise HTTPException(404, "Undo action was not found.")

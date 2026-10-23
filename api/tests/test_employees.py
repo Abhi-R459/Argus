@@ -171,7 +171,7 @@ async def test_create_employee_hr(client_hr: AsyncClient, mock_db_session: Async
     # We mock the database role and email queries
     from unittest.mock import MagicMock
     mock_role_res = MagicMock()
-    mock_role_res.scalar_one_or_none.return_value = MagicMock()
+    mock_role_res.scalar_one_or_none.return_value = SimpleNamespace(salary_band_min=1, salary_band_max=1_000_000)
     mock_email_res = MagicMock()
     mock_email_res.scalar_one_or_none.return_value = None
     # The employee path also sets the transaction-local blind-index context
@@ -209,7 +209,7 @@ async def test_create_employee_encrypts_sensitive_fields(client_hr: AsyncClient,
     from db.crypto.pii import decrypt_pii, is_encrypted_pii
 
     key = base64.urlsafe_b64encode(b"0123456789abcdef0123456789abcdef").decode("ascii")
-    role_result = MagicMock(); role_result.scalar_one_or_none.return_value = MagicMock()
+    role_result = MagicMock(); role_result.scalar_one_or_none.return_value = SimpleNamespace(salary_band_min=1, salary_band_max=1_000_000)
     email_result = MagicMock(); email_result.scalar_one_or_none.return_value = None
     mock_db_session.execute.side_effect = [role_result, email_result, MagicMock()]
     payload = {
@@ -238,7 +238,7 @@ async def test_create_employee_fails_closed_without_valid_pii_key(client_hr: Asy
     from types import SimpleNamespace
     from unittest.mock import MagicMock, patch
 
-    role_result = MagicMock(); role_result.scalar_one_or_none.return_value = MagicMock()
+    role_result = MagicMock(); role_result.scalar_one_or_none.return_value = SimpleNamespace(salary_band_min=1, salary_band_max=1_000_000)
     email_result = MagicMock(); email_result.scalar_one_or_none.return_value = None
     mock_db_session.execute.side_effect = [role_result, email_result]
     payload = {
@@ -263,7 +263,7 @@ async def test_create_employee_fails_closed_without_unique_audit_salt(client_hr:
     from unittest.mock import MagicMock, patch
 
     key = base64.urlsafe_b64encode(b"0123456789abcdef0123456789abcdef").decode("ascii")
-    role_result = MagicMock(); role_result.scalar_one_or_none.return_value = MagicMock()
+    role_result = MagicMock(); role_result.scalar_one_or_none.return_value = SimpleNamespace(salary_band_min=1, salary_band_max=1_000_000)
     email_result = MagicMock(); email_result.scalar_one_or_none.return_value = None
     mock_db_session.execute.side_effect = [role_result, email_result]
     payload = {

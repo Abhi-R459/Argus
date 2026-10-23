@@ -193,6 +193,11 @@ export default function RiskPanel() {
                         <span className="text-linear-ink-subtle">Audit Seq:</span>
                         <span className="font-mono font-semibold text-linear-ink">#{flag.audit_log_sequence_id}</span>
                       </span>
+                      {flag.flag_reason === 'mass_employee_deactivations' && (
+                        <span className="text-linear-ink-muted">
+                          {flag.affected_event_count} employee deactivations within one hour
+                        </span>
+                      )}
                       {flag.reviewed_at && (
                         <span className="text-linear-success/80 flex items-center">
                           <CheckCircle2 className="w-3.5 h-3.5 mr-1" />

@@ -80,6 +80,7 @@ class SuspiciousFlagItem(BaseModel):
     flag_id: int
     audit_log_sequence_id: int
     flag_reason: str
+    affected_event_count: int = 1
     reviewed_by: Optional[int]          # reviewed_by_user_id
     reviewed_at: Optional[datetime]
     created_at: datetime

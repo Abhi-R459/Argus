@@ -59,6 +59,9 @@ export default function EmployeeForm({ isOpen = true, onClose }: EmployeeFormPro
     register,
     handleSubmit,
     reset,
+    watch,
+    setError,
+    clearErrors,
     formState: { errors, isSubmitting },
   } = useForm<EmployeeFormData>({
     resolver: zodResolver(employeeSchema),
@@ -66,6 +69,7 @@ export default function EmployeeForm({ isOpen = true, onClose }: EmployeeFormPro
       date_hired: new Date().toISOString().split('T')[0],
     },
   });
+  const selectedRole = roles.find((role) => role.role_id === Number(watch('role_id')));
 
   // Reset form and global error when modal opens
   useEffect(() => {
@@ -104,6 +108,15 @@ export default function EmployeeForm({ isOpen = true, onClose }: EmployeeFormPro
 
   const onSubmit = (data: EmployeeFormData) => {
     setGlobalError(null);
+    const role = roles.find((item) => item.role_id === data.role_id);
+    if (role && (data.salary < Number(role.salary_band_min) || data.salary > Number(role.salary_band_max))) {
+      setError('salary', {
+        type: 'validate',
+        message: `Enter an annual salary between ₹${Number(role.salary_band_min).toLocaleString('en-IN')} and ₹${Number(role.salary_band_max).toLocaleString('en-IN')} for this role.`,
+      });
+      return;
+    }
+    clearErrors('salary');
     mutation.mutate(data);
   };
 
@@ -270,6 +283,11 @@ export default function EmployeeForm({ isOpen = true, onClose }: EmployeeFormPro
                 </div>
                 {errors.salary && (
                   <p className="mt-1 text-xs text-rose-600 font-medium">{errors.salary.message}</p>
+                )}
+                {!errors.salary && selectedRole && (
+                  <p className="mt-1 text-xs text-slate-500">
+                    Annual band: ₹{Number(selectedRole.salary_band_min).toLocaleString('en-IN')}–₹{Number(selectedRole.salary_band_max).toLocaleString('en-IN')}
+                  </p>
                 )}
               </div>
 

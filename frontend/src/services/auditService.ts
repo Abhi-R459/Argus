@@ -304,6 +304,7 @@ export interface SuspiciousFlagItem {
   flag_id: number;
   audit_log_sequence_id: number;
   flag_reason: string;
+  affected_event_count: number;
   reviewed_by: number | null;
   reviewed_at: string | null; // ISO timestamp
   created_at: string; // ISO timestamp

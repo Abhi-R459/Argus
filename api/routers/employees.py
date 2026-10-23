@@ -44,6 +44,28 @@ from ..schemas.common import PaginatedResponse
 router = APIRouter(prefix="/employees", tags=["Employees"])
 
 
+def _validate_salary_band(amount, role: Role) -> None:
+    """Reject salaries outside the inclusive annual salary band for a role."""
+    if amount < role.salary_band_min or amount > role.salary_band_max:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                f"Salary must be within the job role's annual band "
+                f"({role.salary_band_min}–{role.salary_band_max} INR)."
+            ),
+        )
+
+
+def _is_salary_band_violation(error: IntegrityError) -> bool:
+    original = getattr(error, "orig", None)
+    diagnostic = getattr(original, "diag", None)
+    return (
+        getattr(original, "constraint_name", None) == "salary_within_role_band"
+        or getattr(diagnostic, "constraint_name", None) == "salary_within_role_band"
+        or "salary_within_role_band" in str(original)
+    )
+
+
 async def _set_employee_pii_audit_context(
     session: AsyncSession,
     national_id: str,
@@ -330,11 +352,13 @@ async def create_employee(
     role_result = await session.execute(
         select(Role).where(Role.role_id == data.role_id)
     )
-    if role_result.scalar_one_or_none() is None:
+    role = role_result.scalar_one_or_none()
+    if role is None:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Role with id {data.role_id} does not exist.",
         )
+    _validate_salary_band(data.salary, role)
 
     # Check for duplicate email
     email_result = await session.execute(
@@ -378,7 +402,16 @@ async def create_employee(
     session.add(initial_salary)
 
     # Commit is handled by the get_db_session dependency
-    await session.flush()
+    try:
+        await session.flush()
+    except IntegrityError as exc:
+        if not _is_salary_band_violation(exc):
+            raise
+        await session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Salary must fall within the assigned role's current annual band.",
+        ) from exc
     await session.refresh(new_employee)
     record_employee_change(session, new_employee, None, "employee_created", current_user.user_id)
 
@@ -488,17 +521,36 @@ async def update_employee(
         role_result = await session.execute(
             select(Role).where(Role.role_id == update_data["role_id"])
         )
-        if role_result.scalar_one_or_none() is None:
+        role = role_result.scalar_one_or_none()
+        if role is None:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=f"Role with id {update_data['role_id']} does not exist.",
             )
+        latest_salary_result = await session.execute(
+            select(SalaryHistory.amount)
+            .where(SalaryHistory.employee_id == employee_id)
+            .order_by(SalaryHistory.effective_date.desc(), SalaryHistory.salary_history_id.desc())
+            .limit(1)
+        )
+        latest_salary = latest_salary_result.scalar_one_or_none()
+        if latest_salary is not None:
+            _validate_salary_band(latest_salary, role)
 
     # Apply remaining updates
     for key, value in update_data.items():
         setattr(employee, key, value)
 
-    await session.flush()
+    try:
+        await session.flush()
+    except IntegrityError as exc:
+        if not _is_salary_band_violation(exc):
+            raise
+        await session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="The employee's current salary is outside the selected role's annual band.",
+        ) from exc
     await session.refresh(employee)
     if employee_snapshot(employee) != before_snapshot:
         record_employee_change(session, employee, before_snapshot, "profile_updated", current_user.user_id)
@@ -600,6 +652,17 @@ async def add_salary_record(
             detail=f"Employee with id {employee_id} not found.",
         )
 
+    role_result = await session.execute(
+        select(Role).where(Role.role_id == employee.role_id)
+    )
+    role = role_result.scalar_one_or_none()
+    if role is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="The employee's job role is unavailable; salary cannot be changed.",
+        )
+    _validate_salary_band(data.amount, role)
+
     new_salary = SalaryHistory(
         employee_id=employee_id,
         amount=data.amount,
@@ -610,8 +673,13 @@ async def add_salary_record(
         session.add(new_salary)
         await session.flush()
         await session.refresh(new_salary)
-    except IntegrityError:
+    except IntegrityError as exc:
         await session.rollback()
+        if _is_salary_band_violation(exc):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="Salary must fall within the employee's assigned role's current annual band.",
+            )
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"A salary record already exists for employee {employee_id} on {data.effective_date}.",

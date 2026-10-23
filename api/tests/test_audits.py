@@ -87,6 +87,27 @@ async def test_suspicious_flags_auditor(client_auditor: AsyncClient, mock_db_ses
 
 
 @pytest.mark.asyncio
+async def test_deactivation_burst_is_returned_as_one_flag_with_event_count(client_auditor, mock_db_session):
+    from datetime import datetime, timezone
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+
+    flag = SimpleNamespace(
+        flag_id=42, audit_log_sequence_id=227, flag_reason="mass_employee_deactivations",
+        reviewed_by_user_id=None, reviewed_at=None, created_at=datetime.now(timezone.utc),
+    )
+    result = MagicMock()
+    result.all.return_value = [(flag, 4)]
+    mock_db_session.execute.return_value = result
+
+    response = await client_auditor.get("/api/suspicious-activity")
+
+    assert response.status_code == 200, response.text
+    assert len(response.json()) == 1
+    assert response.json()[0]["affected_event_count"] == 4
+
+
+@pytest.mark.asyncio
 async def test_suspicious_activity_refresh_is_explicit_and_locked(client_auditor: AsyncClient, mock_db_session: AsyncMock):
     lock = MagicMock(); lock.scalar.return_value = True
     mock_db_session.execute.side_effect = [lock, MagicMock()]
@@ -109,9 +130,10 @@ async def test_suspicious_activity_refresh_reports_concurrent_run(client_auditor
 async def test_flag_review_records_append_only_decision(client_auditor: AsyncClient, mock_db_session: AsyncMock):
     from types import SimpleNamespace
 
-    flag = SimpleNamespace(flag_id=42, reviewed_by_user_id=None, reviewed_at=None)
+    flag = SimpleNamespace(flag_id=42, reviewed_by_user_id=None, reviewed_at=None, superseded_by_flag_id=None)
     result = MagicMock(); result.scalar_one_or_none.return_value = flag
-    mock_db_session.execute.return_value = result
+    result.scalars.return_value.all.return_value = [flag]
+    mock_db_session.execute.side_effect = [result, result]
     response = await client_auditor.post("/api/suspicious-activity/42/review", json={"note": "Evidence checked"})
     assert response.status_code == 200
     decision = mock_db_session.add.call_args.args[0]

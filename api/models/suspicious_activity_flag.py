@@ -1,5 +1,5 @@
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy import String, ForeignKey, DateTime, BigInteger, func
+from sqlalchemy import String, ForeignKey, DateTime, BigInteger, Integer, func
 from datetime import datetime
 from typing import Optional
 
@@ -13,6 +13,9 @@ class SuspiciousActivityFlag(Base):
     reviewed_by_user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.user_id"), nullable=True)
     reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     flag_reason: Mapped[str] = mapped_column(String(255), nullable=False)
+    superseded_by_flag_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("suspicious_activity_flags.flag_id"), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
     audit_log: Mapped["AuditLog"] = relationship("AuditLog", back_populates="suspicious_flags")
