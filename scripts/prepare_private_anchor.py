@@ -78,6 +78,12 @@ def prepare_manifest(bundle_path: Path, trusted_public_key_path: Path, existing:
         comparison = compare_manifest(public_checkpoints, existing)
         if comparison.status != "pass" and comparison.detail != "New signed checkpoints are awaiting publication to the private anchor.":
             raise ValueError("Existing anchors cannot be safely extended from this evidence pack.")
+        # A later export must not erase independently collected cosignatures.
+        previous_by_id = {row["checkpoint_id"]: row for row in existing["checkpoints"]}
+        for checkpoint in public_checkpoints:
+            previous = previous_by_id.get(checkpoint["checkpoint_id"])
+            if previous and "witnesses" in previous:
+                checkpoint["witnesses"] = previous["witnesses"]
 
     return {
         "schema_version": 1,

@@ -12,6 +12,8 @@ import pytest
 from db.cli.checkpoint_store import compute_checkpoint_hash
 from db.cli.merkle_tree import ArgusMerkleTree
 from scripts.prepare_private_anchor import prepare_manifest
+from scripts.cosign_private_anchor import cosign
+from api.services.remote_witness import verify_remote_witnesses
 
 
 def test_prepared_anchor_is_pii_free_and_rejects_changed_evidence(tmp_path: Path):
@@ -59,6 +61,36 @@ def test_prepared_anchor_is_pii_free_and_rejects_changed_evidence(tmp_path: Path
         assert "Sensitive Person" not in encoded
         assert "full_name" not in encoded
         assert manifest["checkpoints"][0]["checkpoint_hash"] == checkpoint_hash
+        manifest["checkpoints"][0]["witnesses"] = [{"name": "auditor.one", "signature_hex": "ab" * 64}]
+        extended = prepare_manifest(bundle, key_path, manifest)
+        assert extended["checkpoints"][0]["witnesses"] == manifest["checkpoints"][0]["witnesses"]
+
+        # Two witness operators cosign the same independently verified pack.
+        manifest["checkpoints"][0].pop("witnesses")
+        anchor_path = tmp_path / "anchors.json"
+        anchor_path.write_text(json.dumps(manifest), encoding="utf-8")
+        trust_dir = tmp_path / "trust"
+        trust_dir.mkdir()
+        for name, domain in (("auditor.one", "operator-one"), ("auditor.two", "operator-two")):
+            witness_key = Ed25519PrivateKey.generate()
+            private_path = tmp_path / f"{name}.private.pem"
+            private_path.write_bytes(witness_key.private_bytes(
+                serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
+                serialization.NoEncryption(),
+            ))
+            _, witness_public = cosign(
+                bundle=bundle, trusted_origin_key=key_path, anchor_manifest=anchor_path,
+                witness_private_key=private_path, state_path=tmp_path / f"{name}.state.json",
+                witness_name=name,
+            )
+            (trust_dir / f"{name}.pem").write_text(witness_public, encoding="utf-8")
+            (trust_dir / f"{name}.domain").write_text(domain, encoding="utf-8")
+        witnessed = json.loads(anchor_path.read_text(encoding="utf-8"))
+        assert verify_remote_witnesses(
+            witnessed["checkpoints"], trust_dir,
+            origin_public_key_pem=key_path.read_text(encoding="utf-8"),
+        ).status == "pass"
+        assert "Sensitive Person" not in anchor_path.read_text(encoding="utf-8")
 
         with pytest.raises(ValueError, match="safely extended"):
             prepare_manifest(bundle, key_path, {"schema_version": 1, "checkpoints": []})

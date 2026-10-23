@@ -64,8 +64,12 @@ const STATUS_STYLES = {
 
 export default function AnchorStatus({ data }: AnchorStatusProps) {
   const style = STATUS_STYLES[data.status] || STATUS_STYLES.MISSING;
-  const witnessStatus = data.witness_report?.verification_status ??
-    (data.witness_report?.quorum_satisfied ? 'pass' : 'fail');
+  const report = data.witness_report;
+  const witnessStatus = report?.verification_status === 'fail'
+    ? 'fail'
+    : report?.verification_status === 'pass' && report.independent_trust_domains
+      ? 'pass'
+      : 'unknown';
 
   return (
     <div
@@ -154,9 +158,9 @@ export default function AnchorStatus({ data }: AnchorStatusProps) {
             <div className="flex items-center space-x-2">
               <ShieldCheck className="w-3.5 h-3.5 text-linear-primary" />
               <p className="text-xs text-linear-ink font-semibold">
-                {data.witness_report.deployment_mode === 'private_repository'
+                {data.witness_report.deployment_mode === 'private_repository' || data.witness_report.deployment_mode === 'external_operator'
                   ? 'Independent witness quorum'
-                  : <>Witness quorum <span className="font-mono text-linear-ink-subtle">· RFC 9162</span></>}
+                  : 'Witness quorum'}
               </p>
             </div>
             <span
@@ -186,7 +190,9 @@ export default function AnchorStatus({ data }: AnchorStatusProps) {
           <p className="text-[11px] text-linear-ink-subtle leading-relaxed">
             {witnessStatus === 'pass'
               ? <>Threshold: <strong className="text-linear-ink font-semibold">{data.witness_report.required_threshold}-of-{data.witness_report.total_witnesses}</strong> quorum verified.</>
-              : data.witness_report.message ?? 'Witness quorum is not verified.'}
+              : data.witness_report.verification_status === 'pass' && !data.witness_report.independent_trust_domains
+                ? 'Signatures were verified, but their keys are not held by independent witnesses. Independent quorum remains unverified.'
+                : data.witness_report.message ?? 'Witness quorum is not verified.'}
           </p>
 
           {data.witness_report.independent_trust_domains === false && data.witness_report.deployment_mode !== 'private_repository' && (

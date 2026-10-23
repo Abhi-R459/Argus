@@ -292,3 +292,8 @@ rewrite its history, and the API still holds the signing key. A customer
 requiring independent custody, immutable retention, or stronger adversarial
 guarantees needs separate operators and infrastructure beyond this free
 single-operator setup.
+
+For a two-person cosigning workflow on this private anchor, see
+[Independent witness quorum](INDEPENDENT_WITNESS_QUORUM.md). It remains
+unverified in production until both operators independently sign a published
+checkpoint and the backend has their pinned public keys and custody domains.

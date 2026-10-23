@@ -149,6 +149,70 @@ def test_quorum_evaluation_2_of_3():
     assert witnessed.quorum_satisfied(threshold=2) is True
 
 
+def test_untrusted_embedded_keys_cannot_create_a_quorum():
+    origin_private, origin_public = generate_keypair()
+    rogue_private, rogue_public = generate_keypair()
+    note = CheckpointNote(sequence_id=10, merkle_root="a" * 64)
+    body = note.body_bytes()
+    witnessed = WitnessedCheckpoint(
+        note=note,
+        origin_signature=WitnessSignature(
+            "argus.origin", sign_checkpoint(origin_private, body),
+            public_key_pem=origin_public.decode("utf-8"),
+        ),
+        witness_signatures=[WitnessSignature(
+            "witness.rogue", sign_checkpoint(rogue_private, body),
+            public_key_pem=rogue_public.decode("utf-8"),
+        )],
+    )
+
+    valid, _, report = verify_witness_quorum(
+        witnessed, {"argus.origin": origin_public.decode("utf-8")}, threshold=1
+    )
+    assert valid is False
+    assert report["valid_witness_count"] == 0
+    assert report["per_witness_status"]["witness.rogue"]["reason"] == "Missing public key"
+
+    rogue_origin = WitnessedCheckpoint(
+        note=note,
+        origin_signature=WitnessSignature(
+            "argus.origin", sign_checkpoint(rogue_private, body),
+            public_key_pem=rogue_public.decode("utf-8"),
+        ),
+        witness_signatures=[],
+    )
+    valid, message, _ = verify_witness_quorum(
+        rogue_origin, {"argus.origin": origin_public.decode("utf-8")}, threshold=1
+    )
+    assert valid is False
+    assert "differs from the trusted" in message
+
+
+def test_same_trusted_key_cannot_count_as_two_witnesses():
+    origin_private, origin_public = generate_keypair()
+    witness_private, witness_public = generate_keypair()
+    note = CheckpointNote(sequence_id=10, merkle_root="b" * 64)
+    body = note.body_bytes()
+    witnessed = WitnessedCheckpoint(
+        note=note,
+        origin_signature=WitnessSignature("argus.origin", sign_checkpoint(origin_private, body)),
+        witness_signatures=[
+            WitnessSignature("witness.one", sign_checkpoint(witness_private, body)),
+            WitnessSignature("witness.two", sign_checkpoint(witness_private, body)),
+        ],
+    )
+    keys = {
+        "argus.origin": origin_public.decode("utf-8"),
+        "witness.one": witness_public.decode("utf-8"),
+        "witness.two": witness_public.decode("utf-8"),
+    }
+
+    valid, _, report = verify_witness_quorum(witnessed, keys, threshold=2)
+    assert valid is False
+    assert report["valid_witness_count"] == 1
+    assert report["per_witness_status"]["witness.two"]["reason"] == "Duplicate trusted public key"
+
+
 def test_detect_fork_proof_of_misbehavior():
     """Test that two divergent Merkle roots for the same sequence trigger ProofOfMisbehavior."""
     note_a = CheckpointNote(

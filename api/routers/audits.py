@@ -1572,6 +1572,8 @@ async def get_anchor_status(
         )
     status_str = "MISSING"
     anchor_record_time: datetime | None = None
+    remote_manifest: dict | None = None
+    remote_comparison = None
 
     # Check external anchor store if available
     # ANCHOR_FILE_PATH is the configured store base path. LocalFileAnchorStore
@@ -1641,6 +1643,8 @@ async def get_anchor_status(
                 minimum_sequence=settings.GITHUB_ANCHOR_MIN_SEQUENCE,
                 rolling_interval=rolling_interval,
             )
+            remote_manifest = manifest
+            remote_comparison = comparison
             if comparison.anchored_sequence:
                 delta = max(0, tail_seq - comparison.anchored_sequence)
             status_str = (
@@ -1659,6 +1663,52 @@ async def get_anchor_status(
         status_str = "UNVERIFIED"
     # Multi-witness quorum telemetry (NOVEL-010)
     if store_type == "github_repo":
+        from ..services.remote_witness import verify_remote_witnesses
+
+        if remote_comparison is not None and remote_comparison.status == "fail":
+            remote_witness = WitnessReport(
+                quorum_satisfied=False, verification_status="fail",
+                message="The private checkpoint anchor disagrees with the database; witness quorum cannot be accepted.",
+                deployment_mode="external_operator", independent_trust_domains=False,
+            )
+        elif remote_manifest is not None and remote_comparison is not None and (
+            remote_comparison.status == "pass"
+            or remote_comparison.detail == "New signed checkpoints are awaiting publication to the private anchor."
+        ):
+            try:
+                result = verify_remote_witnesses(
+                    remote_manifest["checkpoints"],
+                    settings.WITNESS_PUBLIC_KEYS_DIR,
+                    origin_public_key_pem=_checkpoint_public_key_path(
+                        remote_manifest["checkpoints"][-1].get("key_id"),
+                        Path(settings.CHECKPOINT_PUBLIC_KEYS_DIR),
+                    ).read_text(encoding="utf-8"),
+                    threshold=settings.WITNESS_REQUIRED_THRESHOLD,
+                    trust_config_json=settings.WITNESS_TRUST_CONFIG_JSON,
+                )
+                remote_witness = WitnessReport(
+                    quorum_satisfied=result.status == "pass",
+                    required_threshold=settings.WITNESS_REQUIRED_THRESHOLD,
+                    total_witnesses=result.total_witnesses,
+                    cosigned_witnesses=result.valid_witnesses,
+                    per_witness=[WitnessItem(**item) for item in result.per_witness],
+                    verification_status=result.status,
+                    message=result.message,
+                    deployment_mode="external_operator",
+                    independent_trust_domains=result.independent_trust_domains,
+                )
+            except (IndexError, KeyError, TypeError, ValueError, OSError):
+                remote_witness = WitnessReport(
+                    quorum_satisfied=False, verification_status="unknown",
+                    message="Independent witness evidence could not be read.",
+                    deployment_mode="external_operator", independent_trust_domains=False,
+                )
+        else:
+            remote_witness = WitnessReport(
+                quorum_satisfied=False, verification_status="unknown",
+                message="A single private external anchor is configured; no multi-witness quorum is verified.",
+                deployment_mode="private_repository", independent_trust_domains=False,
+            )
         return AnchorInfo(
             status=status_str,
             anchor_store=store_type,
@@ -1666,13 +1716,7 @@ async def get_anchor_status(
             last_anchored=anchor_record_time if status_str in ("ANCHORED", "STALE") else chk_time,
             anchor_hash=f"sha256:{chk_hash}" if not chk_hash.startswith("sha256:") else chk_hash,
             entries_since_anchor=delta,
-            witness_report=WitnessReport(
-                quorum_satisfied=False,
-                verification_status="unknown",
-                message="A single private external anchor is configured; no multi-witness quorum is configured.",
-                deployment_mode="private_repository",
-                independent_trust_domains=False,
-            ),
+            witness_report=remote_witness,
         )
     witness_report = None
     try:

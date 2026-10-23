@@ -1,15 +1,11 @@
 #!/usr/bin/env python3
-"""Argus RFC 9162 Multi-Witness Co-Signing & Fork Detection Protocol (NOVEL-010-A).
+"""Argus's local multi-signature checkpoint reference protocol.
 
-Implements the decentralized witness cosigning protocol based on IETF RFC 9162
-and Google's transparency-dev/witness architecture:
-  1. RFC 9162 Canonical Checkpoint Note formatting: Deterministic, whitespace-sensitive
-     header, sequence ID, Merkle root, timestamp, and extension metadata.
-  2. Multi-Signature Collection: Primary origin signature + N heterogeneous witness cosignatures.
-  3. M-of-N Threshold Quorum: Cryptographically asserts that at least M independent witnesses
-     have verified and cosigned the checkpoint.
-  4. Proof-of-Misbehavior Equivocation Guard: Instantly detects split-view / forking attacks
-     where divergent Merkle roots are minted for the same sequence ID.
+This custom note format is inspired by transparency witnesses, but is not an
+RFC 9162 or C2SP implementation. It can verify pinned signatures and detect
+two different roots at one sequence; it cannot prove append-only consistency
+or independent key custody on its own. Production uses the separately
+operated private-anchor witness workflow in api.services.remote_witness.
 """
 
 from __future__ import annotations
@@ -84,7 +80,7 @@ class ProofOfMisbehavior(WitnessProtocolError):
 
 @dataclass
 class CheckpointNote:
-    """IETF RFC 9162 canonical Checkpoint Note body."""
+    """Canonical body for Argus's local reference checkpoint note."""
     sequence_id: int
     merkle_root: str
     origin: str = DEFAULT_NOTE_ORIGIN
@@ -95,7 +91,7 @@ class CheckpointNote:
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     def serialize_body(self) -> str:
-        """Produce the canonical, whitespace-sensitive RFC 9162 note body text.
+        """Produce the canonical, whitespace-sensitive Argus note body text.
 
         Format:
           <origin>\n
@@ -124,7 +120,7 @@ class CheckpointNote:
 
     @classmethod
     def from_body_text(cls, text_content: str) -> CheckpointNote:
-        """Parse RFC 9162 canonical note body text."""
+        """Parse an Argus reference note body."""
         lines = [line.strip() for line in text_content.strip().splitlines() if line.strip()]
         if len(lines) < 3:
             raise ValueError(f"Malformed RFC 9162 note body (expected at least 3 lines, got {len(lines)}).")
@@ -178,7 +174,7 @@ class CheckpointNote:
 
 @dataclass
 class WitnessSignature:
-    """A cryptographic signature over an RFC 9162 note from an origin or witness."""
+    """A cryptographic signature over an Argus reference note."""
     witness_name: str
     signature_bytes: bytes
     public_key_pem: Optional[str] = None
@@ -196,7 +192,7 @@ class WitnessSignature:
         return self.signature_bytes.hex()
 
     def format_line(self) -> str:
-        """RFC 9162 cosignature line: '— <verifier_name> <signature_b64>'."""
+        """Cosignature line: '— <verifier_name> <signature_b64>'."""
         return f"— {self.witness_name} {self.signature_b64()}"
 
     @classmethod
@@ -271,7 +267,7 @@ class WitnessedCheckpoint:
                 )
 
     def serialize(self) -> str:
-        """Serialize into complete RFC 9162 text representation with all cosignatures."""
+        """Serialize the Argus reference note with all cosignatures."""
         lines = [self.note.serialize_body().rstrip("\n"), ""]
         lines.append(self.origin_signature.format_line())
         for w in self.witness_signatures:
@@ -280,7 +276,7 @@ class WitnessedCheckpoint:
 
     @classmethod
     def from_text(cls, text_content: str) -> WitnessedCheckpoint:
-        """Parse complete RFC 9162 multi-signature checkpoint note from text."""
+        """Parse an Argus reference multi-signature checkpoint note."""
         parts = text_content.strip().split("\n\n", 1)
         if len(parts) == 1:
             # Fallback if single newline separation
@@ -342,7 +338,18 @@ def verify_witness_quorum(
     Returns:
         (is_valid, message, report_dict)
     """
+    from cryptography.hazmat.primitives.serialization import load_pem_public_key, Encoding, PublicFormat
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
     from db.cli.verify_capsule import verify_signature
+
+    def key_identity(pem: str) -> bytes | None:
+        try:
+            key = load_pem_public_key(pem.encode("utf-8"))
+            if isinstance(key, Ed25519PublicKey):
+                return key.public_bytes(Encoding.Raw, PublicFormat.Raw)
+        except (TypeError, ValueError):
+            pass
+        return None
 
     body_bytes = witnessed.note.body_bytes()
 
@@ -357,9 +364,16 @@ def verify_witness_quorum(
 
     # 1. Verify Origin Signature
     origin_name = witnessed.origin_signature.witness_name
-    origin_pem = witnessed.origin_signature.public_key_pem or public_keys.get(origin_name)
+    origin_pem = public_keys.get(origin_name)
     if not origin_pem:
-        return False, f"Missing public key for origin '{origin_name}'", report
+        return False, f"Missing trusted public key for origin '{origin_name}'", report
+
+    origin_identity = key_identity(origin_pem)
+    if origin_identity is None:
+        return False, f"Invalid trusted public key for origin '{origin_name}'", report
+    embedded_origin = witnessed.origin_signature.public_key_pem
+    if embedded_origin and key_identity(embedded_origin) != origin_identity:
+        return False, "Origin note key differs from the trusted public key.", report
 
     origin_ok = verify_signature(
         origin_pem, body_bytes, witnessed.origin_signature.signature_bytes
@@ -371,6 +385,7 @@ def verify_witness_quorum(
     # 2. Verify Witness Cosignatures
     valid_count = 0
     observed: set[str] = set()
+    counted_keys: set[bytes] = {origin_identity}
 
     for w in witnessed.witness_signatures:
         w_name = w.witness_name
@@ -378,11 +393,31 @@ def verify_witness_quorum(
             continue
         observed.add(w_name)
 
-        w_pem = w.public_key_pem or public_keys.get(w_name)
+        w_pem = public_keys.get(w_name)
         if not w_pem:
             report["per_witness_status"][w_name] = {
                 "valid": False,
                 "reason": "Missing public key",
+            }
+            continue
+
+        identity = key_identity(w_pem)
+        if identity is None:
+            report["per_witness_status"][w_name] = {
+                "valid": False,
+                "reason": "Invalid trusted public key",
+            }
+            continue
+        if w.public_key_pem and key_identity(w.public_key_pem) != identity:
+            report["per_witness_status"][w_name] = {
+                "valid": False,
+                "reason": "Embedded key differs from trusted public key",
+            }
+            continue
+        if identity in counted_keys:
+            report["per_witness_status"][w_name] = {
+                "valid": False,
+                "reason": "Duplicate trusted public key",
             }
             continue
 
@@ -393,6 +428,7 @@ def verify_witness_quorum(
         }
         if w_ok:
             valid_count += 1
+            counted_keys.add(identity)
 
     report["valid_witness_count"] = valid_count
     report["quorum_met"] = valid_count >= threshold

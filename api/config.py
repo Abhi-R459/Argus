@@ -26,7 +26,9 @@ class Settings(BaseSettings):
     SIGNING_PRIVATE_KEY_PATH: str = "./keys/verifier_private_key.pem"
     CHECKPOINT_PUBLIC_KEYS_DIR: str = "./keys"
     WITNESS_PUBLIC_KEYS_DIR: str = "./trusted-witness-keys"
+    WITNESS_TRUST_CONFIG_JSON: str = Field(default="", repr=False)
     WITNESS_STORE_PATH: str = ""
+    WITNESS_REQUIRED_THRESHOLD: int = Field(default=2, ge=2, le=20)
     ANCHOR_STORE: str = "local_file"
     ANCHOR_FILE_PATH: str = "./anchor/chain_anchor.log"
     GITHUB_ANCHOR_REPOSITORY: str = ""
