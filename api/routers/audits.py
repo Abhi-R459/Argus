@@ -44,6 +44,7 @@ from ..services.remote_anchor import (
     compare_manifest,
     fetch_manifest,
 )
+from ..services.independent_witnesses import compare_independent_witnesses
 from ..models.audit_log import AuditLog
 from ..models.department import Department
 from ..models.employee import Employee
@@ -688,6 +689,37 @@ async def run_verification(
                             tampered_seq = comparison.anchored_sequence or None
                     except AnchorUnavailable as exc:
                         evidence_errors.append(str(exc))
+                elif settings.ANCHOR_STORE == "witness_services":
+                    try:
+                        with conn.cursor() as cur:
+                            cur.execute(
+                                "SELECT enabled, interval_events FROM checkpoint_schedule_settings WHERE id = 1"
+                            )
+                            schedule = cur.fetchone()
+                            cur.execute(
+                                "SELECT checkpoint_id, sequence_id, checkpoint_hash, merkle_root, "
+                                "signature, key_id FROM chain_checkpoints ORDER BY sequence_id"
+                            )
+                            anchor_rows = [remote_checkpoint_row(*row) for row in cur.fetchall()]
+                        origin_key = _checkpoint_public_key_path(
+                            anchor_rows[-1]["key_id"], Path(settings.CHECKPOINT_PUBLIC_KEYS_DIR)
+                        ).read_text(encoding="utf-8")
+                        comparison = asyncio.run(compare_independent_witnesses(
+                            anchor_rows,
+                            endpoints_json=settings.WITNESS_READ_ENDPOINTS_JSON,
+                            trust_json=settings.WITNESS_TRUST_CONFIG_JSON,
+                            origin_public_key_pem=origin_key,
+                            threshold=settings.WITNESS_REQUIRED_THRESHOLD,
+                            minimum_sequence=settings.WITNESS_MIN_SEQUENCE,
+                            rolling_interval=int(schedule[1]) if schedule and schedule[0] else None,
+                        ))
+                        checks["external_anchor"] = comparison.status
+                        if comparison.status != "pass":
+                            evidence_errors.append(comparison.detail)
+                        if comparison.status == "fail":
+                            tampered_seq = comparison.anchored_sequence or None
+                    except (IndexError, KeyError, OSError, ValueError):
+                        evidence_errors.append("Independent witness records could not be verified.")
                 else:
                     evidence_errors.append(
                         "The configured anchor provider has no independent read-back verifier."
@@ -932,6 +964,7 @@ async def run_verification(
     if overall_status == "intact":
         anchor_description = (
             "private GitHub anchor record" if get_settings().ANCHOR_STORE == "github_repo"
+            else "independent witness records" if get_settings().ANCHOR_STORE == "witness_services"
             else "configured local anchor record"
         )
         details = f"Hash-chain continuity, checkpoint event commitments, {anchor_description}, and checkpoint signatures verified across {res.total_entries} entries."
@@ -1489,7 +1522,8 @@ async def get_anchor_status(
     settings = get_settings()
     store_type = settings.ANCHOR_STORE
     location = ("Not configured" if store_type == "none" else
-                settings.GITHUB_ANCHOR_REPOSITORY if store_type == "github_repo" else settings.ANCHOR_FILE_PATH)
+                settings.GITHUB_ANCHOR_REPOSITORY if store_type == "github_repo" else
+                "Independent witness services" if store_type == "witness_services" else settings.ANCHOR_FILE_PATH)
 
     # Fetch latest checkpoint
     latest_chk = None
@@ -1659,6 +1693,70 @@ async def get_anchor_status(
                 )
         except (AnchorUnavailable, ValueError, TypeError):
             status_str = "UNVERIFIED"
+    elif store_type == "witness_services":
+        try:
+            schedule_result = await session.execute(text(
+                "SELECT enabled, interval_events FROM checkpoint_schedule_settings WHERE id = 1"
+            ))
+            schedule = schedule_result.first()
+            checkpoints_result = await session.execute(text(
+                "SELECT checkpoint_id, sequence_id, checkpoint_hash, merkle_root, "
+                "signature, key_id FROM chain_checkpoints ORDER BY sequence_id"
+            ))
+            anchor_rows = [remote_checkpoint_row(*row) for row in checkpoints_result.all()]
+            origin_key = _checkpoint_public_key_path(
+                anchor_rows[-1]["key_id"], Path(settings.CHECKPOINT_PUBLIC_KEYS_DIR)
+            ).read_text(encoding="utf-8")
+            independent = await compare_independent_witnesses(
+                anchor_rows,
+                endpoints_json=settings.WITNESS_READ_ENDPOINTS_JSON,
+                trust_json=settings.WITNESS_TRUST_CONFIG_JSON,
+                origin_public_key_pem=origin_key,
+                threshold=settings.WITNESS_REQUIRED_THRESHOLD,
+                minimum_sequence=settings.WITNESS_MIN_SEQUENCE,
+                rolling_interval=int(schedule[1]) if schedule and schedule[0] else None,
+            )
+            if independent.anchored_sequence:
+                delta = max(0, tail_seq - independent.anchored_sequence)
+            stale_interval = int(schedule[1]) if schedule and schedule[0] else settings.CHECKPOINT_INTERVAL
+            status_str = (
+                "MISMATCH" if independent.status == "fail" else
+                "UNVERIFIED" if independent.status == "unknown" else
+                "STALE" if delta > stale_interval * 2 else "ANCHORED"
+            )
+            result = independent.witnesses
+            witnessed_row = next((row for row in anchor_rows if row["sequence_id"] == independent.anchored_sequence), None)
+            visible_hash = witnessed_row["checkpoint_hash"] if witnessed_row else chk_hash
+            return AnchorInfo(
+                status=status_str, anchor_store=store_type, anchor_location=location,
+                last_anchored=chk_time if status_str in ("ANCHORED", "STALE") and independent.anchored_sequence == chk_seq else None,
+                anchor_hash=f"sha256:{visible_hash}" if not visible_hash.startswith("sha256:") else visible_hash,
+                entries_since_anchor=delta,
+                witness_report=WitnessReport(
+                    quorum_satisfied=result.status == "pass",
+                    required_threshold=settings.WITNESS_REQUIRED_THRESHOLD,
+                    total_witnesses=result.total_witnesses,
+                    cosigned_witnesses=result.valid_witnesses,
+                    per_witness=[WitnessItem(**item) for item in result.per_witness],
+                    verification_status=result.status,
+                    message=independent.detail,
+                    deployment_mode="external_operator",
+                    independent_trust_domains=result.independent_trust_domains,
+                ),
+            )
+        except (IndexError, KeyError, OSError, ValueError, TypeError):
+            return AnchorInfo(
+                status="UNVERIFIED", anchor_store=store_type, anchor_location=location,
+                last_anchored=None,
+                anchor_hash=f"sha256:{chk_hash}" if not chk_hash.startswith("sha256:") else chk_hash,
+                entries_since_anchor=delta,
+                witness_report=WitnessReport(
+                    quorum_satisfied=False, verification_status="unknown",
+                    required_threshold=settings.WITNESS_REQUIRED_THRESHOLD,
+                    message="Independent witness records could not be verified.",
+                    deployment_mode="external_operator", independent_trust_domains=False,
+                ),
+            )
     elif store_type != "local_file":
         status_str = "UNVERIFIED"
     # Multi-witness quorum telemetry (NOVEL-010)

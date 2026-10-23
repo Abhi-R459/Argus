@@ -1,5 +1,7 @@
 # Independent witness quorum
 
+For the automatic free-hosted design that replaces the private GitHub anchor, see [Automatic independent witnesses](AUTOMATED_INDEPENDENT_WITNESSES.md). This document retains the older manual private-anchor procedure for rollback and historical reference.
+
 Argus can verify a 2-of-2 quorum on its private GitHub checkpoint anchor. A Clerk Auditor account grants access to evidence; it is **not** a witness identity. Two different people must operate the witness keys and retained state on their own machines or separately administered services. Argus and Render receive only public keys. The private GitHub anchor repository holds signatures, never private keys.
 
 This is Argus's versioned Ed25519 checkpoint-prefix format, not an RFC 9162 or C2SP witness implementation. A witness verifies the complete exported evidence pack against a previously trusted origin public key, checks its retained checkpoint state, then signs the full ordered prefix of published checkpoints. The API compares the private anchor with PostgreSQL and verifies each signature against a pinned public key and distinct configured custody domain. The status remains **Unverified** if signatures, trust configuration, or remote publication are missing.

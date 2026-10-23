@@ -1,0 +1,15 @@
+# The operator copies this into their own private deployment directory.
+# Each operator uses a separate Cloudflare account, Worker, D1 database and key.
+name = "argus-witness-operator"
+main = "worker.mjs"
+compatibility_date = "2026-10-23"
+compatibility_flags = ["nodejs_compat"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "argus-witness-operator"
+database_id = "REPLACE_WITH_OPERATOR_DATABASE_ID"
+
+# Set these as Cloudflare Worker secrets, never in this file:
+# WITNESS_NAME, WITNESS_PRIVATE_KEY_PEM, ORIGIN_PUBLIC_KEY_PEM,
+# WITNESS_READ_TOKEN and WITNESS_PUBLISH_TOKEN (different random values).

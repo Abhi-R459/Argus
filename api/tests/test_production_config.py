@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import json
 
 import pytest
 from cryptography.hazmat.primitives import serialization
@@ -38,6 +39,24 @@ def _production_settings(tmp_path, **overrides):
 
 def test_production_settings_accept_clerk_configuration(tmp_path):
     assert _production_settings(tmp_path).CLERK_ISSUER == "https://clerk.arguss.in"
+
+
+def test_production_witness_mode_requires_two_distinct_external_keys(tmp_path):
+    witnesses = {name: Ed25519PrivateKey.generate() for name in ("operator.one", "operator.two")}
+    trust = {name: {"public_key_pem": key.public_key().public_bytes(
+        serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo).decode(),
+        "trust_domain": name} for name, key in witnesses.items()}
+    endpoints = [{"name": name, "url": f"https://{name}.example", "token": name * 10}
+                 for name in witnesses]
+    values = _production_settings(tmp_path).model_dump()
+    values.update({"ANCHOR_STORE": "witness_services", "WITNESS_MIN_SEQUENCE": 25,
+                   "WITNESS_READ_ENDPOINTS_JSON": json.dumps(endpoints),
+                   "WITNESS_TRUST_CONFIG_JSON": json.dumps(trust)})
+    assert Settings(_env_file=None, **values).ANCHOR_STORE == "witness_services"
+    trust["operator.two"]["trust_domain"] = "operator.one"
+    values["WITNESS_TRUST_CONFIG_JSON"] = json.dumps(trust)
+    with pytest.raises(ValueError, match="distinct"):
+        Settings(_env_file=None, **values)
 
 
 @pytest.mark.parametrize(("override", "message"), [

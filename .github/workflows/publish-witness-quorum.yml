@@ -1,0 +1,35 @@
+name: Publish independent witness checkpoints
+
+on:
+  schedule:
+    - cron: '3-59/10 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: independent-witness-publisher
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/main' && vars.WITNESS_AUTOMATION_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.11'
+      - name: Install publisher dependencies
+        run: python -m pip install --require-hashes -r api/requirements.lock
+      - name: Verify and publish signed checkpoint prefix
+        env:
+          DATABASE_URL_COMPLIANCE_AUDITOR: ${{ secrets.DATABASE_URL_COMPLIANCE_AUDITOR }}
+          ORIGIN_PUBLIC_KEY_PEM: ${{ secrets.ORIGIN_PUBLIC_KEY_PEM }}
+          WITNESS_PUBLISH_ENDPOINTS_JSON: ${{ secrets.WITNESS_PUBLISH_ENDPOINTS_JSON }}
+          WITNESS_TRUST_CONFIG_JSON: ${{ secrets.WITNESS_TRUST_CONFIG_JSON }}
+        run: python scripts/publish_witness_quorum.py

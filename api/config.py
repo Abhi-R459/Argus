@@ -27,6 +27,8 @@ class Settings(BaseSettings):
     CHECKPOINT_PUBLIC_KEYS_DIR: str = "./keys"
     WITNESS_PUBLIC_KEYS_DIR: str = "./trusted-witness-keys"
     WITNESS_TRUST_CONFIG_JSON: str = Field(default="", repr=False)
+    WITNESS_READ_ENDPOINTS_JSON: str = Field(default="", repr=False)
+    WITNESS_MIN_SEQUENCE: int = 0
     WITNESS_STORE_PATH: str = ""
     WITNESS_REQUIRED_THRESHOLD: int = Field(default=2, ge=2, le=20)
     ANCHOR_STORE: str = "local_file"
@@ -118,6 +120,14 @@ class Settings(BaseSettings):
                 raise ValueError("GITHUB_ANCHOR_BRANCH is invalid.")
             if self.GITHUB_ANCHOR_MIN_SEQUENCE < 1:
                 raise ValueError("GITHUB_ANCHOR_MIN_SEQUENCE must pin a published checkpoint sequence.")
+        if self.ANCHOR_STORE == "witness_services":
+            if self.WITNESS_MIN_SEQUENCE < 1:
+                raise ValueError("WITNESS_MIN_SEQUENCE must pin a witnessed checkpoint sequence.")
+            from api.services.independent_witnesses import validate_services
+            validate_services(
+                self.WITNESS_READ_ENDPOINTS_JSON, self.WITNESS_TRUST_CONFIG_JSON,
+                (Path(self.CHECKPOINT_PUBLIC_KEYS_DIR) / "public_key.pem").read_text(encoding="utf-8"),
+            )
 
 
         origins = [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]
